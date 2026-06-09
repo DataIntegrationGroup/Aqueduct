@@ -1,0 +1,14 @@
+.DS_Store
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.json  # service account keys — never commit
+.dlt/secrets.toml        # real credentials — never commit
+.dlt/.pipelines/         # dlt local pipeline state
+dagster_home/
+/tmp/
+.ruff_cache/
+dist/
+*.egg-info/

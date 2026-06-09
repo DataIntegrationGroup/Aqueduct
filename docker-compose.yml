@@ -1,0 +1,46 @@
+# Adapted from FraunhoferIOSB/FROST-Server v2.x/scripts/docker-compose.yaml
+# https://fraunhoferiosb.github.io/FROST-Server/deployment/docker.html
+
+name: aqueduct_frost_poc_bravo
+services:
+  web:
+    image: fraunhoferiosb/frost-server:2.6
+    environment:
+      - serviceRootUrl=${FROST_SERVICE_ROOT_URL:-http://localhost:8081/FROST-Server}
+      - plugins_modelLoader_enable=true
+      - plugins_multiDatastream_enable=false
+      - plugins_actuation_enable=false
+      - http_cors_enable=true
+      - http_cors_allowed_origins=*
+      - persistence_db_driver=org.postgresql.Driver
+      - persistence_db_url=jdbc:postgresql://database:5432/${POSTGRES_DB:-sensorthings}
+      - persistence_db_username=${POSTGRES_USER:-sensorthings}
+      - persistence_db_password=${POSTGRES_PASSWORD}
+      - persistence_autoUpdateDatabase=true
+    ports:
+      - "8081:8080"
+      - "1883:1883"
+    depends_on:
+      database:
+        condition: service_healthy
+
+  database:
+    image: postgis/postgis:16-3.4-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sensorthings}
+      POSTGRES_USER: ${POSTGRES_USER:-sensorthings}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgis_volume_bravo:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -d ${POSTGRES_DB:-sensorthings} -U ${POSTGRES_USER:-sensorthings}",
+        ]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+volumes:
+  postgis_volume_bravo:
