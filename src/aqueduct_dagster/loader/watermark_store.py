@@ -19,8 +19,10 @@ from datetime import datetime
 
 from dagster import AssetExecutionContext
 
+from aqueduct_dagster.loader.frost_loader import WatermarkStore
 
-class FrostWatermarkStore:
+
+class FrostWatermarkStore(WatermarkStore):
 
     def __init__(self, context: AssetExecutionContext) -> None:
         self._context = context
@@ -39,4 +41,3 @@ class FrostWatermarkStore:
         self._context.log.debug(
             "Watermark updated: datastream=%s ts=%s", datastream_key, watermark.isoformat()
         )
-    

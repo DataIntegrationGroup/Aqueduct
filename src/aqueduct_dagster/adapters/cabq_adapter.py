@@ -16,7 +16,6 @@ Fetching and auth live entirely in pipeline/cabq_dlt_pipeline.py
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import Iterator
 
 from aqueduct_dagster.canonical.base_adapter import BaseAdapter

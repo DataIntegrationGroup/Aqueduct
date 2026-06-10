@@ -1,15 +1,12 @@
-[hydrovu]
-api_base_url = "https://source-api-base-url.com" # TODO: add source-specific config
-token_url    = "https://source-token-url.com"  # TODO: add source-specific config
-initial_start_date = "2026-01-01"   # change to limit initial load
+[sources.hydrovu]
+api_base_url       = "https://www.hydrovu.com/public-api/v1"
+token_url          = "https://hydrovu.com/public-api/oauth/token"
+initial_start_date = "2026-05-01"
 
 [cabq]
 api_base_url       = "https://cabq-api-url.com"   # TODO: confirm CABQ API endpoint
 initial_start_date = "2026-01-01"   # change to limit initial load
 
 [destination.filesystem]
-bucket_url = "gs://your-bucket-name"   # TODO: set your GCS bucket
+bucket_url = "gs://aqueduct-poc-bravo-pvacd"
 layout     = "{table_name}/{load_id}.{file_id}.{ext}"
-
-[normalize]
-file_format = "parquet"

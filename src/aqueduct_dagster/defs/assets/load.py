@@ -16,13 +16,14 @@ is just a new two-line asset that calls it.
 No source-specific logic here — the canonical model is the contract.
 """
 
-from __future__ import annotations
-
 import logging
+import os
 
 from dagster import AssetExecutionContext, asset
 
-from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
+from aqueduct_dagster.canonical.canonical_model import CanonicalBundle, CanonicalObservation
+from aqueduct_dagster.loader.frost_loader import FrostStaClientLoader, ObservationRecord
+from aqueduct_dagster.loader.watermark_store import FrostWatermarkStore
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +36,49 @@ def _frost_load(context: AssetExecutionContext, bundles: list[CanonicalBundle]) 
     For each bundle:
       1. ensure_datastream() — idempotent upsert of Thing/Location/Sensor/etc.
       2. load_observations() — filtered by watermark, posted as Data Array chunks
-      3. Watermark advanced per successful chunk
+      3. Watermark advanced per chunk — partial failures resume cleanly
     """
-    # TODO: build FROST service client from FROST_SERVICE_ROOT_URL env var
-    # TODO: build FrostWatermarkStore(context)
-    # TODO: build FrostStaClientLoader(service, watermarks)
-    # TODO: for each bundle, for each datastream:
-    #         ds_id = loader.ensure_datastream(datastream)
-    #         loader.load_observations(datastream.external_key, ds_id, observations)
-    pass
+    import frost_sta_client as fsc
+
+    frost_url = os.environ.get("FROST_SERVICE_ROOT_URL", "http://localhost:8081/FROST-Server/v1.1")
+    # FROST_SERVICE_ROOT_URL is the server's own root (no version suffix in docker-compose).
+    # frost_sta_client constructs entity URLs by appending directly to this base,
+    # so it must include /v1.1 — append it if not already present.
+    if not frost_url.rstrip("/").endswith("/v1.1"):
+        frost_url = frost_url.rstrip("/") + "/v1.1"
+    service = fsc.SensorThingsService(frost_url)
+    watermarks = FrostWatermarkStore(context)
+    loader = FrostStaClientLoader(service, watermarks)
+
+    total_posted = 0
+    total_skipped = 0
+
+    for bundle in bundles:
+        for datastream in bundle.datastreams:
+            ds_id = loader.ensure_datastream(datastream)
+
+            raw_obs: list[CanonicalObservation] = bundle.observations.get(
+                datastream.external_key, []
+            )
+            records = [
+                ObservationRecord(phenomenon_time=o.phenomenon_time, result=o.result)
+                for o in raw_obs
+            ]
+
+            result = loader.load_observations(datastream.external_key, ds_id, records)
+            total_posted += result.posted
+            total_skipped += result.skipped
+
+            context.log.info(
+                "Datastream %s (FROST id=%s): posted=%d skipped=%d watermark=%s",
+                datastream.external_key, ds_id,
+                result.posted, result.skipped, result.new_watermark,
+            )
+
+    context.log.info(
+        "FROST load complete: %d bundle(s), %d posted, %d skipped",
+        len(bundles), total_posted, total_skipped,
+    )
 
 
 @asset(

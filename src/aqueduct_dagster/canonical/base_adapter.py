@@ -7,8 +7,7 @@ Every source adapter inherits from BaseAdapter and implements three methods:
   - to_thing()         map one record to a CanonicalThing (+ its Location)
   - to_observations()  map one record to a list of CanonicalObservations
 
-The pipeline (Cloud Functions or Dagster) calls adapter.run() — the same call
-regardless of which source or which POC architecture is running.
+The Dagster pipeline calls adapter.run() — the same call regardless of source.
 """
 
 from __future__ import annotations

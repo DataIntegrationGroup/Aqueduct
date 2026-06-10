@@ -23,9 +23,9 @@ OM_Measurement = "http://www.opengis.net/def/observationType/OGC-OM/2.0/OM_Measu
 # ── Units of measurement ──────────────────────────────────────────────────────
 
 UNIT_FOOT = {
-    "name": "foot",
+    "name": "Foot",
     "symbol": "ft",
-    "definition": "http://qudt.org/vocab/unit/FT",
+    "definition": "http://www.qudt.org/vocab/unit/FT",
 }
 
 UNIT_METRE = {
@@ -65,8 +65,8 @@ HYDROVU_SENSOR = CanonicalSensor(
 DTW_OBS_PROP = CanonicalObservedProperty(
     external_key="observed-property-depth-to-water-bgs",
     name="Depth to Water Below Ground Surface",
-    definition=NO_DEFINITION,   # ⚠ replace with real ODM2 URI
-    description="Depth from land surface to water surface in a well, in feet",
+    definition=NO_DEFINITION,
+    description="depth to water below ground surface",
 )
 
 ELEV_OBS_PROP = CanonicalObservedProperty(
@@ -81,7 +81,7 @@ ELEV_OBS_PROP = CanonicalObservedProperty(
 def gwl_datastream_meta(agency: str, location_name: str) -> dict:
     return {
         "name": "Groundwater Levels",
-        "description": f"Depth to water below ground surface — {agency} {location_name}",
+        "description": "Measurement of groundwater depth in a water well, as measured below ground surface",
     }
 
 def gwe_datastream_meta(agency: str, location_name: str) -> dict:

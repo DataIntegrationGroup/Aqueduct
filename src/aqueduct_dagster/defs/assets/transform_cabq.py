@@ -11,7 +11,6 @@ Upstream:  raw_cabq_readings
 Downstream: frost_load
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -34,8 +33,5 @@ def canonical_bundles_cabq(context: AssetExecutionContext) -> list[CanonicalBund
     Reads raw CABQ parquet from GCS, reconstructs per-location records,
     and runs CabqAdapter to produce CanonicalBundles — one per location.
     """
-    # TODO: read parquet from GCS under gs://<bucket>/raw/cabq/cabq_readings/
-    # TODO: group rows by location_id and reconstruct adapter records
-    # TODO: run CabqAdapter to_thing(), to_observations(), _build_datastreams()
-    # TODO: return list of CanonicalBundles
-    pass
+    # TODO: read parquet from GCS, group rows, run CabqAdapter, return bundles
+    return []

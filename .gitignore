@@ -4,10 +4,12 @@ __pycache__/
 *.pyc
 *.pyo
 .env
-*.json  # service account keys — never commit
-.dlt/secrets.toml        # real credentials — never commit
-.dlt/.pipelines/         # dlt local pipeline state
+# service account key files — never commit
+*.json
+.dlt/secrets.toml
+.dlt/.pipelines/
 dagster_home/
+.tmp_dagster_home_*/
 /tmp/
 .ruff_cache/
 dist/

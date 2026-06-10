@@ -55,13 +55,13 @@ cabq_pipeline_job = define_asset_job(
 hydrovu_schedule = ScheduleDefinition(
     name="hydrovu_schedule",
     job=hydrovu_pipeline_job,
-    cron_schedule="TODO",  # TODO: set HydroVu update frequency e.g. "0 6 * * *"
+    cron_schedule="0 6 * * *",  # daily 06:00 UTC — adjust once update frequency confirmed
 )
 
 cabq_schedule = ScheduleDefinition(
     name="cabq_schedule",
     job=cabq_pipeline_job,
-    cron_schedule="TODO",  # TODO: set CABQ update frequency e.g. "0 8 * * *"
+    cron_schedule="0 8 * * *",  # daily 08:00 UTC — adjust once update frequency confirmed
 )
 
 # ── Definitions ───────────────────────────────────────────────────────────────
