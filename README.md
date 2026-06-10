@@ -77,7 +77,7 @@ aqueduct-dagster-poc-v2/
 ```bash
 git clone https://github.com/your-org/aqueduct-poc-bravo.git
 cd aqueduct-poc-bravo
-git checkout scaffold-dagster-dlt/ST2DAT-78
+git checkout dagster-dlt/ST2DAT-67
 ```
 
 ---
