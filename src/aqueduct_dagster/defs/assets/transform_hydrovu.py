@@ -58,6 +58,19 @@ DTW_PARAMETER_ID = "4"
 WATERMARK_PATH = "raw_pvacd/_hydrovu_transform_watermark.json"
 
 
+def _gcs_bucket_url() -> str:
+    """
+    Resolve GCS bucket URL in priority order:
+      1. GCS_BUCKET_URL env var
+      2. [destination.filesystem] bucket_url in .dlt/config.toml
+    """
+    env_val = os.environ.get("GCS_BUCKET_URL")
+    if env_val:
+        return env_val
+    config_path = os.path.join(os.getcwd(), ".dlt", "config.toml")
+    return toml.load(config_path)["destination"]["filesystem"]["bucket_url"]
+
+
 def _gcs_credentials() -> dict:
     """
     Resolve GCS service account credentials in priority order:
@@ -116,9 +129,10 @@ def _write_watermark(fs: gcsfs.GCSFileSystem, bucket: str, load_id: float) -> No
 
 def commit_watermark(max_load_id: float) -> None:
     """Write the transform watermark. Called by the load step after FROST confirms success."""
+    bucket_url = _gcs_bucket_url()
     creds = _gcs_credentials()
     fs = gcsfs.GCSFileSystem(project=creds["project_id"], token=creds)
-    _write_watermark(fs, "aqueduct-poc-bravo-pvacd", max_load_id)
+    _write_watermark(fs, bucket_url.replace("gs://", ""), max_load_id)
 
 
 def _read_locations_from_gcs(bucket_url: str, fs: gcsfs.GCSFileSystem) -> dict[int, dict]:
@@ -249,7 +263,7 @@ def canonical_bundles_hydrovu(
     confirms success, so a FROST failure leaves the watermark unadvanced and the
     next run retries the same data.
     """
-    bucket_url = "gs://aqueduct-poc-bravo-pvacd"
+    bucket_url = _gcs_bucket_url()
     bucket = bucket_url.replace("gs://", "")
 
     creds = _gcs_credentials()

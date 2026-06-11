@@ -119,12 +119,20 @@ def _fetch_locations(api_base_url: str, tm: _TokenManager) -> list[dict]:
     return all_locations
 
 
+_LOCATION_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = (2.0, 4.0, 8.0)
+_TRANSIENT_ERRORS = (httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError)
+
+
 def _fetch_location_data(
     api_base_url: str, location_id: int, start_time: int, tm: _TokenManager
 ) -> dict | None:
     """
     Fetches all readings for one location, walking cursor-based pages.
     Returns None on 404/500. Retries once on 401 per page.
+    Retries up to 3 times on transient network errors (connection reset, etc.)
+    with exponential backoff.
 
     Pagination: X-ISI-Start-Page="" on the first request, then pass the
     X-ISI-Next-Page cursor token from each response verbatim. Stop when
@@ -134,19 +142,44 @@ def _fetch_location_data(
     page_cursor: str = ""
 
     while True:
-        resp = httpx.get(
-            f"{api_base_url}/locations/{location_id}/data",
-            headers={**_auth_headers(tm.get()), "X-ISI-Start-Page": page_cursor},
-            params={"startTime": start_time},
-            timeout=120,
-        )
+        url = f"{api_base_url}/locations/{location_id}/data"
+        params = {"startTime": start_time}
+
+        resp = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                resp = httpx.get(
+                    url,
+                    headers={**_auth_headers(tm.get()), "X-ISI-Start-Page": page_cursor},
+                    params=params,
+                    timeout=_LOCATION_TIMEOUT,
+                )
+                break
+            except _TRANSIENT_ERRORS as exc:
+                if attempt < _MAX_RETRIES - 1:
+                    delay = _RETRY_BACKOFF[attempt]
+                    logger.warning(
+                        "Location %s: transient error (%s) on attempt %d — retrying in %.0fs",
+                        location_id, exc, attempt + 1, delay,
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.warning(
+                        "Location %s: transient error after %d attempts — skipping",
+                        location_id, _MAX_RETRIES,
+                    )
+                    return None
+
+        if resp is None:
+            return None
+
         if resp.status_code == 401:
             logger.warning("401 on location %s — refreshing token and retrying", location_id)
             resp = httpx.get(
-                f"{api_base_url}/locations/{location_id}/data",
+                url,
                 headers={**_auth_headers(tm.force_refresh()), "X-ISI-Start-Page": page_cursor},
-                params={"startTime": start_time},
-                timeout=120,
+                params=params,
+                timeout=_LOCATION_TIMEOUT,
             )
         if resp.status_code in (404, 500):
             logger.warning("Location %s returned %s — skipping", location_id, resp.status_code)
