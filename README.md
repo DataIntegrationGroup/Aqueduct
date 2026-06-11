@@ -81,7 +81,6 @@ aqueduct-poc-bravo/
 ```bash
 git clone https://github.com/your-org/aqueduct-poc-bravo.git
 cd aqueduct-poc-bravo
-git checkout dagster-dlt/ST2DAT-67
 ```
 
 ---
@@ -107,7 +106,7 @@ cp .env.example .env
 Edit `.env` and set:
 - `POSTGRES_PASSWORD` — any local password (e.g. `changeme`)
 - `HYDROVU_CLIENT_ID` / `HYDROVU_CLIENT_SECRET` — from HydroVu
-- `GOOGLE_APPLICATION_CREDENTIALS` — path to the `aqueduct-dlt-writer` service account JSON key file (ask Likitha for the key). Set `GCS_BUCKET_NAME` to your own test bucket — **do not use the shared `aqueduct-poc-bravo-pvacd` bucket for testing**, create your own and grant `aqueduct-dlt-writer` Storage Object Admin on it.
+- `GOOGLE_APPLICATION_CREDENTIALS` — path to the `aqueduct-dlt-writer` service account JSON key file. Set `GCS_BUCKET_URL` to your own test bucket (e.g. `gs://your-bucket-name`) — **do not use the shared `aqueduct-poc-bravo-pvacd` bucket for testing**, create your own and grant `aqueduct-dlt-writer` Storage Object Admin on it.
 
 **Step B — copy and fill in `.dlt/secrets.toml`:**
 
