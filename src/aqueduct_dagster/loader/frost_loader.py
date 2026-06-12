@@ -35,6 +35,7 @@ from aqueduct_dagster.canonical.canonical_model import (
     CanonicalObservedProperty,
     CanonicalSensor,
 )
+from aqueduct_dagster.loader.watermark_store import WatermarkStore
 
 logger = logging.getLogger(__name__)
 
@@ -62,30 +63,6 @@ class LoadResult:
         self.posted = 0
         self.skipped = 0
         self.new_watermark: datetime | None = None
-
-
-# --------------------------------------------------------------------------- #
-# WatermarkStore protocol + in-memory implementation
-# --------------------------------------------------------------------------- #
-
-class WatermarkStore(abc.ABC):
-    @abc.abstractmethod
-    def get(self, datastream_key: str) -> datetime | None: ...
-    @abc.abstractmethod
-    def set(self, datastream_key: str, watermark: datetime) -> None: ...
-
-
-class InMemoryWatermarkStore(WatermarkStore):
-    """Dev/test only — not durable across runs."""
-
-    def __init__(self) -> None:
-        self._wm: dict[str, datetime] = {}
-
-    def get(self, datastream_key: str) -> datetime | None:
-        return self._wm.get(datastream_key)
-
-    def set(self, datastream_key: str, watermark: datetime) -> None:
-        self._wm[datastream_key] = watermark
 
 
 # --------------------------------------------------------------------------- #
