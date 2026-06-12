@@ -2,14 +2,17 @@
 defs/assets/ingest_hydrovu.py
 
 Dagster asset: raw_hydrovu_readings
-  - Runs the HydroVu dlt pipeline
-  - Fetches from HydroVu API (incrementally, cursor-based)
-  - Writes raw parquet to GCS under gs://<bucket>/raw/pvacd/hydrovu_readings/
-  - dlt handles incremental cursor, parquet serialisation, GCS write,
-    and cursor state persistence alongside the data in GCS
+  Runs the HydroVu dlt source which writes two resources to GCS:
+
+  hydrovu_locations  (replace)  gs://<bucket>/raw_pvacd/hydrovu_locations/
+    Full location list on every run — one row per location.
+
+  hydrovu_readings   (append, incremental)  gs://<bucket>/raw_pvacd/hydrovu_readings/
+    New readings since the last cursor value — one row per (location, parameter, reading).
+    Location metadata is omitted; join to hydrovu_locations on location_id at transform time.
 
 This is the FIRST asset in the HydroVu pipeline. No upstream dependencies.
-Downstream: transform_hydrovu (reads from GCS)
+Downstream: transform_hydrovu (reads both GCS folders)
 """
 
 import logging

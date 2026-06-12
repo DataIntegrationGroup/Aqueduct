@@ -2,25 +2,28 @@
 defs/assets/transform_hydrovu.py
 
 Dagster asset: canonical_bundles_hydrovu
-  - Reads only NEW raw parquet from GCS since the last successful run
-  - Filters to DTW rows only (parameter_id="4")
-  - Groups flat rows by location_id into one record per location
+  - Reads only NEW hydrovu_readings parquet from GCS since the last successful run
+  - Always reads the latest hydrovu_locations parquet (replace resource — one file)
+  - Filters readings to DTW rows only (parameter_id="4")
+  - Joins readings to locations on location_id to restore name/lat/lon metadata
+  - Groups joined rows by location_id into one record per location
   - Runs HydroVuAdapter to produce CanonicalBundles (one per DTW location)
   - Returns bundles downstream to frost_load_hydrovu
 
-Incremental reads:
+Incremental reads (readings only):
   A watermark file (raw_pvacd/_hydrovu_transform_watermark.json) in GCS tracks
-  the highest dlt load_id processed so far. On each run only parquet files with
-  a newer load_id are read. The watermark is updated after a successful run.
+  the highest dlt load_id processed so far. On each run only readings parquet files
+  with a newer load_id are read. The watermark is updated after a successful run.
 
   load_id is the float Unix timestamp dlt embeds in every parquet filename:
     raw_pvacd/hydrovu_readings/{load_id}.{file_id}.parquet
   e.g. raw_pvacd/hydrovu_readings/1781192390.555875.0.parquet
 
+Locations parquet (hydrovu_locations/) uses write_disposition="replace" so it is
+always a single up-to-date file — read fresh on every run, no watermark needed.
+
 Upstream:  raw_hydrovu_readings
 Downstream: frost_load_hydrovu
-
-DTW locations: those with parameter_id="4" in the raw parquet (determined at runtime).
 """
 
 import json
@@ -53,6 +56,19 @@ logger = logging.getLogger(__name__)
 
 DTW_PARAMETER_ID = "4"
 WATERMARK_PATH = "raw_pvacd/_hydrovu_transform_watermark.json"
+
+
+def _gcs_bucket_url() -> str:
+    """
+    Resolve GCS bucket URL in priority order:
+      1. GCS_BUCKET_URL env var
+      2. [destination.filesystem] bucket_url in .dlt/config.toml
+    """
+    env_val = os.environ.get("GCS_BUCKET_URL")
+    if env_val:
+        return env_val
+    config_path = os.path.join(os.getcwd(), ".dlt", "config.toml")
+    return toml.load(config_path)["destination"]["filesystem"]["bucket_url"]
 
 
 def _gcs_credentials() -> dict:
@@ -113,9 +129,41 @@ def _write_watermark(fs: gcsfs.GCSFileSystem, bucket: str, load_id: float) -> No
 
 def commit_watermark(max_load_id: float) -> None:
     """Write the transform watermark. Called by the load step after FROST confirms success."""
+    bucket_url = _gcs_bucket_url()
     creds = _gcs_credentials()
     fs = gcsfs.GCSFileSystem(project=creds["project_id"], token=creds)
-    _write_watermark(fs, "aqueduct-poc-bravo-pvacd", max_load_id)
+    _write_watermark(fs, bucket_url.replace("gs://", ""), max_load_id)
+
+
+def _read_locations_from_gcs(bucket_url: str, fs: gcsfs.GCSFileSystem) -> dict[int, dict]:
+    """
+    Reads the hydrovu_locations parquet (write_disposition=replace → always one file).
+    Returns a dict keyed by location_id for O(1) join with readings rows.
+    """
+    bucket = bucket_url.replace("gs://", "")
+    pattern = f"{bucket}/raw_pvacd/hydrovu_locations/*.parquet"
+    files = fs.glob(pattern)
+    if not files:
+        raise FileNotFoundError(
+            f"No locations parquet found at {pattern}. "
+            "Ensure raw_hydrovu_readings has run at least once."
+        )
+
+    locations: dict[int, dict] = {}
+    for f in files:
+        with fs.open(f) as fh:
+            table = pq.read_table(fh)
+            df = table.to_pydict()
+            for i in range(len(df["id"])):
+                locations[df["id"][i]] = {
+                    "name": df["name"][i],
+                    "description": df["description"][i],
+                    "latitude": df["latitude"][i],
+                    "longitude": df["longitude"][i],
+                }
+
+    logger.info("Read %d locations from GCS", len(locations))
+    return locations
 
 
 def _read_dtw_rows_from_gcs(
@@ -170,21 +218,22 @@ def _read_dtw_rows_from_gcs(
     return rows, max_load_id
 
 
-def _group_by_location(rows: list[dict]) -> list[dict]:
+def _group_by_location(rows: list[dict], locations: dict[int, dict]) -> list[dict]:
     """
-    Groups flat parquet rows into one record per location.
-    Each record contains location metadata + list of readings.
+    Groups flat readings rows into one record per location, joining location
+    metadata (name, description, lat, lon) from the locations reference dict.
     """
     groups: dict[int, dict] = {}
     for row in rows:
         loc_id = row["location_id"]
         if loc_id not in groups:
+            loc = locations.get(loc_id, {})
             groups[loc_id] = {
-                "location_id": row["location_id"],
-                "location_name": row["location_name"],
-                "location_description": row["location_description"],
-                "latitude": row["latitude"],
-                "longitude": row["longitude"],
+                "location_id": loc_id,
+                "location_name": loc.get("name", ""),
+                "location_description": loc.get("description", ""),
+                "latitude": loc.get("latitude"),
+                "longitude": loc.get("longitude"),
                 "readings": [],
             }
         groups[loc_id]["readings"].append({
@@ -214,7 +263,7 @@ def canonical_bundles_hydrovu(
     confirms success, so a FROST failure leaves the watermark unadvanced and the
     next run retries the same data.
     """
-    bucket_url = "gs://aqueduct-poc-bravo-pvacd-test"
+    bucket_url = _gcs_bucket_url()
     bucket = bucket_url.replace("gs://", "")
 
     creds = _gcs_credentials()
@@ -233,7 +282,8 @@ def canonical_bundles_hydrovu(
         context.log.info("No new DTW rows — returning empty result (watermark unchanged)")
         return HydroVuTransformResult(bundles=[], max_load_id=max_load_id)
 
-    records = _group_by_location(rows)
+    locations = _read_locations_from_gcs(bucket_url, fs)
+    records = _group_by_location(rows, locations)
     context.log.info(
         "Grouped %d new DTW rows into %d location records", len(rows), len(records)
     )

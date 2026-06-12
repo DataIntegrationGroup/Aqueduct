@@ -15,7 +15,9 @@ Downstream: transform_cabq (reads from GCS)
 
 import logging
 
-from dagster import AssetExecutionContext, asset
+from dagster import AssetExecutionContext, MaterializeResult, MetadataValue, asset
+
+from aqueduct_dagster.pipeline.cabq_dlt_pipeline import build_pipeline, cabq_source
 
 logger = logging.getLogger(__name__)
 
@@ -26,13 +28,12 @@ logger = logging.getLogger(__name__)
     description="Raw CABQ readings landed in GCS via dlt.",
     compute_kind="dlt",
 )
-def raw_cabq_readings(context: AssetExecutionContext) -> None:
+def raw_cabq_readings(context: AssetExecutionContext) -> MaterializeResult:
     """
     Runs the dlt pipeline to incrementally fetch CABQ readings and
     write them as parquet to the GCS raw zone.
 
     dlt handles:
-      - API authentication
       - Incremental cursor (only fetches new data since last run)
       - Parquet serialisation
       - GCS write
@@ -41,6 +42,15 @@ def raw_cabq_readings(context: AssetExecutionContext) -> None:
     On first run: fetches from initial_start_date (set in dlt config).
     On subsequent runs: fetches only records newer than the last cursor value.
     """
-    # TODO: import build_pipeline and cabq_source from pipeline/cabq_dlt_pipeline.py
-    # TODO: run dlt pipeline and log load_info
-    pass
+    pipeline = build_pipeline()
+    load_info = pipeline.run(cabq_source(), loader_file_format="parquet")
+
+    context.log.info("CABQ dlt load complete: %s", load_info)
+
+    return MaterializeResult(
+        metadata={
+            "pipeline_name": MetadataValue.text(pipeline.pipeline_name),
+            "dataset_name": MetadataValue.text(pipeline.dataset_name),
+            "load_info": MetadataValue.text(str(load_info)),
+        }
+    )
