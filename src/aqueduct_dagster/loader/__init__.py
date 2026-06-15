@@ -1,10 +1,12 @@
-from .frost_loader import FrostStaClientLoader, FrostLoader, InMemoryWatermarkStore, ObservationRecord
-from .watermark_store import DagsterWatermarkStore
+from .frost_loader import FrostStaClientLoader, FrostLoader, ObservationRecord, LoadResult
+from .watermark_store import FrostWatermarkStore, InMemoryWatermarkStore, WatermarkStore
 
 __all__ = [
     "FrostStaClientLoader",
     "FrostLoader",
+    "FrostWatermarkStore",
     "InMemoryWatermarkStore",
+    "LoadResult",
     "ObservationRecord",
-    "DagsterWatermarkStore",
+    "WatermarkStore",
 ]
