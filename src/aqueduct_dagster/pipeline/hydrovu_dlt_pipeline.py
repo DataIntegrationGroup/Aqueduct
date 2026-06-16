@@ -244,11 +244,17 @@ def hydrovu_source(
     api_base_url: str = dlt.config.value,
     token_url: str = dlt.config.value,
     initial_start_date: str = dlt.config.value,
+    _stats: dict | None = None,
 ):
     """
     Reads credentials and config from dlt.secrets/dlt.config under [hydrovu].
     Creates a single _TokenManager shared by both resources so the token is
     fetched once and reused across the full run.
+    Fetches the location list once and passes it to both resources to avoid
+    a redundant second API call.
+
+    _stats: optional mutable dict populated with extraction counts after pipeline.run().
+      keys: rows_yielded, locations_fetched, locations_skipped, locations_no_data
     """
     start_ts = int(
         datetime.strptime(initial_start_date, "%Y-%m-%d")
@@ -256,9 +262,16 @@ def hydrovu_source(
         .timestamp()
     )
     tm = _TokenManager(token_url, client_id, client_secret)
+    locations = _fetch_locations(api_base_url, tm)
     return (
-        hydrovu_locations(api_base_url=api_base_url, tm=tm),
-        hydrovu_readings(api_base_url=api_base_url, start_ts=start_ts, tm=tm),
+        hydrovu_locations(locations=locations),
+        hydrovu_readings(
+            api_base_url=api_base_url,
+            start_ts=start_ts,
+            tm=tm,
+            locations=locations,
+            _stats=_stats if _stats is not None else {},
+        ),
     )
 
 
@@ -266,9 +279,9 @@ def hydrovu_source(
     name="hydrovu_locations",
     write_disposition="replace",
 )
-def hydrovu_locations(api_base_url: str, tm: _TokenManager) -> Iterator[dict]:
+def hydrovu_locations(locations: list[dict]) -> Iterator[dict]:
     """
-    Yields one record per location from GET /locations/list.
+    Yields one record per location from the pre-fetched location list.
     write_disposition="replace" ensures the parquet is fully refreshed on
     every run, so renames or removals in HydroVu are reflected immediately.
 
@@ -279,7 +292,6 @@ def hydrovu_locations(api_base_url: str, tm: _TokenManager) -> Iterator[dict]:
       latitude, longitude
     """
     logger.info("Extracting hydrovu_locations (full replace)")
-    locations = _fetch_locations(api_base_url, tm)
     for location in locations:
         yield {
             "id": location["id"],
@@ -299,6 +311,8 @@ def hydrovu_readings(
     api_base_url: str,
     start_ts: int,
     tm: _TokenManager,
+    locations: list[dict],
+    _stats: dict | None = None,
     updated_at: dlt.sources.incremental[int] = dlt.sources.incremental(
         "timestamp",
         initial_value=0,
@@ -328,8 +342,9 @@ def hydrovu_readings(
 
     skipped = 0
     fetched = 0
+    no_data = 0
     rows_yielded = 0
-    for location in _fetch_locations(api_base_url, tm):
+    for location in locations:
         loc_id = location["id"]
         if loc_id not in PVACD_LOCATION_IDS:
             skipped += 1
@@ -339,6 +354,7 @@ def hydrovu_readings(
         data = _fetch_location_data(api_base_url, loc_id, api_start, tm)
         if data is None:
             logger.warning("No readings returned for location %s (%s)", loc_id, location["name"])
+            no_data += 1
             continue
         fetched += 1
         for param in data.get("parameters", []):
@@ -360,6 +376,11 @@ def hydrovu_readings(
         skipped,
         rows_yielded,
     )
+    if _stats is not None:
+        _stats["rows_yielded"] = rows_yielded
+        _stats["locations_fetched"] = fetched
+        _stats["locations_skipped"] = skipped
+        _stats["locations_no_data"] = no_data
 
 
 def build_pipeline() -> dlt.Pipeline:
