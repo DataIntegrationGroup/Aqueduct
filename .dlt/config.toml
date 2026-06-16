@@ -1,12 +1,12 @@
 [sources.hydrovu]
 api_base_url       = "https://www.hydrovu.com/public-api/v1"
 token_url          = "https://hydrovu.com/public-api/oauth/token"
-initial_start_date = "2026-04-01"
+initial_start_date = "2026-05-01"
 
 [cabq]
 api_base_url       = "https://cabq-api-url.com"   # TODO: confirm CABQ API endpoint
 initial_start_date = "2026-01-01"   # change to limit initial load
 
 [destination.filesystem]
-bucket_url = "gs://aqueduct-poc-bravo-pvacd-test"
+bucket_url = "gs://aqueduct-poc-bravo-pvacd"
 layout     = "{table_name}/{load_id}.{file_id}.{ext}"
