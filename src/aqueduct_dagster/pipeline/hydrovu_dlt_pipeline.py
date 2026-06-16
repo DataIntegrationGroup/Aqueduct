@@ -49,15 +49,15 @@ logger = logging.getLogger(__name__)
 
 # PVACD wells with DTW data — skip others to avoid slow 404s on /locations/{id}/data
 PVACD_LOCATION_IDS: frozenset[int] = frozenset({
-    #4586726273318912,  # Transwestern Level Troll
-    #4745648669458432,  # Bartlett Level Troll
-    #4803999894339584,  # Cottonwood Level Troll
-    #4847162637942784,  # Berrendo-Smith Level Troll
-    #5597309948919808,  # LFD Level Troll
-    #5647456719142912,  # Zumwalt Level Troll
-    #5830701895778304,  # Greenfield Level Troll
-    #6054555505917952,  # Poe Corn Level Troll
-    #6256156690612224,  # Artesia A Level Troll
+    4586726273318912,  # Transwestern Level Troll
+    4745648669458432,  # Bartlett Level Troll
+    4803999894339584,  # Cottonwood Level Troll
+    4847162637942784,  # Berrendo-Smith Level Troll
+    5597309948919808,  # LFD Level Troll
+    5647456719142912,  # Zumwalt Level Troll
+    5830701895778304,  # Greenfield Level Troll
+    6054555505917952,  # Poe Corn Level Troll
+    6256156690612224,  # Artesia A Level Troll
     6505900885147648,  # Orchard Park Level Troll
 })
 
