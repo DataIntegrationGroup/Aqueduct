@@ -47,6 +47,20 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# PVACD wells with DTW data — skip others to avoid slow 404s on /locations/{id}/data
+PVACD_LOCATION_IDS: frozenset[int] = frozenset({
+    4586726273318912,  # Transwestern Level Troll
+    4745648669458432,  # Bartlett Level Troll
+    4803999894339584,  # Cottonwood Level Troll
+    4847162637942784,  # Berrendo-Smith Level Troll
+    5597309948919808,  # LFD Level Troll
+    5647456719142912,  # Zumwalt Level Troll
+    5830701895778304,  # Greenfield Level Troll
+    6054555505917952,  # Poe Corn Level Troll
+    6256156690612224,  # Artesia A Level Troll
+    6505900885147648,  # Orchard Park Level Troll
+})
+
 
 class _TokenManager:
     """Fetches and caches a client-credentials token; re-fetches on expiry or 401."""
@@ -94,8 +108,11 @@ def _fetch_locations(api_base_url: str, tm: _TokenManager) -> list[dict]:
     """Fetches all locations, walking cursor-based pages (same pattern as location data)."""
     all_locations: list[dict] = []
     page_cursor: str = ""
+    page_num = 0
 
+    logger.info("Fetching HydroVu location list")
     while True:
+        page_num += 1
         resp = httpx.get(
             f"{api_base_url}/locations/list",
             headers={**_auth_headers(tm.get()), "X-ISI-Start-Page": page_cursor},
@@ -109,13 +126,21 @@ def _fetch_locations(api_base_url: str, tm: _TokenManager) -> list[dict]:
                 timeout=30,
             )
         resp.raise_for_status()
-        all_locations.extend(resp.json())
+        page = resp.json()
+        all_locations.extend(page)
+        logger.info(
+            "Location list page %d: %d locations (running total %d)",
+            page_num,
+            len(page),
+            len(all_locations),
+        )
 
         next_cursor = resp.headers.get("X-ISI-Next-Page", "")
         if not next_cursor:
             break
         page_cursor = next_cursor
 
+    logger.info("Location list complete: %d locations across %d pages", len(all_locations), page_num)
     return all_locations
 
 
@@ -140,8 +165,11 @@ def _fetch_location_data(
     """
     all_data: dict | None = None
     page_cursor: str = ""
+    page_num = 0
 
     while True:
+        page_num += 1
+        logger.info("Location %s: fetching readings page %d", location_id, page_num)
         url = f"{api_base_url}/locations/{location_id}/data"
         params = {"startTime": start_time}
 
@@ -250,7 +278,9 @@ def hydrovu_locations(api_base_url: str, tm: _TokenManager) -> Iterator[dict]:
       description — well number (e.g. "827276")
       latitude, longitude
     """
-    for location in _fetch_locations(api_base_url, tm):
+    logger.info("Extracting hydrovu_locations (full replace)")
+    locations = _fetch_locations(api_base_url, tm)
+    for location in locations:
         yield {
             "id": location["id"],
             "name": location["name"],
@@ -291,17 +321,29 @@ def hydrovu_readings(
       value        — float measurement
     """
     api_start = max(updated_at.last_value or 0, start_ts)
-    logger.info("HydroVu fetch starting from Unix timestamp %s", api_start)
+    logger.info(
+        "Extracting hydrovu_readings (incremental append) from Unix timestamp %s",
+        api_start,
+    )
 
+    skipped = 0
+    fetched = 0
+    rows_yielded = 0
     for location in _fetch_locations(api_base_url, tm):
         loc_id = location["id"]
+        if loc_id not in PVACD_LOCATION_IDS:
+            skipped += 1
+            continue
         logger.info("Fetching readings for location %s (%s)", loc_id, location["name"])
 
         data = _fetch_location_data(api_base_url, loc_id, api_start, tm)
         if data is None:
+            logger.warning("No readings returned for location %s (%s)", loc_id, location["name"])
             continue
+        fetched += 1
         for param in data.get("parameters", []):
             for reading in param.get("readings", []):
+                rows_yielded += 1
                 yield {
                     "reading_id": f"{loc_id}_{param['parameterId']}_{reading['timestamp']}",
                     "location_id": loc_id,
@@ -310,6 +352,14 @@ def hydrovu_readings(
                     "unit_id": param["unitId"],
                     "value": reading["value"],
                 }
+
+    logger.info(
+        "hydrovu_readings extract complete: %d locations fetched, %d skipped (allowlist), "
+        "%d rows yielded",
+        fetched,
+        skipped,
+        rows_yielded,
+    )
 
 
 def build_pipeline() -> dlt.Pipeline:

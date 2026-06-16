@@ -15,13 +15,10 @@ This is the FIRST asset in the HydroVu pipeline. No upstream dependencies.
 Downstream: transform_hydrovu (reads both GCS folders)
 """
 
-import logging
-
 from dagster import AssetExecutionContext, MaterializeResult, MetadataValue, asset
 
+from aqueduct_dagster.defs.dagster_logging import forward_python_logs_to_dagster
 from aqueduct_dagster.pipeline.hydrovu_dlt_pipeline import build_pipeline, hydrovu_source
-
-logger = logging.getLogger(__name__)
 
 
 @asset(
@@ -46,7 +43,13 @@ def raw_hydrovu_readings(context: AssetExecutionContext) -> MaterializeResult:
     On subsequent runs: fetches only records newer than the last cursor value.
     """
     pipeline = build_pipeline()
-    load_info = pipeline.run(hydrovu_source(), loader_file_format="parquet")
+    context.log.info(
+        "Starting HydroVu dlt extract (pipeline=%s, dataset=%s)",
+        pipeline.pipeline_name,
+        pipeline.dataset_name,
+    )
+    with forward_python_logs_to_dagster(context, "aqueduct_dagster.pipeline", "dlt"):
+        load_info = pipeline.run(hydrovu_source(), loader_file_format="parquet")
 
     context.log.info("HydroVu dlt load complete: %s", load_info)
 
