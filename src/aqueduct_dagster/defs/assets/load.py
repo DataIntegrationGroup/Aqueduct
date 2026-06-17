@@ -19,7 +19,7 @@ No source-specific logic here — the canonical model is the contract.
 import logging
 import os
 
-from dagster import AssetExecutionContext, asset
+from dagster import AssetExecutionContext, MetadataValue, asset
 
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle, CanonicalObservation
 from aqueduct_dagster.defs.assets.transform_hydrovu import HydroVuTransformResult, commit_watermark
@@ -80,6 +80,11 @@ def _frost_load(context: AssetExecutionContext, bundles: list[CanonicalBundle]) 
         "FROST load complete: %d bundle(s), %d posted, %d skipped",
         len(bundles), total_posted, total_skipped,
     )
+    context.add_output_metadata({
+        "bundles_loaded": MetadataValue.int(len(bundles)),
+        "observations_posted": MetadataValue.int(total_posted),
+        "observations_skipped": MetadataValue.int(total_skipped),
+    })
 
 
 @asset(

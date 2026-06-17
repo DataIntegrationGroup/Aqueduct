@@ -48,8 +48,9 @@ def raw_hydrovu_readings(context: AssetExecutionContext) -> MaterializeResult:
         pipeline.pipeline_name,
         pipeline.dataset_name,
     )
+    stats: dict = {}
     with forward_python_logs_to_dagster(context, "aqueduct_dagster.pipeline", "dlt"):
-        load_info = pipeline.run(hydrovu_source(), loader_file_format="parquet")
+        load_info = pipeline.run(hydrovu_source(_stats=stats), loader_file_format="parquet")
 
     context.log.info("HydroVu dlt load complete: %s", load_info)
 
@@ -57,6 +58,10 @@ def raw_hydrovu_readings(context: AssetExecutionContext) -> MaterializeResult:
         metadata={
             "pipeline_name": MetadataValue.text(pipeline.pipeline_name),
             "dataset_name": MetadataValue.text(pipeline.dataset_name),
+            "rows_yielded": MetadataValue.int(stats.get("rows_yielded", 0)),
+            "locations_fetched": MetadataValue.int(stats.get("locations_fetched", 0)),
+            "locations_skipped_allowlist": MetadataValue.int(stats.get("locations_skipped", 0)),
+            "locations_no_data": MetadataValue.int(stats.get("locations_no_data", 0)),
             "load_info": MetadataValue.text(str(load_info)),
         }
     )

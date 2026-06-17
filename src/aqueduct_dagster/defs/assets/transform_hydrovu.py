@@ -35,7 +35,7 @@ from dataclasses import dataclass
 import gcsfs
 import pyarrow.parquet as pq
 import toml
-from dagster import AssetExecutionContext, asset
+from dagster import AssetExecutionContext, MetadataValue, asset
 
 from aqueduct_dagster.adapters.hydrovu_adapter import HydroVuAdapter
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
@@ -280,6 +280,12 @@ def canonical_bundles_hydrovu(
 
     if not rows:
         context.log.info("No new DTW rows — returning empty result (watermark unchanged)")
+        context.add_output_metadata({
+            "dtw_rows_read": MetadataValue.int(0),
+            "bundles_produced": MetadataValue.int(0),
+            "watermark_before": MetadataValue.text(str(since_load_id)),
+            "watermark_after": MetadataValue.text(str(max_load_id)),
+        })
         return HydroVuTransformResult(bundles=[], max_load_id=max_load_id)
 
     locations = _read_locations_from_gcs(bucket_url, fs)
@@ -292,4 +298,11 @@ def canonical_bundles_hydrovu(
     bundles = list(adapter.run())
     context.log.info("Produced %d CanonicalBundles", len(bundles))
 
+    context.add_output_metadata({
+        "dtw_rows_read": MetadataValue.int(len(rows)),
+        "locations_grouped": MetadataValue.int(len(records)),
+        "bundles_produced": MetadataValue.int(len(bundles)),
+        "watermark_before": MetadataValue.text(str(since_load_id)),
+        "watermark_after": MetadataValue.text(str(max_load_id)),
+    })
     return HydroVuTransformResult(bundles=bundles, max_load_id=max_load_id)
