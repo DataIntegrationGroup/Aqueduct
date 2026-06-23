@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "dagster>=1.9.0",
+    "dagster-cloud>=1.13.8",
     "dagster-webserver>=1.9.0",
     "dlt[filesystem,gs]>=1.4.0",
     "frost-sta-client>=1.1.0",
@@ -21,6 +22,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "dagster-dg-cli>=1.13.8",
     "mypy>=1.11.0",
     "pre-commit>=4.0.0",
     "pytest>=8.2.0",
