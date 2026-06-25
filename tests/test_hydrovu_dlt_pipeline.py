@@ -22,6 +22,7 @@ from aqueduct_dagster.pipeline.hydrovu_dlt_pipeline import (
     _fetch_location_data,
     _fetch_locations,
     _TokenManager,
+    hydrovu_readings,
 )
 
 # ── Fixtures / shared test data ───────────────────────────────────────────────
@@ -272,3 +273,72 @@ class TestFetchLocationData:
         with patch("httpx.get", side_effect=responses):
             with pytest.raises(Exception, match="HTTP 401"):
                 _fetch_location_data("https://api", 123, 1780704000, _make_tm())
+
+
+# ── hydrovu_readings — location_ids filtering ─────────────────────────────────
+
+
+_LOCATIONS = [
+    {"id": 111, "name": "Well A"},
+    {"id": 222, "name": "Well B"},
+    {"id": 333, "name": "Well C"},
+]
+
+_READINGS_DATA = {
+    "parameters": [
+        {
+            "parameterId": "4",
+            "unitId": "35",
+            "readings": [{"timestamp": 1_000_000, "value": 10.0}],
+        }
+    ]
+}
+
+
+class TestHydroVuReadingsFilter:
+    @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
+    @patch("aqueduct_dagster.pipeline.hydrovu_dlt_pipeline._fetch_location_data")
+    def test_only_fetches_allowlisted_locations(self, mock_fetch, _mock_state):
+        mock_fetch.return_value = _READINGS_DATA
+        list(
+            hydrovu_readings(
+                api_base_url="https://api",
+                start_ts=1000,
+                tm=_make_tm(),
+                locations=_LOCATIONS,
+                location_ids=[111, 222],
+            )
+        )
+        called_ids = {call[0][1] for call in mock_fetch.call_args_list}
+        assert called_ids == {111, 222}
+
+    @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
+    @patch("aqueduct_dagster.pipeline.hydrovu_dlt_pipeline._fetch_location_data")
+    def test_skips_locations_not_in_allowlist(self, mock_fetch, _mock_state):
+        mock_fetch.return_value = _READINGS_DATA
+        list(
+            hydrovu_readings(
+                api_base_url="https://api",
+                start_ts=1000,
+                tm=_make_tm(),
+                locations=_LOCATIONS,
+                location_ids=[111],
+            )
+        )
+        called_ids = {call[0][1] for call in mock_fetch.call_args_list}
+        assert 222 not in called_ids
+        assert 333 not in called_ids
+
+    @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
+    @patch("aqueduct_dagster.pipeline.hydrovu_dlt_pipeline._fetch_location_data")
+    def test_empty_allowlist_skips_all_locations(self, mock_fetch, _mock_state):
+        list(
+            hydrovu_readings(
+                api_base_url="https://api",
+                start_ts=1000,
+                tm=_make_tm(),
+                locations=_LOCATIONS,
+                location_ids=[],
+            )
+        )
+        mock_fetch.assert_not_called()

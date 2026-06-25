@@ -50,22 +50,6 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# PVACD wells with DTW data — skip others to avoid slow 404s on /locations/{id}/data
-PVACD_LOCATION_IDS: frozenset[int] = frozenset(
-    {
-        4586726273318912,  # Transwestern Level Troll
-        4745648669458432,  # Bartlett Level Troll
-        4803999894339584,  # Cottonwood Level Troll
-        4847162637942784,  # Berrendo-Smith Level Troll
-        5597309948919808,  # LFD Level Troll
-        5647456719142912,  # Zumwalt Level Troll
-        5830701895778304,  # Greenfield Level Troll
-        6054555505917952,  # Poe Corn Level Troll
-        6256156690612224,  # Artesia A Level Troll
-        6505900885147648,  # Orchard Park Level Troll
-    }
-)
-
 
 class _TokenManager:
     """Fetches and caches a client-credentials token; re-fetches on expiry or 401."""
@@ -255,14 +239,19 @@ def hydrovu_source(
     api_base_url: str = dlt.config.value,
     token_url: str = dlt.config.value,
     initial_start_date: str = dlt.config.value,
+    location_ids: list[int] = dlt.config.value,  # noqa: B008
     _stats: dict | None = None,
 ) -> Any:
     """
-    Reads credentials and config from dlt.secrets/dlt.config under [hydrovu].
+    Reads credentials and config from dlt.secrets/dlt.config under [sources.hydrovu].
     Creates a single _TokenManager shared by both resources so the token is
     fetched once and reused across the full run.
     Fetches the location list once and passes it to both resources to avoid
     a redundant second API call.
+
+    location_ids: allowlist of HydroVu location integer IDs to fetch.
+      Read from [sources.hydrovu] location_ids in .dlt/config.toml.
+      Add or remove IDs there without any code change.
 
     _stats: optional mutable dict populated with extraction counts after pipeline.run().
       keys: rows_yielded, locations_fetched, locations_skipped, locations_no_data
@@ -279,6 +268,7 @@ def hydrovu_source(
             start_ts=start_ts,
             tm=tm,
             locations=locations,
+            location_ids=location_ids,
             _stats=_stats if _stats is not None else {},
         ),
     )
@@ -321,11 +311,16 @@ def hydrovu_readings(
     start_ts: int,
     tm: _TokenManager,
     locations: list[dict],
+    location_ids: list[int],
     _stats: dict | None = None,
 ) -> Iterator[dict]:
     """
     Yields one flat record per (location, parameter, reading).
     Location metadata is NOT embedded — join to hydrovu_locations on location_id.
+
+    location_ids: allowlist of HydroVu location integer IDs to fetch. Locations
+      absent from this list are skipped to avoid slow 404s on /locations/{id}/data.
+      Managed via [sources.hydrovu] location_ids in .dlt/config.toml.
 
     Incremental: each location has its own cursor stored in dlt.current.resource_state() under
     "location_cursors". A location's cursor only advances after a successful fetch,
@@ -342,6 +337,7 @@ def hydrovu_readings(
       value        — float measurement
     """
     cursors: dict[str, int] = dlt.current.resource_state().setdefault("location_cursors", {})
+    _allowed: frozenset[int] = frozenset(location_ids)
 
     skipped = 0
     fetched = 0
@@ -349,7 +345,7 @@ def hydrovu_readings(
     rows_yielded = 0
     for location in locations:
         loc_id = location["id"]
-        if loc_id not in PVACD_LOCATION_IDS:
+        if loc_id not in _allowed:
             skipped += 1
             continue
 
