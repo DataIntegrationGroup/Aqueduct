@@ -90,20 +90,9 @@ def _gcs_credentials() -> dict | None:
         with open(creds_file) as f:
             return json.load(f)
 
-    secrets_path = os.path.join(os.getcwd(), ".dlt", "secrets.toml")
-    if not os.path.exists(secrets_path):
-        raise FileNotFoundError(
-            "GCS credentials not found. Set GOOGLE_APPLICATION_CREDENTIALS or "
-            f"ensure .dlt/secrets.toml exists at {secrets_path}"
-        )
-    creds = toml.load(secrets_path)["destination"]["filesystem"]["credentials"]
-    return {
-        "type": "service_account",
-        "project_id": creds["project_id"],
-        "private_key": creds["private_key"].replace("\\n", "\n"),
-        "client_email": creds["client_email"],
-        "token_uri": "https://oauth2.googleapis.com/token",
-    }
+    raise FileNotFoundError(
+        "GCS credentials not found. Run 'gcloud auth application-default login'."
+    )
 
 
 def _load_id_from_filename(path: str) -> float | None:
