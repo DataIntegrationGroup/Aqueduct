@@ -35,8 +35,7 @@ Aqueduct/
 ├── .env.example                    # env var template — copy to .env
 ├── .gitignore
 ├── .dlt/
-│   ├── config.toml                 # dlt non-secret config (bucket URL, API URLs, start dates)
-│   └── secrets.toml.example        # dlt secrets template — copy to secrets.toml
+│   └── config.toml                 # dlt non-secret config (bucket URL, API URLs, start dates)
 ├── src/aqueduct_dagster/
 │   ├── canonical/                  # shared data model — adapters and loader both import from here
 │   │   ├── CANONICAL_MODEL.md      # explains the canonical model, entities, and file roles
@@ -101,9 +100,19 @@ This reads `pyproject.toml` and installs all dependencies into a local `.venv` �
 
 ---
 
-### 3. Configure secrets and environment
+### 3. Setup Authentication
 
-**Step A — copy and fill in `.env`:**
+Setting up authentication will depend on whether it is for local development for the local Docker Compose FROST Server.
+
+**Local Development**
+
+The Google Cloud Storage libraries will automatically detect local credentials that can be created by running the following command in your terminal. You will only need to run this command one to create the credential file.
+
+```bash
+gcloud auth application-default login
+```
+
+**Local Docker Compose FROST Server — copy and fill in `.env`:**
 
 ```bash
 cp .env.example .env
@@ -114,15 +123,7 @@ Edit `.env` and set:
 - `HYDROVU_CLIENT_ID` / `HYDROVU_CLIENT_SECRET` — from HydroVu
 - `GOOGLE_APPLICATION_CREDENTIALS` — path to the `aqueduct-dlt-writer` service account JSON key file. Set `GCS_BUCKET_URL` to your own test bucket (e.g. `gs://your-bucket-name`) — **do not use the shared `aqueduct-poc-bravo-pvacd` bucket for testing**, create your own and grant `aqueduct-dlt-writer` Storage Object Admin on it.
 
-**Step B — copy and fill in `.dlt/secrets.toml`:**
-
-```bash
-cp .dlt/secrets.toml.example .dlt/secrets.toml
-```
-
-Edit `.dlt/secrets.toml` and fill in your HydroVu `client_id` / `client_secret`. For GCS, set `project_id` and `client_email` to match the `aqueduct-dlt-writer` service account and paste the `private_key` from the JSON key file.
-
-> **Never commit `.env` or `.dlt/secrets.toml`** — both are in `.gitignore`.
+> **Never commit `.env` — it is included in `.gitignore`.
 
 ---
 

@@ -41,9 +41,11 @@ from __future__ import annotations
 
 import logging
 import time
+import json
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
+from google.cloud import secretmanager
 
 import dlt
 import httpx
@@ -316,8 +318,8 @@ def _fetch_location_data(
 
 @dlt.source(name="hydrovu")
 def hydrovu_source(
-    client_id: str = dlt.secrets.value,
-    client_secret: str = dlt.secrets.value,
+    client_id: str = None,
+    client_secret: str = None,
     api_base_url: str = dlt.config.value,
     token_url: str = dlt.config.value,
     initial_start_date: str = dlt.config.value,
@@ -339,6 +341,15 @@ def hydrovu_source(
       keys: rows_yielded, locations_fetched, locations_skipped, locations_no_data,
             locations_errored, failed_location_ids
     """
+    if not client_id:
+        client = secretmanager.SecretManagerServiceClient()
+        name = client.secret_version_path("95715287188", "hydrovu_pvacd", "latest")
+        response = client.access_secret_version(name=name)
+        payload = json.loads(response.payload.data.decode("UTF-8"))
+
+        client_id = payload["id"]
+        client_secret = payload["secret"]
+
     start_ts = int(
         datetime.strptime(initial_start_date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
     )
