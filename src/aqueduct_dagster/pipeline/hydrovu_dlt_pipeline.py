@@ -318,8 +318,8 @@ def _fetch_location_data(
 
 @dlt.source(name="hydrovu")
 def hydrovu_source(
-    client_id: str = None,
-    client_secret: str = None,
+    client_id: str = "",
+    client_secret: str = "",
     api_base_url: str = dlt.config.value,
     token_url: str = dlt.config.value,
     initial_start_date: str = dlt.config.value,
