@@ -7,8 +7,8 @@ Dagster asset: raw_hydrovu_readings
   hydrovu_locations  (replace)  gs://<bucket>/raw_pvacd/hydrovu_locations/year={YYYY}/month={MM}/day={DD}/
     Full location list on every run — one row per location.
 
-  hydrovu_readings   (append, incremental)  gs://<bucket>/raw_pvacd/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/
-    New readings since the last cursor value — one row per (location, parameter, reading).
+  hydrovu_readings   (append, per-location incremental)  gs://<bucket>/raw_pvacd/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/
+    New readings since each location's last successful fetch — one row per (location, parameter, reading).
     Location metadata is omitted; join to hydrovu_locations on location_id at transform time.
 
 This is the FIRST asset in the HydroVu pipeline. No upstream dependencies.
@@ -40,7 +40,7 @@ def raw_hydrovu_readings(context: AssetExecutionContext) -> MaterializeResult:
       - Cursor state persistence (stored in GCS next to the data)
 
     On first run: fetches from initial_start_date (set in dlt config).
-    On subsequent runs: fetches only records newer than the last cursor value.
+    On subsequent runs: fetches only records newer than each location's per-location cursor.
     """
     pipeline = build_pipeline()
     context.log.info(

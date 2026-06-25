@@ -11,8 +11,10 @@ Two resources returned from hydrovu_source():
     Acts as a reference table — rename in HydroVu → latest name in GCS.
     Written to: gs://<bucket>/raw_pvacd/hydrovu_locations/year={YYYY}/month={MM}/day={DD}/
 
-  hydrovu_readings   (write_disposition="append", incremental cursor)
-    Fetches readings per location since the last run's max timestamp.
+  hydrovu_readings   (write_disposition="append", per-location incremental cursor)
+    Fetches readings per location since that location's last successful fetch.
+    Each location has its own cursor in dlt.current.resource_state() — a failed location retries
+    from the same point next run rather than being skipped permanently.
     One row per (location, parameter, reading) — location metadata is NOT
     embedded; join to hydrovu_locations on location_id at transform time.
     Written to: gs://<bucket>/raw_pvacd/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/
@@ -320,33 +322,26 @@ def hydrovu_readings(
     tm: _TokenManager,
     locations: list[dict],
     _stats: dict | None = None,
-    # dlt detects the incremental cursor via this default — idiomatic, so B008 is expected.
-    updated_at: dlt.sources.incremental[int] = dlt.sources.incremental(  # noqa: B008
-        "timestamp",
-        initial_value=0,
-    ),
 ) -> Iterator[dict]:
     """
     Yields one flat record per (location, parameter, reading).
     Location metadata is NOT embedded — join to hydrovu_locations on location_id.
 
-    Incremental: uses updated_at.last_value (max timestamp from last run) as
-    startTime for the API call. On first run, falls back to start_ts from config.
+    Incremental: each location has its own cursor stored in dlt.current.resource_state() under
+    "location_cursors". A location's cursor only advances after a successful fetch,
+    so a failed location retries from the same point on the next run.
+    On first run (or new location), falls back to start_ts from config.
     dlt additionally deduplicates on primary_key=reading_id.
 
     Record shape:
       reading_id   — "{location_id}_{parameter_id}_{timestamp}"
       location_id  — HydroVu location integer ID (FK → hydrovu_locations.id)
-      timestamp    — Unix epoch seconds (dlt cursor field)
+      timestamp    — Unix epoch seconds
       parameter_id — HydroVu param code (e.g. "4"=DTW, "1"=Temperature, "33"=Battery)
       unit_id      — HydroVu unit code (e.g. "35"=feet)
       value        — float measurement
     """
-    api_start = max(updated_at.last_value or 0, start_ts)
-    logger.info(
-        "Extracting hydrovu_readings (incremental append) from Unix timestamp %s",
-        api_start,
-    )
+    cursors: dict[str, int] = dlt.current.resource_state().setdefault("location_cursors", {})
 
     skipped = 0
     fetched = 0
@@ -357,25 +352,41 @@ def hydrovu_readings(
         if loc_id not in PVACD_LOCATION_IDS:
             skipped += 1
             continue
-        logger.info("Fetching readings for location %s (%s)", loc_id, location["name"])
 
-        data = _fetch_location_data(api_base_url, loc_id, api_start, tm)
+        loc_start = max(cursors.get(str(loc_id), 0), start_ts)
+        logger.info(
+            "Fetching readings for location %s (%s) from Unix timestamp %s",
+            loc_id,
+            location["name"],
+            loc_start,
+        )
+
+        data = _fetch_location_data(api_base_url, loc_id, loc_start, tm)
         if data is None:
             logger.warning("No readings returned for location %s (%s)", loc_id, location["name"])
             no_data += 1
             continue
+
         fetched += 1
+        max_ts = loc_start
         for param in data.get("parameters", []):
             for reading in param.get("readings", []):
+                ts = reading["timestamp"]
+                if ts > max_ts:
+                    max_ts = ts
                 rows_yielded += 1
                 yield {
-                    "reading_id": f"{loc_id}_{param['parameterId']}_{reading['timestamp']}",
+                    "reading_id": f"{loc_id}_{param['parameterId']}_{ts}",
                     "location_id": loc_id,
-                    "timestamp": reading["timestamp"],
+                    "timestamp": ts,
                     "parameter_id": param["parameterId"],
                     "unit_id": param["unitId"],
                     "value": reading["value"],
                 }
+
+        # Advance this location's cursor only after a successful fetch.
+        # A failed location keeps its old cursor and retries from the same point next run.
+        cursors[str(loc_id)] = max_ts
 
     logger.info(
         "hydrovu_readings extract complete: %d locations fetched, %d skipped (allowlist), "

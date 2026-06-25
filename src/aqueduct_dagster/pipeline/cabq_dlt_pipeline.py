@@ -5,7 +5,7 @@ dlt pipeline for CABQ raw ingestion.
 
 Follows the same pattern as hydrovu_dlt_pipeline.py.
   - @dlt.source: reads credentials + config from dlt.secrets/dlt.config under [cabq]
-  - @dlt.resource: incremental cursor on timestamp field
+  - @dlt.resource: per-location incremental cursor via dlt.current.resource_state()
   - build_pipeline(): filesystem destination → GCS under raw_cabq/
   - run_pipeline(): convenience entry point (mirrors hydrovu_dlt_pipeline.run_pipeline)
 
@@ -56,20 +56,24 @@ def cabq_readings(
 ) -> Iterator[dict]:
     """
     Yields one flat record per reading per location.
-    Incremental cursor tracks timestamp field (Unix epoch int — same as hydrovu_readings).
+    Per-location incremental cursor via dlt.current.resource_state() — same pattern as
+    hydrovu_readings. Each station has its own cursor; a failed station retries from the
+    same point next run rather than being skipped permanently.
 
     On first run: fetches from start_ts (derived from initial_start_date in config).
-    On subsequent runs: fetches only records newer than updated_at.last_value.
+    On subsequent runs: fetches only records newer than each station's cursor.
 
     Record shape (to define when implementing):
       reading_id   — unique key e.g. "{location_id}_{timestamp}"
       location_id  — CABQ station identifier
-      timestamp    — Unix epoch seconds (dlt cursor field)
+      timestamp    — Unix epoch seconds
       value        — float measurement
       # add other fields as needed
     """
     # TODO: fetch CABQ stations/locations from CKAN API
-    # TODO: fetch readings per location using max(updated_at.last_value, start_ts) as start
+    # TODO: use dlt.current.resource_state().setdefault("location_cursors", {}) for per-station cursors
+    # TODO: fetch readings per station using max(cursors.get(str(station_id), 0), start_ts) as start
+    # TODO: advance cursor per station only after successful fetch: cursors[str(station_id)] = max_ts
     # TODO: yield one flat record per reading (no location metadata — join at transform time)
     raise NotImplementedError("cabq_readings is not implemented yet")
 
