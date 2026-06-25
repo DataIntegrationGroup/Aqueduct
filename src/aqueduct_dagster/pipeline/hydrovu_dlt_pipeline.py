@@ -39,16 +39,16 @@ API endpoints confirmed:
 
 from __future__ import annotations
 
+import json
 import logging
 import time
-import json
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
-from google.cloud import secretmanager
 
 import dlt
 import httpx
+from google.cloud import secretmanager
 
 logger = logging.getLogger(__name__)
 
