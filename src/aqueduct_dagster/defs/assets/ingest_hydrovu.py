@@ -15,7 +15,7 @@ This is the FIRST asset in the HydroVu pipeline. No upstream dependencies.
 Downstream: transform_hydrovu (reads both GCS folders)
 """
 
-from dagster import AssetExecutionContext, MaterializeResult, MetadataValue, asset
+from dagster import AssetExecutionContext, Failure, MaterializeResult, MetadataValue, asset
 
 from aqueduct_dagster.defs.dagster_logging import forward_python_logs_to_dagster
 from aqueduct_dagster.pipeline.hydrovu_dlt_pipeline import build_pipeline, hydrovu_source
@@ -66,9 +66,13 @@ def raw_hydrovu_readings(context: AssetExecutionContext) -> MaterializeResult:
         )
 
     if errored > 0 and fetched == 0:
-        raise Exception(
-            f"All active HydroVu locations failed ({errored} errored, 0 fetched). "
-            f"Failed IDs: {failed_ids}"
+        raise Failure(
+            description=f"All active HydroVu locations failed ({errored} errored, 0 fetched)",
+            metadata={
+                "locations_errored": MetadataValue.int(errored),
+                "locations_fetched": MetadataValue.int(fetched),
+                "failed_location_ids": MetadataValue.json(failed_ids),
+            },
         )
 
     return MaterializeResult(
