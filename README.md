@@ -32,7 +32,6 @@ Aqueduct/
 ├── docker-compose.yml              # FROST + PostGIS
 ├── pyproject.toml                  # dependencies and build config
 ├── uv.lock                         # pinned dependency versions
-├── .env.example                    # env var template — copy to .env
 ├── .gitignore
 ├── .dlt/
 │   └── config.toml                 # dlt non-secret config (bucket URL, API URLs, start dates)
@@ -77,7 +76,6 @@ Aqueduct/
 | uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | Docker + Docker Compose | 24+ | [docs.docker.com](https://docs.docker.com/get-docker/) |
 | GCP service account | — | with Storage Object Admin on the GCS bucket |
-| HydroVu API credentials | — | client ID + secret from HydroVu |
 
 ---
 
@@ -102,28 +100,13 @@ This reads `pyproject.toml` and installs all dependencies into a local `.venv` �
 
 ### 3. Setup Authentication
 
-Setting up authentication will depend on whether it is for local development for the local Docker Compose FROST Server.
-
 **Local Development**
 
-The Google Cloud Storage libraries will automatically detect local credentials that can be created by running the following command in your terminal. You will only need to run this command one to create the credential file.
+The Google Cloud Storage libraries will automatically detect local credentials that can be created by running the following command in your terminal. You will only need to run this command once to create the credential file.
 
 ```bash
 gcloud auth application-default login
 ```
-
-**Local Docker Compose FROST Server — copy and fill in `.env`:**
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and set:
-- `POSTGRES_PASSWORD` — any local password (e.g. `changeme`)
-- `HYDROVU_CLIENT_ID` / `HYDROVU_CLIENT_SECRET` — from HydroVu
-- `GOOGLE_APPLICATION_CREDENTIALS` — path to the `aqueduct-dlt-writer` service account JSON key file. Set `GCS_BUCKET_URL` to your own test bucket (e.g. `gs://your-bucket-name`) — **do not use the shared `aqueduct-poc-bravo-pvacd` bucket for testing**, create your own and grant `aqueduct-dlt-writer` Storage Object Admin on it.
-
-> **Never commit `.env` — it is included in `.gitignore`.
 
 ---
 
