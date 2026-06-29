@@ -39,7 +39,9 @@ API endpoints confirmed:
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -47,6 +49,8 @@ from typing import Any
 
 import dlt
 import httpx
+import toml
+from google.cloud import secretmanager
 
 logger = logging.getLogger(__name__)
 
@@ -316,8 +320,9 @@ def _fetch_location_data(
 
 @dlt.source(name="hydrovu")
 def hydrovu_source(
-    client_id: str = dlt.secrets.value,
-    client_secret: str = dlt.secrets.value,
+    client_id: str = "",
+    client_secret: str = "",
+    gcp_secret: str = dlt.config.value,
     api_base_url: str = dlt.config.value,
     token_url: str = dlt.config.value,
     initial_start_date: str = dlt.config.value,
@@ -325,7 +330,7 @@ def hydrovu_source(
     _stats: dict | None = None,
 ) -> Any:
     """
-    Reads credentials and config from dlt.secrets/dlt.config under [sources.hydrovu].
+    Reads config from dlt.config under [hydrovu].
     Creates a single _TokenManager shared by both resources so the token is
     fetched once and reused across the full run.
     Fetches the location list once and passes it to both resources to avoid
@@ -339,6 +344,18 @@ def hydrovu_source(
       keys: rows_yielded, locations_fetched, locations_skipped, locations_no_data,
             locations_errored, failed_location_ids
     """
+    if not client_id:
+        config_path = os.path.join(os.getcwd(), ".dlt", "config.toml")
+        project_number = toml.load(config_path)["destination"]["filesystem"]["gcp_project_number"]
+
+        client = secretmanager.SecretManagerServiceClient()
+        name = client.secret_version_path(project_number, gcp_secret, "latest")
+        response = client.access_secret_version(name=name)
+        payload = json.loads(response.payload.data.decode("UTF-8"))
+
+        client_id = payload["id"]
+        client_secret = payload["secret"]
+
     start_ts = int(
         datetime.strptime(initial_start_date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
     )

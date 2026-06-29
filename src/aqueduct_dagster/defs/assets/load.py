@@ -19,6 +19,7 @@ No source-specific logic here — the canonical model is the contract.
 import logging
 import os
 
+import toml
 from dagster import AssetExecutionContext, MetadataValue, asset
 
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle, CanonicalObservation
@@ -41,7 +42,8 @@ def _frost_load(context: AssetExecutionContext, bundles: list[CanonicalBundle]) 
     """
     import frost_sta_client as fsc
 
-    frost_url = os.environ.get("FROST_SERVICE_ROOT_URL", "http://localhost:8081/FROST-Server/v1.1")
+    config_path = os.path.join(os.getcwd(), ".dlt", "config.toml")
+    frost_url = toml.load(config_path)["destination"]["frost"]["service_root_url"]
     # FROST_SERVICE_ROOT_URL is the server's own root (no version suffix in docker-compose).
     # frost_sta_client constructs entity URLs by appending directly to this base,
     # so it must include /v1.1 — append it if not already present.

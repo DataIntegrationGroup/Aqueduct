@@ -32,11 +32,9 @@ Aqueduct/
 ├── docker-compose.yml              # FROST + PostGIS
 ├── pyproject.toml                  # dependencies and build config
 ├── uv.lock                         # pinned dependency versions
-├── .env.example                    # env var template — copy to .env
 ├── .gitignore
 ├── .dlt/
-│   ├── config.toml                 # dlt non-secret config (bucket URL, API URLs, start dates)
-│   └── secrets.toml.example        # dlt secrets template — copy to secrets.toml
+│   └── config.toml                 # dlt non-secret config (bucket URL, API URLs, start dates)
 ├── src/aqueduct_dagster/
 │   ├── canonical/                  # shared data model — adapters and loader both import from here
 │   │   ├── CANONICAL_MODEL.md      # explains the canonical model, entities, and file roles
@@ -78,7 +76,6 @@ Aqueduct/
 | uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | Docker + Docker Compose | 24+ | [docs.docker.com](https://docs.docker.com/get-docker/) |
 | GCP service account | — | with Storage Object Admin on the GCS bucket |
-| HydroVu API credentials | — | client ID + secret from HydroVu |
 
 ---
 
@@ -101,28 +98,15 @@ This reads `pyproject.toml` and installs all dependencies into a local `.venv` �
 
 ---
 
-### 3. Configure secrets and environment
+### 3. Setup Authentication
 
-**Step A — copy and fill in `.env`:**
+**Local Development**
 
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and set:
-- `POSTGRES_PASSWORD` — any local password (e.g. `changeme`)
-- `HYDROVU_CLIENT_ID` / `HYDROVU_CLIENT_SECRET` — from HydroVu
-- `GOOGLE_APPLICATION_CREDENTIALS` — path to the `aqueduct-dlt-writer` service account JSON key file. Set `GCS_BUCKET_URL` to your own test bucket (e.g. `gs://your-bucket-name`) — **do not use the shared `aqueduct-poc-bravo-pvacd` bucket for testing**, create your own and grant `aqueduct-dlt-writer` Storage Object Admin on it.
-
-**Step B — copy and fill in `.dlt/secrets.toml`:**
+The Google Cloud Storage libraries will automatically detect local credentials that can be created by running the following command in your terminal. You will only need to run this command once to create the credential file.
 
 ```bash
-cp .dlt/secrets.toml.example .dlt/secrets.toml
+gcloud auth application-default login
 ```
-
-Edit `.dlt/secrets.toml` and fill in your HydroVu `client_id` / `client_secret`. For GCS, set `project_id` and `client_email` to match the `aqueduct-dlt-writer` service account and paste the `private_key` from the JSON key file.
-
-> **Never commit `.env` or `.dlt/secrets.toml`** — both are in `.gitignore`.
 
 ---
 

@@ -4,19 +4,14 @@ pipeline/cabq_dlt_pipeline.py
 dlt pipeline for CABQ raw ingestion.
 
 Follows the same pattern as hydrovu_dlt_pipeline.py.
-  - @dlt.source: reads credentials + config from dlt.secrets/dlt.config under [cabq]
-  - @dlt.resource: per-location incremental cursor via dlt.current.resource_state()
-  - build_pipeline(): filesystem destination → GCS under raw_cabq/
+  - @dlt.source: reads config from dlt.config under [cabq]
+  - @dlt.resource: per-location incremental cursor via dlt.current.resource_state()  - build_pipeline(): filesystem destination → GCS under raw_cabq/
   - run_pipeline(): convenience entry point (mirrors hydrovu_dlt_pipeline.run_pipeline)
 
 Add CABQ config block to .dlt/config.toml when wiring up:
   [cabq]
   api_base_url       = "https://..."   # CABQ CKAN base URL
   initial_start_date = "2026-05-01"    # match HydroVu start date
-
-Add CABQ secrets block to .dlt/secrets.toml if auth is required:
-  [cabq]
-  api_key = "..."
 """
 
 from __future__ import annotations

@@ -1,6 +1,7 @@
 [sources.hydrovu]
 api_base_url       = "https://www.hydrovu.com/public-api/v1"
 token_url          = "https://hydrovu.com/public-api/oauth/token"
+gcp_secret         = "hydrovu_pvacd"
 initial_start_date = "2026-05-01"
 # Wells with DTW data — skip others to avoid slow 404s on /locations/{id}/data.
 # To add a new well: append its HydroVu location ID here; no code change needed.
@@ -22,5 +23,9 @@ api_base_url       = "https://cabq-api-url.com"   # TODO: confirm CABQ API endpo
 initial_start_date = "2026-01-01"   # change to limit initial load
 
 [destination.filesystem]
+gcp_project_number = "95715287188" # for Secret Manager
 bucket_url = "gs://aqueduct-poc-bravo-pvacd"
 layout     = "{table_name}/year={YYYY}/month={MM}/day={DD}/{load_id}.{file_id}.{ext}"
+
+[destination.frost]
+service_root_url = "http://localhost:8081/FROST-Server"

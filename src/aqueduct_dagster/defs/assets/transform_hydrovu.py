@@ -66,39 +66,15 @@ def _gcs_bucket_url() -> str:
       1. GCS_BUCKET_URL env var
       2. [destination.filesystem] bucket_url in .dlt/config.toml
     """
-    env_val = os.environ.get("GCS_BUCKET_URL")
-    if env_val:
-        return env_val
     config_path = os.path.join(os.getcwd(), ".dlt", "config.toml")
     return toml.load(config_path)["destination"]["filesystem"]["bucket_url"]
 
 
-def _gcs_credentials() -> dict:
-    """
-    Resolve GCS service account credentials in priority order:
-      1. GOOGLE_APPLICATION_CREDENTIALS env var → path to a service account JSON file
-      2. .dlt/secrets.toml relative to CWD (works when running `dagster dev` from project root)
-    In production, set GOOGLE_APPLICATION_CREDENTIALS to the mounted secret path.
-    """
-    creds_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    if creds_file and os.path.exists(creds_file):
-        with open(creds_file) as f:
-            return json.load(f)
-
-    secrets_path = os.path.join(os.getcwd(), ".dlt", "secrets.toml")
-    if not os.path.exists(secrets_path):
-        raise FileNotFoundError(
-            "GCS credentials not found. Set GOOGLE_APPLICATION_CREDENTIALS or "
-            f"ensure .dlt/secrets.toml exists at {secrets_path}"
-        )
-    creds = toml.load(secrets_path)["destination"]["filesystem"]["credentials"]
-    return {
-        "type": "service_account",
-        "project_id": creds["project_id"],
-        "private_key": creds["private_key"].replace("\\n", "\n"),
-        "client_email": creds["client_email"],
-        "token_uri": "https://oauth2.googleapis.com/token",
-    }
+def _gcs_filesystem(project: str = "") -> gcsfs.GCSFileSystem:
+    if project:
+        return gcsfs.GCSFileSystem(project=project, token="google_default")
+    else:
+        return gcsfs.GCSFileSystem(token="google_default")
 
 
 def _load_id_from_filename(path: str) -> float | None:
@@ -132,8 +108,7 @@ def _write_watermark(fs: gcsfs.GCSFileSystem, bucket: str, load_id: float) -> No
 def commit_watermark(max_load_id: float) -> None:
     """Write the transform watermark. Called by the load step after FROST confirms success."""
     bucket_url = _gcs_bucket_url()
-    creds = _gcs_credentials()
-    fs = gcsfs.GCSFileSystem(project=creds["project_id"], token=creds)
+    fs = _gcs_filesystem()
     _write_watermark(fs, bucket_url.replace("gs://", ""), max_load_id)
 
 
@@ -268,8 +243,7 @@ def canonical_bundles_hydrovu(
     bucket_url = _gcs_bucket_url()
     bucket = bucket_url.replace("gs://", "")
 
-    creds = _gcs_credentials()
-    fs = gcsfs.GCSFileSystem(project=creds["project_id"], token=creds)
+    fs = _gcs_filesystem()
 
     since_load_id = _read_watermark(fs, bucket)
     context.log.info(
