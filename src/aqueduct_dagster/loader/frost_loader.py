@@ -115,21 +115,31 @@ class FrostLoader(abc.ABC):
 
     def ensure_datastream(self, spec: CanonicalDatastream) -> str:
         """Idempotent upsert of the full metadata graph. Returns FROST Datastream id."""
-        location_id = self._upsert(self._find_location, self._create_location, spec.thing.location)
-        thing_id = self._upsert(
-            self._find_thing, self._create_thing, spec.thing, location_id=location_id
+        location_id = _with_retry(
+            lambda: self._upsert(self._find_location, self._create_location, spec.thing.location)
         )
-        sensor_id = self._upsert(self._find_sensor, self._create_sensor, spec.sensor)
-        obsprop_id = self._upsert(
-            self._find_observed_property, self._create_observed_property, spec.observed_property
+        thing_id = _with_retry(
+            lambda: self._upsert(
+                self._find_thing, self._create_thing, spec.thing, location_id=location_id
+            )
         )
-        return self._upsert(
-            self._find_datastream,
-            self._create_datastream,
-            spec,
-            thing_id=thing_id,
-            sensor_id=sensor_id,
-            observed_property_id=obsprop_id,
+        sensor_id = _with_retry(
+            lambda: self._upsert(self._find_sensor, self._create_sensor, spec.sensor)
+        )
+        obsprop_id = _with_retry(
+            lambda: self._upsert(
+                self._find_observed_property, self._create_observed_property, spec.observed_property
+            )
+        )
+        return _with_retry(
+            lambda: self._upsert(
+                self._find_datastream,
+                self._create_datastream,
+                spec,
+                thing_id=thing_id,
+                sensor_id=sensor_id,
+                observed_property_id=obsprop_id,
+            )
         )
 
     def _upsert(self, find: Callable, create: Callable, spec: Any, **links: str) -> str:
