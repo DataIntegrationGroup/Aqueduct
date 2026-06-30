@@ -23,7 +23,12 @@ import toml
 from dagster import AssetExecutionContext, MetadataValue, asset
 
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle, CanonicalObservation
-from aqueduct_dagster.defs.assets.transform_hydrovu import HydroVuTransformResult, commit_watermark
+from aqueduct_dagster.defs.assets.transform_hydrovu import (
+    HydroVuTransformResult,
+    _gcs_bucket_url,
+    _gcs_filesystem,
+    commit_watermark,
+)
 from aqueduct_dagster.loader.frost_loader import FrostStaClientLoader, ObservationRecord
 from aqueduct_dagster.loader.watermark_store import FrostWatermarkStore
 
@@ -50,7 +55,8 @@ def _frost_load(context: AssetExecutionContext, bundles: list[CanonicalBundle]) 
     if not frost_url.rstrip("/").endswith("/v1.1"):
         frost_url = frost_url.rstrip("/") + "/v1.1"
     service = fsc.SensorThingsService(frost_url)
-    watermarks = FrostWatermarkStore(context)
+    bucket = _gcs_bucket_url().replace("gs://", "")
+    watermarks = FrostWatermarkStore(context, _gcs_filesystem(), bucket)
     loader = FrostStaClientLoader(service, watermarks)
 
     total_posted = 0
