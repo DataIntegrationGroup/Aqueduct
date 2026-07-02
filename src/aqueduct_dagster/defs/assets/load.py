@@ -18,6 +18,7 @@ No source-specific logic here — the canonical model is the contract.
 
 import logging
 import os
+from typing import Any
 
 import toml
 from dagster import AssetExecutionContext, MetadataValue, asset
@@ -33,6 +34,19 @@ from aqueduct_dagster.loader.frost_loader import FrostStaClientLoader, Observati
 from aqueduct_dagster.loader.watermark_store import FrostWatermarkStore
 
 logger = logging.getLogger(__name__)
+
+FROST_REQUEST_TIMEOUT = 30  # seconds per request; retries handled by _with_retry in frost_loader
+
+
+def _apply_frost_timeout(service: Any, timeout: int = FROST_REQUEST_TIMEOUT) -> None:
+    """Inject a per-request timeout into every SensorThingsService.execute() call."""
+    _orig = service.execute
+
+    def _execute_with_timeout(method: str, url: str, **kwargs: Any) -> Any:
+        kwargs.setdefault("timeout", timeout)
+        return _orig(method, url, **kwargs)
+
+    service.execute = _execute_with_timeout
 
 
 def _frost_load(context: AssetExecutionContext, bundles: list[CanonicalBundle]) -> None:
@@ -55,6 +69,7 @@ def _frost_load(context: AssetExecutionContext, bundles: list[CanonicalBundle]) 
     if not frost_url.rstrip("/").endswith("/v1.1"):
         frost_url = frost_url.rstrip("/") + "/v1.1"
     service = fsc.SensorThingsService(frost_url)
+    _apply_frost_timeout(service)
     bucket = _gcs_bucket_url().replace("gs://", "")
     watermarks = FrostWatermarkStore(context, _gcs_filesystem(), bucket, dataset="raw_pvacd")
     loader = FrostStaClientLoader(service, watermarks)
