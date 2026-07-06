@@ -27,7 +27,6 @@
 
 | Canonical Field | Type | Status | Source Field | Notes |
 |---|---|---|---|---|
-| `agency` | str | Not Required | | Fixed: `{AGENCY}` |
 | `source_id` | str | Required | | Stable ID, always string |
 | `geoconnex` | str | Optional | | geoconnex.us URI if available |
 | `alternate_id` | [{id: str, agency: str}] \| None | Optional | | Cross-reference IDs, e.g. `[{id: "NM-28258", agency: "NMBGMR"}]` |
@@ -56,14 +55,13 @@
 | `agency` | str | Required | | Fixed: `{AGENCY}` |
 | `source_id` | str | Required | | Same as Location |
 | `alternate_id` | [{id: str, agency: str}] \| None | Optional | | Cross-reference IDs, e.g. `[{id: "BC-0002", agency: "NMBGMR"}]` |
-| `well_depth` | {value: float, unit: str} \| None | Optional | | Always `{value: X, unit: "ft"}` — convert if needed |
-| `screens` | [{top: float, bottom: float}] \| None | Optional | | Screen intervals, or N/A |
 
 **properties.source_specific:**
 
 | Source Field | Type | Notes |
 |---|---|---|
-| | | |
+| `well_depth` | {value: float, unit: str} \| None | Always `{value: X, unit: "ft"}` — convert if needed |
+| `screens` | [{top: float, bottom: float}] \| None | Screen intervals, or N/A |
 
 ---
 
@@ -159,7 +157,7 @@ One per (Thing, ObservedProperty, Sensor) combination.
 | `measuring_agency` | str \| None | | Who took the measurement |
 | `measurement_method` | str \| None | | How it was taken |
 | `data_source` | str \| None | | Which data system |
-| `dry_indicator` | str \| None | | Dry well flag if available |
+| `water_level_status` | str \| None | | Dry well flag if available |
 | `measurement_point_height` | float \| None | | Height above ground surface |
 | `water_level_accuracy` | float \| None | | Accuracy of measurement |
 
