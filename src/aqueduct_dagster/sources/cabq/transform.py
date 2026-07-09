@@ -1,5 +1,5 @@
 """
-defs/assets/transform_cabq.py
+defs/assets/cabq/transform.py
 
 Dagster asset: canonical_bundles_cabq
   - Reads raw cabq_readings parquet from GCS (written by raw_cabq_readings)
@@ -8,7 +8,7 @@ Dagster asset: canonical_bundles_cabq
   - Returns bundles downstream to frost_load_cabq
 
 Incremental reads:
-  Follow the same load_id watermark pattern as transform_hydrovu.py:
+  Follow the same load_id watermark pattern as hydrovu/transform.py:
     - _read_watermark / _write_watermark using raw_cabq/_cabq_transform_watermark.json
     - Only read parquet files with load_id > last watermark
     - Watermark must be written in frost_load_cabq (after FROST success), not here
@@ -20,13 +20,29 @@ Downstream: frost_load_cabq
 """
 
 import logging
+from dataclasses import dataclass
 
 from dagster import AssetExecutionContext, asset
 
-from aqueduct_dagster.adapters.cabq_adapter import CabqAdapter  # noqa: F401
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
+from aqueduct_dagster.sources.cabq.adapter import CabqAdapter  # noqa: F401
 
 logger = logging.getLogger(__name__)
+
+GCS_DATASET = "raw_cabq"
+WATERMARK_PATH = f"{GCS_DATASET}/_cabq_transform_watermark.json"
+
+
+@dataclass
+class CabqTransformResult:
+    """Carries CanonicalBundles and the GCS load_id watermark to the load step.
+
+    max_load_id is None when there were no new parquet files this run.
+    The load step writes the watermark only after FROST confirms success.
+    """
+
+    bundles: list[CanonicalBundle]
+    max_load_id: float | None
 
 
 @asset(
@@ -36,7 +52,7 @@ logger = logging.getLogger(__name__)
     compute_kind="python",
     deps=["raw_cabq_readings"],
 )
-def canonical_bundles_cabq(context: AssetExecutionContext) -> list[CanonicalBundle]:
+def canonical_bundles_cabq(context: AssetExecutionContext) -> CabqTransformResult:
     """
     Reads raw CABQ parquet from GCS, groups rows by location, and runs
     CabqAdapter to produce CanonicalBundles — one per location.
@@ -50,4 +66,4 @@ def canonical_bundles_cabq(context: AssetExecutionContext) -> list[CanonicalBund
       6. return CabqTransformResult(bundles=list(CabqAdapter(records).run()), max_load_id=max_load_id)
     """
     # TODO: implement — see docstring above for the pattern to follow
-    return []
+    return CabqTransformResult(bundles=[], max_load_id=None)

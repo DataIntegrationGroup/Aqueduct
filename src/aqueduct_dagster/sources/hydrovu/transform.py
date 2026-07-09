@@ -1,5 +1,5 @@
 """
-defs/assets/transform_hydrovu.py
+defs/assets/hydrovu/transform.py
 
 Dagster asset: canonical_bundles_hydrovu
   - Reads only NEW hydrovu_readings parquet from GCS since the last successful run
@@ -26,19 +26,21 @@ Upstream:  raw_hydrovu_readings
 Downstream: frost_load_hydrovu
 """
 
-import json
 import logging
-import os
 import re
 from dataclasses import dataclass
 
 import gcsfs
 import pyarrow.parquet as pq
-import toml
 from dagster import AssetExecutionContext, MetadataValue, asset
 
-from aqueduct_dagster.adapters.hydrovu_adapter import HydroVuAdapter
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
+from aqueduct_dagster.defs.assets._gcs import (
+    _gcs_bucket_url,
+    _gcs_filesystem,
+    read_transform_watermark,
+)
+from aqueduct_dagster.sources.hydrovu.adapter import HydroVuAdapter
 
 
 @dataclass
@@ -56,25 +58,9 @@ class HydroVuTransformResult:
 
 logger = logging.getLogger(__name__)
 
+GCS_DATASET = "raw_pvacd"
 DTW_PARAMETER_ID = "4"
-WATERMARK_PATH = "raw_pvacd/_hydrovu_transform_watermark.json"
-
-
-def _gcs_bucket_url() -> str:
-    """
-    Resolve GCS bucket URL in priority order:
-      1. GCS_BUCKET_URL env var
-      2. [destination.filesystem] bucket_url in .dlt/config.toml
-    """
-    config_path = os.path.join(os.getcwd(), ".dlt", "config.toml")
-    return toml.load(config_path)["destination"]["filesystem"]["bucket_url"]
-
-
-def _gcs_filesystem(project: str = "") -> gcsfs.GCSFileSystem:
-    if project:
-        return gcsfs.GCSFileSystem(project=project, token="google_default")
-    else:
-        return gcsfs.GCSFileSystem(token="google_default")
+WATERMARK_PATH = f"{GCS_DATASET}/_hydrovu_transform_watermark.json"
 
 
 def _load_id_from_filename(path: str) -> float | None:
@@ -88,37 +74,13 @@ def _load_id_from_filename(path: str) -> float | None:
     return float(m.group(1)) if m else None
 
 
-def _read_watermark(fs: gcsfs.GCSFileSystem, bucket: str) -> float | None:
-    """Returns the last processed load_id, or None if no watermark exists yet."""
-    wm_path = f"{bucket}/{WATERMARK_PATH}"
-    try:
-        with fs.open(wm_path) as f:
-            return json.load(f).get("last_load_id")
-    except FileNotFoundError:
-        return None
-
-
-def _write_watermark(fs: gcsfs.GCSFileSystem, bucket: str, load_id: float) -> None:
-    wm_path = f"{bucket}/{WATERMARK_PATH}"
-    with fs.open(wm_path, "w") as f:
-        json.dump({"last_load_id": load_id}, f)
-    logger.info("Transform watermark updated: last_load_id=%s", load_id)
-
-
-def commit_watermark(max_load_id: float) -> None:
-    """Write the transform watermark. Called by the load step after FROST confirms success."""
-    bucket_url = _gcs_bucket_url()
-    fs = _gcs_filesystem()
-    _write_watermark(fs, bucket_url.replace("gs://", ""), max_load_id)
-
-
 def _read_locations_from_gcs(bucket_url: str, fs: gcsfs.GCSFileSystem) -> dict[int, dict]:
     """
     Reads the hydrovu_locations parquet (write_disposition=replace → always one file).
     Returns a dict keyed by location_id for O(1) join with readings rows.
     """
     bucket = bucket_url.replace("gs://", "")
-    pattern = f"{bucket}/raw_pvacd/hydrovu_locations/**/*.parquet"
+    pattern = f"{bucket}/{GCS_DATASET}/hydrovu_locations/**/*.parquet"
     files = fs.glob(pattern)
     if not files:
         raise FileNotFoundError(
@@ -155,7 +117,7 @@ def _read_dtw_rows_from_gcs(
     Returns (rows, max_load_id_seen_this_run) — max_load_id is None if no new files.
     """
     bucket = bucket_url.replace("gs://", "")
-    pattern = f"{bucket}/raw_pvacd/hydrovu_readings/**/*.parquet"
+    pattern = f"{bucket}/{GCS_DATASET}/hydrovu_readings/**/*.parquet"
     all_files = fs.glob(pattern)
 
     new_files = []
@@ -245,7 +207,7 @@ def canonical_bundles_hydrovu(
 
     fs = _gcs_filesystem()
 
-    since_load_id = _read_watermark(fs, bucket)
+    since_load_id = read_transform_watermark(fs, bucket, WATERMARK_PATH)
     context.log.info(
         "Transform watermark: last_load_id=%s (%s)",
         since_load_id,

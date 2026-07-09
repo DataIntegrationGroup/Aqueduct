@@ -1,5 +1,5 @@
 """
-defs/assets/ingest_cabq.py
+defs/assets/cabq/ingest.py
 
 Dagster asset: raw_cabq_readings
   - Runs the CABQ dlt pipeline
@@ -16,7 +16,7 @@ import logging
 
 from dagster import AssetExecutionContext, MaterializeResult, MetadataValue, asset
 
-from aqueduct_dagster.pipeline.cabq_dlt_pipeline import build_pipeline, cabq_source
+from aqueduct_dagster.sources.cabq.dlt_pipeline import build_pipeline, cabq_source
 
 logger = logging.getLogger(__name__)
 

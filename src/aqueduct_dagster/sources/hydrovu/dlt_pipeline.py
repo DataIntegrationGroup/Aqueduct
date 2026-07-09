@@ -52,6 +52,8 @@ import httpx
 import toml
 from google.cloud import secretmanager
 
+from aqueduct_dagster.defs.assets._pipeline import build_source_pipeline
+
 logger = logging.getLogger(__name__)
 
 
@@ -518,19 +520,7 @@ def hydrovu_readings(
 
 
 def build_pipeline() -> dlt.Pipeline:
-    """
-    Returns a configured dlt pipeline writing parquet to GCS.
-    Bucket is read from config.toml [destination.filesystem] bucket_url.
-    Writes to gs://<bucket>/raw_pvacd/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/
-
-    Always call pipeline.run(..., loader_file_format="parquet") — the format
-    cannot be set reliably via config.toml for the filesystem destination.
-    """
-    return dlt.pipeline(
-        pipeline_name="pvacd_hydrovu",
-        destination="filesystem",
-        dataset_name="raw_pvacd",
-    )
+    return build_source_pipeline("pvacd_hydrovu", "raw_pvacd")
 
 
 def run_pipeline() -> None:

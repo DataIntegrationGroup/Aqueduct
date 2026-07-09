@@ -25,7 +25,7 @@ Parameter IDs (confirmed June 2026):
 
 from datetime import UTC
 
-from aqueduct_dagster.adapters.hydrovu_adapter import (
+from aqueduct_dagster.sources.hydrovu.adapter import (
     METRES_TO_FEET,
     HydroVuAdapter,
 )

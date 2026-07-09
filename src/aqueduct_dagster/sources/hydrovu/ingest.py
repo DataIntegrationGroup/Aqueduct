@@ -1,5 +1,5 @@
 """
-defs/assets/ingest_hydrovu.py
+defs/assets/hydrovu/ingest.py
 
 Dagster asset: raw_hydrovu_readings
   Runs the HydroVu dlt source which writes two resources to GCS:
@@ -18,7 +18,7 @@ Downstream: transform_hydrovu (reads both GCS folders)
 from dagster import AssetExecutionContext, Failure, MaterializeResult, MetadataValue, asset
 
 from aqueduct_dagster.defs.dagster_logging import forward_python_logs_to_dagster
-from aqueduct_dagster.pipeline.hydrovu_dlt_pipeline import build_pipeline, hydrovu_source
+from aqueduct_dagster.sources.hydrovu.dlt_pipeline import build_pipeline, hydrovu_source
 
 
 @asset(
@@ -49,7 +49,7 @@ def raw_hydrovu_readings(context: AssetExecutionContext) -> MaterializeResult:
         pipeline.dataset_name,
     )
     stats: dict = {}
-    with forward_python_logs_to_dagster(context, "aqueduct_dagster.pipeline", "dlt"):
+    with forward_python_logs_to_dagster(context, "aqueduct_dagster.sources.hydrovu", "dlt"):
         load_info = pipeline.run(hydrovu_source(_stats=stats), loader_file_format="parquet")
 
     context.log.info("HydroVu dlt load complete: %s", load_info)

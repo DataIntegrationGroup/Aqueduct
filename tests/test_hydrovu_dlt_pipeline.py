@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from aqueduct_dagster.pipeline.hydrovu_dlt_pipeline import (
+from aqueduct_dagster.sources.hydrovu.dlt_pipeline import (
     _auth_headers,
     _fetch_location_data,
     _fetch_locations,
@@ -328,7 +328,7 @@ class TestFetchLocationData:
         assert mock_sleep.call_args_list[0][0][0] == 30.0
 
     def test_429_uses_default_backoff_when_no_retry_after(self):
-        from aqueduct_dagster.pipeline.hydrovu_dlt_pipeline import _429_BACKOFF
+        from aqueduct_dagster.sources.hydrovu.dlt_pipeline import _429_BACKOFF
 
         resp_429 = _mock_resp(429)
         resp_429.headers = {}
@@ -370,7 +370,7 @@ _READINGS_DATA = {
 
 class TestHydroVuReadingsFilter:
     @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
-    @patch("aqueduct_dagster.pipeline.hydrovu_dlt_pipeline._fetch_location_data")
+    @patch("aqueduct_dagster.sources.hydrovu.dlt_pipeline._fetch_location_data")
     def test_only_fetches_allowlisted_locations(self, mock_fetch, _mock_state):
         mock_fetch.return_value = (_READINGS_DATA, None)
         list(
@@ -386,7 +386,7 @@ class TestHydroVuReadingsFilter:
         assert called_ids == {111, 222}
 
     @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
-    @patch("aqueduct_dagster.pipeline.hydrovu_dlt_pipeline._fetch_location_data")
+    @patch("aqueduct_dagster.sources.hydrovu.dlt_pipeline._fetch_location_data")
     def test_skips_locations_not_in_allowlist(self, mock_fetch, _mock_state):
         mock_fetch.return_value = (_READINGS_DATA, None)
         list(
@@ -403,7 +403,7 @@ class TestHydroVuReadingsFilter:
         assert 333 not in called_ids
 
     @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
-    @patch("aqueduct_dagster.pipeline.hydrovu_dlt_pipeline._fetch_location_data")
+    @patch("aqueduct_dagster.sources.hydrovu.dlt_pipeline._fetch_location_data")
     def test_empty_allowlist_skips_all_locations(self, mock_fetch, _mock_state):
         list(
             hydrovu_readings(
@@ -422,7 +422,7 @@ class TestHydroVuReadingsFilter:
 
 class TestHydroVuReadingsErrorStats:
     @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
-    @patch("aqueduct_dagster.pipeline.hydrovu_dlt_pipeline._fetch_location_data")
+    @patch("aqueduct_dagster.sources.hydrovu.dlt_pipeline._fetch_location_data")
     def test_real_error_increments_errored_count(self, mock_fetch, _mock_state):
         mock_fetch.return_value = (None, "HTTP 500")
         stats: dict = {}
@@ -440,7 +440,7 @@ class TestHydroVuReadingsErrorStats:
         assert 111 in stats["failed_location_ids"]
 
     @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
-    @patch("aqueduct_dagster.pipeline.hydrovu_dlt_pipeline._fetch_location_data")
+    @patch("aqueduct_dagster.sources.hydrovu.dlt_pipeline._fetch_location_data")
     def test_404_does_not_increment_errored_count(self, mock_fetch, _mock_state):
         mock_fetch.return_value = (None, None)
         stats: dict = {}
@@ -459,7 +459,7 @@ class TestHydroVuReadingsErrorStats:
         assert stats["failed_location_ids"] == []
 
     @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
-    @patch("aqueduct_dagster.pipeline.hydrovu_dlt_pipeline._fetch_location_data")
+    @patch("aqueduct_dagster.sources.hydrovu.dlt_pipeline._fetch_location_data")
     def test_error_does_not_advance_cursor(self, mock_fetch, _mock_state):
         state = {"location_cursors": {"111": 999}}
         with patch("dlt.current.resource_state", return_value=state):
@@ -476,7 +476,7 @@ class TestHydroVuReadingsErrorStats:
         assert state["location_cursors"]["111"] == 999  # unchanged
 
     @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
-    @patch("aqueduct_dagster.pipeline.hydrovu_dlt_pipeline._fetch_location_data")
+    @patch("aqueduct_dagster.sources.hydrovu.dlt_pipeline._fetch_location_data")
     def test_partial_failure_stats(self, mock_fetch, _mock_state):
         # location 111 succeeds, 222 errors
         mock_fetch.side_effect = [(_READINGS_DATA, None), (None, "HTTP 503")]
