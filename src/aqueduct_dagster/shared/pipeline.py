@@ -1,5 +1,5 @@
 """
-pipeline/_pipeline.py
+shared/pipeline.py
 
 Shared dlt pipeline factory for all sources.
 Each source's build_pipeline() calls this with explicit pipeline_name and

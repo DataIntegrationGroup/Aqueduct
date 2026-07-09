@@ -1,5 +1,5 @@
 """
-tests/test_cabq_adapter.py
+tests/sources/cabq/test_adapter.py
 
 Unit tests for CabqAdapter.
 No real API calls — safe to run without credentials.

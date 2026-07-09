@@ -22,7 +22,7 @@ from typing import Any
 
 import dlt
 
-from aqueduct_dagster.defs.assets._pipeline import build_source_pipeline
+from aqueduct_dagster.shared.pipeline import build_source_pipeline
 
 logger = logging.getLogger(__name__)
 

@@ -21,13 +21,13 @@ import toml
 from dagster import AssetExecutionContext, AssetIn, MetadataValue, asset
 
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle, CanonicalObservation
-from aqueduct_dagster.defs.assets._gcs import (
+from aqueduct_dagster.loader.frost_loader import FrostStaClientLoader, ObservationRecord
+from aqueduct_dagster.loader.watermark_store import FrostWatermarkStore
+from aqueduct_dagster.shared.gcs import (
     _gcs_bucket_url,
     _gcs_filesystem,
     commit_watermark,
 )
-from aqueduct_dagster.loader.frost_loader import FrostStaClientLoader, ObservationRecord
-from aqueduct_dagster.loader.watermark_store import FrostWatermarkStore
 
 logger = logging.getLogger(__name__)
 

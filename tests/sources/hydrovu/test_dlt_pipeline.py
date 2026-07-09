@@ -1,5 +1,5 @@
 """
-tests/test_hydrovu_dlt_pipeline.py
+tests/sources/hydrovu/test_dlt_pipeline.py
 
 Unit tests for the HydroVu dlt pipeline private helpers.
 No real API calls — all HTTP interactions are mocked.

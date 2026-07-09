@@ -8,9 +8,12 @@ Dagster asset: canonical_bundles_cabq
   - Returns bundles downstream to frost_load_cabq
 
 Incremental reads:
-  Follow the same load_id watermark pattern as hydrovu/transform.py:
-    - _read_watermark / _write_watermark using raw_cabq/_cabq_transform_watermark.json
-    - Only read parquet files with load_id > last watermark
+  Follow the same load_id watermark pattern as hydrovu/transform.py, using the
+  shared helpers in shared/gcs.py — no need to duplicate this logic:
+    - read_transform_watermark(fs, bucket, WATERMARK_PATH) for since_load_id
+    - read_new_parquet_rows(bucket, glob_suffix, since_load_id, fs, row_filter=...)
+      to read only new parquet files, optionally filtered to the rows this
+      source cares about (e.g. a specific parameter/measurement type)
     - Watermark must be written in frost_load_cabq (after FROST success), not here
     - Return a CabqTransformResult dataclass carrying (bundles, max_load_id) so
       the load step can call commit_watermark only on success
@@ -57,11 +60,14 @@ def canonical_bundles_cabq(context: AssetExecutionContext) -> CabqTransformResul
     Reads raw CABQ parquet from GCS, groups rows by location, and runs
     CabqAdapter to produce CanonicalBundles — one per location.
 
-    When implementing, follow transform_hydrovu.canonical_bundles_hydrovu:
-      1. bucket_url = _gcs_bucket_url()  (import from transform_hydrovu or duplicate helper)
-      2. creds = _gcs_credentials()
-      3. since_load_id = _read_watermark(fs, bucket)
-      4. rows, max_load_id = read new parquet files from raw_cabq/cabq_readings/year={YYYY}/month={MM}/day={DD}/
+    When implementing, follow hydrovu/transform.py's canonical_bundles_hydrovu,
+    using the shared helpers from shared/gcs.py (do not duplicate them):
+      1. bucket_url = _gcs_bucket_url(); bucket = bucket_url.replace("gs://", "")
+      2. fs = _gcs_filesystem()
+      3. since_load_id = read_transform_watermark(fs, bucket, WATERMARK_PATH)
+      4. rows, max_load_id = read_new_parquet_rows(
+             bucket, f"{GCS_DATASET}/cabq_readings/**/*.parquet", since_load_id, fs,
+         )
       5. group rows by location_id
       6. return CabqTransformResult(bundles=list(CabqAdapter(records).run()), max_load_id=max_load_id)
     """
