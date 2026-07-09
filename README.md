@@ -27,6 +27,11 @@ Orchestrated by Dagster. Each pipeline has three assets:
 
 ## Project structure
 
+Organized as a vertical slice per source: everything specific to one agency's
+pipeline (fetch → transform → adapt) lives together under `sources/<name>/`,
+so onboarding a new source means adding one folder, not touching four
+unrelated directories.
+
 ```
 Aqueduct/
 ├── docker-compose.yml              # FROST + PostGIS
@@ -35,33 +40,44 @@ Aqueduct/
 ├── .gitignore
 ├── .dlt/
 │   └── config.toml                 # dlt non-secret config (bucket URL, API URLs, start dates)
+├── docs/
+│   ├── STORAGE_CONVENTIONS.md      # GCS bucket/path naming conventions
+│   └── sources/
+│       ├── _mapping_template.md    # blank template for onboarding a new source
+│       └── pvacd_hydrovu.md        # HydroVu field-by-field canonical mapping reference
 ├── src/aqueduct_dagster/
-│   ├── canonical/                  # shared data model — adapters and loader both import from here
-│   │   ├── CANONICAL_MODEL.md      # explains the canonical model, entities, and file roles
+│   ├── canonical/                  # shared data model — the contract every adapter maps into
+│   │   ├── CANONICAL_MODEL.md      # entities, properties schema, and file roles
 │   │   ├── canonical_model.py      # dataclasses: CanonicalBundle, Thing, Location, Datastream, etc.
 │   │   ├── canonical_constants.py  # shared units, sensors, observed properties, key helpers
 │   │   └── base_adapter.py         # abstract BaseAdapter — all source adapters inherit from this
-│   ├── adapters/
-│   │   ├── hydrovu_adapter.py      # HydroVu → CanonicalBundle mapping
-│   │   └── cabq_adapter.py         # CABQ → CanonicalBundle mapping
-│   ├── pipeline/
-│   │   ├── hydrovu_dlt_pipeline.py # dlt source + resource + pipeline factory for HydroVu
-│   │   └── cabq_dlt_pipeline.py    # dlt source + resource + pipeline factory for CABQ
+│   ├── shared/                     # cross-cutting infra used by every source — no domain logic
+│   │   ├── gcs.py                  # GCS filesystem access, parquet reads, watermark read/write
+│   │   ├── pipeline.py             # build_source_pipeline() — shared dlt pipeline factory
+│   │   └── http.py                 # retry_transient() — shared HTTP retry-with-backoff helper
+│   ├── sources/                    # one folder per agency source (vertical slice)
+│   │   ├── hydrovu/
+│   │   │   ├── adapter.py          # HydroVu → CanonicalBundle mapping
+│   │   │   ├── dlt_pipeline.py     # dlt source + resource + pipeline factory
+│   │   │   ├── ingest.py           # Dagster asset: raw_hydrovu_readings
+│   │   │   └── transform.py        # Dagster asset: canonical_bundles_hydrovu
+│   │   └── cabq/                   # same shape as hydrovu/ — currently a stub (NotImplementedError)
+│   │       ├── adapter.py
+│   │       ├── dlt_pipeline.py
+│   │       ├── ingest.py
+│   │       └── transform.py
 │   ├── defs/
 │   │   ├── assets/
-│   │   │   ├── ingest_hydrovu.py   # Dagster asset: raw_hydrovu_readings
-│   │   │   ├── ingest_cabq.py      # Dagster asset: raw_cabq_readings
-│   │   │   ├── transform_hydrovu.py # Dagster asset: canonical_bundles_hydrovu
-│   │   │   ├── transform_cabq.py   # Dagster asset: canonical_bundles_cabq
-│   │   │   └── load.py             # Dagster assets: frost_load_hydrovu, frost_load_cabq
+│   │   │   └── load.py             # Dagster assets: frost_load_hydrovu, frost_load_cabq (shared factory)
 │   │   └── definitions.py          # Dagster entry point — jobs, schedules, asset registry
 │   └── loader/
 │       ├── frost_loader.py         # FrostLoader (abstract) + FrostStaClientLoader (concrete)
 │       └── watermark_store.py      # FrostWatermarkStore — per-run dedup via Dagster context
-└── tests/
-    ├── test_hydrovu_adapter.py
-    ├── test_hydrovu_dlt_pipeline.py
-    └── test_cabq_adapter.py
+└── tests/                          # mirrors src/aqueduct_dagster/'s layout above
+    ├── sources/{hydrovu,cabq}/
+    ├── shared/
+    ├── defs/assets/
+    └── loader/
 ```
 
 ---
