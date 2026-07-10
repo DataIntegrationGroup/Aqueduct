@@ -54,14 +54,15 @@ Aqueduct/
 │   ├── shared/                     # cross-cutting infra used by every source — no domain logic
 │   │   ├── gcs.py                  # GCS filesystem access, parquet reads, watermark read/write
 │   │   ├── pipeline.py             # build_source_pipeline() — shared dlt pipeline factory
-│   │   └── http.py                 # retry_transient() — shared HTTP retry-with-backoff helper
+│   │   ├── http.py                 # retry_transient() — shared HTTP retry-with-backoff helper
+│   │   └── source_registry.py      # SOURCE_REGISTRY — single per-source config for definitions.py + load.py
 │   ├── sources/                    # one folder per agency source (vertical slice)
 │   │   ├── hydrovu/
 │   │   │   ├── adapter.py          # HydroVu → CanonicalBundle mapping
 │   │   │   ├── dlt_pipeline.py     # dlt source + resource + pipeline factory
 │   │   │   ├── ingest.py           # Dagster asset: raw_hydrovu_readings
 │   │   │   └── transform.py        # Dagster asset: canonical_bundles_hydrovu
-│   │   └── cabq/                   # same shape as hydrovu/ — currently a stub (NotImplementedError)
+│   │   └── cabq/                   # same shape as hydrovu/ — currently a stub
 │   │       ├── adapter.py
 │   │       ├── dlt_pipeline.py
 │   │       ├── ingest.py
@@ -69,7 +70,8 @@ Aqueduct/
 │   ├── defs/
 │   │   ├── assets/
 │   │   │   └── load.py             # Dagster assets: frost_load_hydrovu, frost_load_cabq (shared factory)
-│   │   └── definitions.py          # Dagster entry point — jobs, schedules, asset registry
+│   │   ├── definitions.py          # Dagster entry point — jobs, schedules, asset registry
+│   │   └── dagster_logging.py      # forward_python_logs_to_dagster() — stdlib logging → Dagster run logs
 │   └── loader/
 │       ├── frost_loader.py         # FrostLoader (abstract) + FrostStaClientLoader (concrete)
 │       └── watermark_store.py      # FrostWatermarkStore — per-run dedup via Dagster context

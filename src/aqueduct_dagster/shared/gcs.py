@@ -62,9 +62,10 @@ def transform_watermark_path(dataset: str, source_name: str) -> str:
     The one place that defines the transform-watermark filename convention.
 
     Both the read side (a source's transform.py, via read_transform_watermark)
-    and the write side (defs/assets/load.py's _LOAD_CONFIGS, via commit_watermark)
-    must agree on this exact path — call this instead of hand-typing the string
-    in both places, so there's no risk of the two drifting apart.
+    and the write side (defs/assets/load.py, via commit_watermark, driven by
+    shared/source_registry.py's SOURCE_REGISTRY) must agree on this exact path —
+    call this instead of hand-typing the string in both places, so there's no
+    risk of the two drifting apart.
     """
     return f"{dataset}/_{source_name}_transform_watermark.json"
 

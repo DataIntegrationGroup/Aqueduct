@@ -7,8 +7,9 @@ Two independent pipelines — each can be run and scheduled separately:
   hydrovu_pipeline:  raw_hydrovu_readings → canonical_bundles_hydrovu → frost_load_hydrovu
   cabq_pipeline:     raw_cabq_readings    → canonical_bundles_cabq    → frost_load_cabq
 
-Adding source 3: add one entry to _PIPELINE_CONFIGS below. Jobs and schedules
-are generated automatically — no other changes needed in this file.
+Adding source 3: add one entry to shared/source_registry.py's SOURCE_REGISTRY.
+Jobs and schedules are generated automatically — no other changes needed in
+this file. defs/assets/load.py reads from the same registry.
 """
 
 from dagster import (
@@ -20,14 +21,7 @@ from dagster import (
 
 from aqueduct_dagster import sources as sources_pkg
 from aqueduct_dagster.defs import assets as shared_assets_pkg
-
-# ── Source registry — one entry per source ────────────────────────────────────
-# Asset names follow the convention: raw_{name}_readings, canonical_bundles_{name}, frost_load_{name}
-
-_PIPELINE_CONFIGS = [
-    {"name": "hydrovu", "cron": "0 6 * * *"},
-    {"name": "cabq", "cron": "0 8 * * *"},
-]
+from aqueduct_dagster.shared.source_registry import SOURCE_REGISTRY
 
 # ── Load all assets ───────────────────────────────────────────────────────────
 # sources/ — per-source ingest + transform assets (auto-discovered)
@@ -43,7 +37,7 @@ all_assets = [
 _jobs = []
 _schedules = []
 
-for _cfg in _PIPELINE_CONFIGS:
+for _cfg in SOURCE_REGISTRY:
     _n = _cfg["name"]
     _job = define_asset_job(
         name=f"{_n}_pipeline",
