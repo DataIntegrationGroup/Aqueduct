@@ -158,6 +158,8 @@ def _make_frost_load_asset(name: str, dataset: str) -> Any:
     return _asset
 
 
-# Generate one load asset per source — discovered automatically by load_assets_from_package_module
-frost_load_hydrovu = _make_frost_load_asset(**_LOAD_CONFIGS[0])
-frost_load_cabq = _make_frost_load_asset(**_LOAD_CONFIGS[1])
+# Generate one load asset per source — discovered automatically by load_assets_from_package_module.
+# Bound into the module namespace via globals() so adding source 3 to _LOAD_CONFIGS is genuinely
+# the only change needed here — no third hardcoded assignment line to remember.
+for _cfg in _LOAD_CONFIGS:
+    globals()[f"frost_load_{_cfg['name']}"] = _make_frost_load_asset(**_cfg)
