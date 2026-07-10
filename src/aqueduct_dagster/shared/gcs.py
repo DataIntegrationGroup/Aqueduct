@@ -57,6 +57,18 @@ def commit_watermark(watermark_path: str, max_load_id: float) -> None:
     write_transform_watermark(fs, bucket_url.replace("gs://", ""), watermark_path, max_load_id)
 
 
+def transform_watermark_path(dataset: str, source_name: str) -> str:
+    """
+    The one place that defines the transform-watermark filename convention.
+
+    Both the read side (a source's transform.py, via read_transform_watermark)
+    and the write side (defs/assets/load.py's _LOAD_CONFIGS, via commit_watermark)
+    must agree on this exact path — call this instead of hand-typing the string
+    in both places, so there's no risk of the two drifting apart.
+    """
+    return f"{dataset}/_{source_name}_transform_watermark.json"
+
+
 def _load_id_from_filename(path: str) -> float | None:
     """
     Extracts the dlt load_id from a parquet filename dlt itself writes.

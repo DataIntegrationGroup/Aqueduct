@@ -39,6 +39,7 @@ from aqueduct_dagster.shared.gcs import (
     _gcs_filesystem,
     read_new_parquet_rows,
     read_transform_watermark,
+    transform_watermark_path,
 )
 from aqueduct_dagster.sources.hydrovu.adapter import HydroVuAdapter
 
@@ -60,7 +61,7 @@ logger = logging.getLogger(__name__)
 
 GCS_DATASET = "raw_pvacd"
 DTW_PARAMETER_ID = "4"
-WATERMARK_PATH = f"{GCS_DATASET}/_hydrovu_transform_watermark.json"
+WATERMARK_PATH = transform_watermark_path(GCS_DATASET, "hydrovu")
 
 
 def _read_locations_from_gcs(bucket_url: str, fs: gcsfs.GCSFileSystem) -> dict[int, dict]:

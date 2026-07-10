@@ -27,6 +27,7 @@ from aqueduct_dagster.shared.gcs import (
     _gcs_bucket_url,
     _gcs_filesystem,
     commit_watermark,
+    transform_watermark_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,17 +35,12 @@ logger = logging.getLogger(__name__)
 FROST_REQUEST_TIMEOUT = 30  # seconds per request; retries handled by _with_retry in frost_loader
 
 # One entry per source. Adding source 3 means adding one dict here — nothing else in this file changes.
+# watermark_path is derived from (dataset, name) via transform_watermark_path() — the same
+# function each source's transform.py uses — so the read side and write side of the watermark
+# can never drift apart by one being hand-typed differently from the other.
 _LOAD_CONFIGS = [
-    {
-        "name": "hydrovu",
-        "dataset": "raw_pvacd",
-        "watermark_path": "raw_pvacd/_hydrovu_transform_watermark.json",
-    },
-    {
-        "name": "cabq",
-        "dataset": "raw_cabq",
-        "watermark_path": "raw_cabq/_cabq_transform_watermark.json",
-    },
+    {"name": "hydrovu", "dataset": "raw_pvacd"},
+    {"name": "cabq", "dataset": "raw_cabq"},
 ]
 
 
@@ -128,15 +124,20 @@ def _frost_load(
     )
 
 
-def _make_frost_load_asset(name: str, dataset: str, watermark_path: str) -> Any:
+def _make_frost_load_asset(name: str, dataset: str) -> Any:
     """
     Generates a frost_load_{name} @asset that:
       1. Calls _frost_load() with the source's FROST watermark dataset.
       2. Calls commit_watermark() after FROST success — always, by construction.
 
+    watermark_path is derived from (dataset, name) via transform_watermark_path(),
+    the same function the source's transform.py uses to compute its own WATERMARK_PATH —
+    so the read side and write side always agree without either hand-typing the string.
+
     transform_result must have .bundles: list[CanonicalBundle] and .max_load_id: float | None.
     Both HydroVuTransformResult and CabqTransformResult satisfy this contract.
     """
+    watermark_path = transform_watermark_path(dataset, name)
 
     @asset(
         name=f"frost_load_{name}",

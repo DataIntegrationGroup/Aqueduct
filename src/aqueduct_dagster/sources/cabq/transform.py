@@ -28,12 +28,13 @@ from dataclasses import dataclass
 from dagster import AssetExecutionContext, asset
 
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
+from aqueduct_dagster.shared.gcs import transform_watermark_path
 from aqueduct_dagster.sources.cabq.adapter import CabqAdapter  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
 GCS_DATASET = "raw_cabq"
-WATERMARK_PATH = f"{GCS_DATASET}/_cabq_transform_watermark.json"
+WATERMARK_PATH = transform_watermark_path(GCS_DATASET, "cabq")
 
 
 @dataclass
