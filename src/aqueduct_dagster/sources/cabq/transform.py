@@ -1,5 +1,5 @@
 """
-defs/assets/cabq/transform.py
+sources/cabq/transform.py
 
 Dagster asset: canonical_bundles_cabq
   - Reads raw cabq_readings parquet from GCS (written by raw_cabq_readings)

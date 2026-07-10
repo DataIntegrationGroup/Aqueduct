@@ -1,5 +1,5 @@
 """
-pipeline/hydrovu_dlt_pipeline.py
+sources/hydrovu/dlt_pipeline.py
 
 dlt pipeline for HydroVu raw ingestion.
 

@@ -1,5 +1,5 @@
 """
-pipeline/cabq_dlt_pipeline.py
+sources/cabq/dlt_pipeline.py
 
 dlt pipeline for CABQ raw ingestion.
 

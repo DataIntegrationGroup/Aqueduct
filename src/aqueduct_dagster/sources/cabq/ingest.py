@@ -1,5 +1,5 @@
 """
-defs/assets/cabq/ingest.py
+sources/cabq/ingest.py
 
 Dagster asset: raw_cabq_readings
   - Runs the CABQ dlt pipeline

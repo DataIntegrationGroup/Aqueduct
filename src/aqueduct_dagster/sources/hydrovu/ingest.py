@@ -1,5 +1,5 @@
 """
-defs/assets/hydrovu/ingest.py
+sources/hydrovu/ingest.py
 
 Dagster asset: raw_hydrovu_readings
   Runs the HydroVu dlt source which writes two resources to GCS:
