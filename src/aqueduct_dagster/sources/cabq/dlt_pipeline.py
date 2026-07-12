@@ -1,5 +1,5 @@
 """
-pipeline/cabq_dlt_pipeline.py
+sources/cabq/dlt_pipeline.py
 
 dlt pipeline for CABQ raw ingestion.
 
@@ -21,6 +21,8 @@ from collections.abc import Iterator
 from typing import Any
 
 import dlt
+
+from aqueduct_dagster.shared.pipeline import build_source_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -74,18 +76,7 @@ def cabq_readings(
 
 
 def build_pipeline() -> dlt.Pipeline:
-    """
-    Returns a configured dlt pipeline writing parquet to GCS.
-    Bucket is read from config.toml [destination.filesystem] bucket_url.
-    Writes to gs://<bucket>/raw_cabq/cabq_readings/year={YYYY}/month={MM}/day={DD}/
-
-    Always call pipeline.run(..., loader_file_format="parquet") — same as HydroVu.
-    """
-    return dlt.pipeline(
-        pipeline_name="pvacd_cabq",
-        destination="filesystem",
-        dataset_name="raw_cabq",
-    )
+    return build_source_pipeline("pvacd_cabq", "raw_cabq")
 
 
 def run_pipeline() -> None:

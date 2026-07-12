@@ -1,5 +1,5 @@
 """
-tests/test_frost_timeout.py
+tests/defs/assets/test_load.py
 
 Unit tests for the FROST request timeout injection.
 No live FROST server or Dagster runtime required.

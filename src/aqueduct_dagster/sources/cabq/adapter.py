@@ -1,5 +1,5 @@
 """
-adapters/cabq_adapter.py
+sources/cabq/adapter.py
 
 Mapping-only adapter for CABQ data.
 Raw records come from GCS (written by dlt).

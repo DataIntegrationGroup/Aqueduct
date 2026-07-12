@@ -1,5 +1,5 @@
 """
-tests/test_cabq_adapter.py
+tests/sources/cabq/test_adapter.py
 
 Unit tests for CabqAdapter.
 No real API calls — safe to run without credentials.
@@ -7,7 +7,7 @@ No real API calls — safe to run without credentials.
 TODO: fill in once real CABQ API response shape is known.
 """
 
-from aqueduct_dagster.adapters.cabq_adapter import CabqAdapter  # noqa: F401
+from aqueduct_dagster.sources.cabq.adapter import CabqAdapter  # noqa: F401
 
 
 def test_to_thing_produces_correct_key():

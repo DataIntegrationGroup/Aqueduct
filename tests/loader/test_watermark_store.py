@@ -1,5 +1,5 @@
 """
-tests/test_watermark_store.py
+tests/loader/test_watermark_store.py
 
 Unit tests for FrostWatermarkStore and InMemoryWatermarkStore.
 All GCS I/O is mocked — no live GCS or Dagster runtime required.

@@ -1,5 +1,5 @@
 """
-tests/test_frost_loader.py
+tests/loader/test_frost_loader.py
 
 Unit tests for FrostLoader.ensure_datastream retry behavior.
 No live FROST server required — all FROST calls are provided by a test double.

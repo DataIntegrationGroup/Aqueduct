@@ -1,5 +1,5 @@
 """
-defs/assets/transform_hydrovu.py
+sources/hydrovu/transform.py
 
 Dagster asset: canonical_bundles_hydrovu
   - Reads only NEW hydrovu_readings parquet from GCS since the last successful run
@@ -26,19 +26,22 @@ Upstream:  raw_hydrovu_readings
 Downstream: frost_load_hydrovu
 """
 
-import json
 import logging
-import os
-import re
 from dataclasses import dataclass
 
 import gcsfs
 import pyarrow.parquet as pq
-import toml
 from dagster import AssetExecutionContext, MetadataValue, asset
 
-from aqueduct_dagster.adapters.hydrovu_adapter import HydroVuAdapter
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
+from aqueduct_dagster.shared.gcs import (
+    _gcs_bucket_url,
+    _gcs_filesystem,
+    read_new_parquet_rows,
+    read_transform_watermark,
+    transform_watermark_path,
+)
+from aqueduct_dagster.sources.hydrovu.adapter import HydroVuAdapter
 
 
 @dataclass
@@ -56,60 +59,9 @@ class HydroVuTransformResult:
 
 logger = logging.getLogger(__name__)
 
+GCS_DATASET = "raw_pvacd"
 DTW_PARAMETER_ID = "4"
-WATERMARK_PATH = "raw_pvacd/_hydrovu_transform_watermark.json"
-
-
-def _gcs_bucket_url() -> str:
-    """
-    Resolve GCS bucket URL in priority order:
-      1. GCS_BUCKET_URL env var
-      2. [destination.filesystem] bucket_url in .dlt/config.toml
-    """
-    config_path = os.path.join(os.getcwd(), ".dlt", "config.toml")
-    return toml.load(config_path)["destination"]["filesystem"]["bucket_url"]
-
-
-def _gcs_filesystem(project: str = "") -> gcsfs.GCSFileSystem:
-    if project:
-        return gcsfs.GCSFileSystem(project=project, token="google_default")
-    else:
-        return gcsfs.GCSFileSystem(token="google_default")
-
-
-def _load_id_from_filename(path: str) -> float | None:
-    """
-    Extracts the dlt load_id from a parquet filename.
-    Expected format: .../year={YYYY}/month={MM}/day={DD}/{load_id}.{file_id}.parquet
-    e.g. raw_pvacd/hydrovu_readings/year=2024/month=06/day=18/1781192390.555875.0.parquet → 1781192390.555875
-    """
-    name = path.split("/")[-1]
-    m = re.match(r"^(\d+\.\d+)\.", name)
-    return float(m.group(1)) if m else None
-
-
-def _read_watermark(fs: gcsfs.GCSFileSystem, bucket: str) -> float | None:
-    """Returns the last processed load_id, or None if no watermark exists yet."""
-    wm_path = f"{bucket}/{WATERMARK_PATH}"
-    try:
-        with fs.open(wm_path) as f:
-            return json.load(f).get("last_load_id")
-    except FileNotFoundError:
-        return None
-
-
-def _write_watermark(fs: gcsfs.GCSFileSystem, bucket: str, load_id: float) -> None:
-    wm_path = f"{bucket}/{WATERMARK_PATH}"
-    with fs.open(wm_path, "w") as f:
-        json.dump({"last_load_id": load_id}, f)
-    logger.info("Transform watermark updated: last_load_id=%s", load_id)
-
-
-def commit_watermark(max_load_id: float) -> None:
-    """Write the transform watermark. Called by the load step after FROST confirms success."""
-    bucket_url = _gcs_bucket_url()
-    fs = _gcs_filesystem()
-    _write_watermark(fs, bucket_url.replace("gs://", ""), max_load_id)
+WATERMARK_PATH = transform_watermark_path(GCS_DATASET, "hydrovu")
 
 
 def _read_locations_from_gcs(bucket_url: str, fs: gcsfs.GCSFileSystem) -> dict[int, dict]:
@@ -118,7 +70,7 @@ def _read_locations_from_gcs(bucket_url: str, fs: gcsfs.GCSFileSystem) -> dict[i
     Returns a dict keyed by location_id for O(1) join with readings rows.
     """
     bucket = bucket_url.replace("gs://", "")
-    pattern = f"{bucket}/raw_pvacd/hydrovu_locations/**/*.parquet"
+    pattern = f"{bucket}/{GCS_DATASET}/hydrovu_locations/**/*.parquet"
     files = fs.glob(pattern)
     if not files:
         raise FileNotFoundError(
@@ -141,56 +93,6 @@ def _read_locations_from_gcs(bucket_url: str, fs: gcsfs.GCSFileSystem) -> dict[i
 
     logger.info("Read %d locations from GCS", len(locations))
     return locations
-
-
-def _read_dtw_rows_from_gcs(
-    bucket_url: str,
-    since_load_id: float | None,
-    fs: gcsfs.GCSFileSystem,
-) -> tuple[list[dict], float | None]:
-    """
-    Reads hydrovu_readings parquet files from GCS, returning only DTW rows.
-
-    If since_load_id is set, files with load_id <= since_load_id are skipped.
-    Returns (rows, max_load_id_seen_this_run) — max_load_id is None if no new files.
-    """
-    bucket = bucket_url.replace("gs://", "")
-    pattern = f"{bucket}/raw_pvacd/hydrovu_readings/**/*.parquet"
-    all_files = fs.glob(pattern)
-
-    new_files = []
-    for f in all_files:
-        load_id = _load_id_from_filename(f)
-        if load_id is None:
-            continue
-        if since_load_id is not None and load_id <= since_load_id:
-            continue
-        new_files.append((load_id, f))
-
-    if not new_files:
-        logger.info("No new parquet files since load_id=%s — nothing to process", since_load_id)
-        return [], None
-
-    logger.info(
-        "Reading %d new parquet file(s) (skipped %d already-processed)",
-        len(new_files),
-        len(all_files) - len(new_files),
-    )
-
-    rows = []
-    max_load_id = since_load_id or 0.0
-    for load_id, f in new_files:
-        with fs.open(f) as fh:
-            table = pq.read_table(fh)
-            df = table.to_pydict()
-            n = len(df["parameter_id"])
-            for i in range(n):
-                if df["parameter_id"][i] == DTW_PARAMETER_ID:
-                    rows.append({k: df[k][i] for k in df})
-        max_load_id = max(max_load_id, load_id)
-
-    logger.info("Read %d DTW rows from %d new parquet file(s)", len(rows), len(new_files))
-    return rows, max_load_id
 
 
 def _group_by_location(rows: list[dict], locations: dict[int, dict]) -> list[dict]:
@@ -245,14 +147,20 @@ def canonical_bundles_hydrovu(
 
     fs = _gcs_filesystem()
 
-    since_load_id = _read_watermark(fs, bucket)
+    since_load_id = read_transform_watermark(fs, bucket, WATERMARK_PATH)
     context.log.info(
         "Transform watermark: last_load_id=%s (%s)",
         since_load_id,
         "first run — reading all files" if since_load_id is None else "incremental",
     )
 
-    rows, max_load_id = _read_dtw_rows_from_gcs(bucket_url, since_load_id, fs)
+    rows, max_load_id = read_new_parquet_rows(
+        bucket,
+        f"{GCS_DATASET}/hydrovu_readings/**/*.parquet",
+        since_load_id,
+        fs,
+        row_filter=lambda row: row["parameter_id"] == DTW_PARAMETER_ID,
+    )
 
     if not rows:
         context.log.info("No new DTW rows — returning empty result (watermark unchanged)")

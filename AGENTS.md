@@ -33,23 +33,34 @@ HydroVu as the reference implementation when wiring up a new source.
 
 **The canonical model is the only contract between stages.** Adapters produce
 `CanonicalBundle`s; the FROST loader consumes them. Neither imports the other.
-Source-specific logic lives only in `adapters/` and `pipeline/` — everything
-downstream of the adapter is source-agnostic. Preserve this boundary. Do not
-make the loader aware of HydroVu, or an adapter aware of FROST.
+Source-specific logic lives only in `sources/<name>/` — everything downstream
+of the adapter is source-agnostic. Preserve this boundary. Do not make the
+loader aware of HydroVu, or an adapter aware of FROST.
 
 ## Repo map
 
 ```
 src/aqueduct_dagster/
 ├── canonical/      # shared data model — the contract. Start here to understand the domain.
-│   └── CANONICAL_MODEL.md   # read this for entity definitions
-├── adapters/       # <source>_adapter.py — raw rows → CanonicalBundle (source-specific)
-├── pipeline/       # <source>_dlt_pipeline.py — dlt source/resource/pipeline factory
+│   └── CANONICAL_MODEL.md   # read this for entity definitions and the properties schema
+├── shared/         # cross-cutting infra used by every source — no domain logic
+│   ├── gcs.py             # GCS filesystem access, parquet reads, watermark read/write
+│   ├── pipeline.py        # build_source_pipeline() — shared dlt pipeline factory
+│   ├── http.py            # retry_transient() — shared HTTP retry-with-backoff helper
+│   └── source_registry.py # SOURCE_REGISTRY — single per-source config, read by definitions.py and load.py
+├── sources/        # one folder per agency source (vertical slice) — see hydrovu/ as the reference
+│   └── <name>/
+│       ├── adapter.py       # raw rows → CanonicalBundle (source-specific)
+│       ├── dlt_pipeline.py  # dlt source/resource/pipeline factory
+│       ├── ingest.py        # Dagster asset: raw_<name>_readings
+│       └── transform.py     # Dagster asset: canonical_bundles_<name>
 ├── defs/
-│   ├── assets/     # Dagster assets: ingest_*, transform_*, load.py
-│   └── definitions.py   # Dagster entry point: jobs, schedules, asset registry
+│   ├── assets/
+│   │   └── load.py         # Dagster assets: frost_load_<name>, generated per source from one factory
+│   ├── definitions.py      # Dagster entry point: jobs, schedules, asset registry (also config-driven)
+│   └── dagster_logging.py  # forward_python_logs_to_dagster() — stdlib logging → Dagster run logs
 └── loader/         # frost_loader.py (FROST upserts) + watermark_store.py (dedup)
-tests/              # unit tests only — no live GCS/FROST/API
+tests/              # mirrors src/aqueduct_dagster/'s layout above — unit tests only, no live GCS/FROST/API
 ```
 
 ## Environment & commands

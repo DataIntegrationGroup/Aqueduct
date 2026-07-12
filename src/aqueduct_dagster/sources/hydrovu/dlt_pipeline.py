@@ -1,5 +1,5 @@
 """
-pipeline/hydrovu_dlt_pipeline.py
+sources/hydrovu/dlt_pipeline.py
 
 dlt pipeline for HydroVu raw ingestion.
 
@@ -51,6 +51,15 @@ import dlt
 import httpx
 import toml
 from google.cloud import secretmanager
+
+from aqueduct_dagster.shared.http import (
+    DEFAULT_MAX_RETRIES as _MAX_RETRIES,
+)
+from aqueduct_dagster.shared.http import (
+    TRANSIENT_HTTP_ERRORS as _TRANSIENT_ERRORS,
+)
+from aqueduct_dagster.shared.http import retry_transient
+from aqueduct_dagster.shared.pipeline import build_source_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -114,27 +123,26 @@ def _fetch_locations(api_base_url: str, tm: _TokenManager) -> list[dict]:
         if resp.status_code == 401:
             logger.warning("401 on /locations/list — refreshing token and retrying")
             fresh_token = tm.force_refresh()
-            for attempt in range(_MAX_RETRIES):
-                try:
-                    resp = httpx.get(
-                        f"{api_base_url}/locations/list",
-                        headers={**_auth_headers(fresh_token), "X-ISI-Start-Page": page_cursor},
-                        timeout=30,
-                    )
-                    break
-                except _TRANSIENT_ERRORS as exc:
-                    if attempt < _MAX_RETRIES - 1:
-                        delay = _RETRY_BACKOFF[attempt]
-                        logger.warning(
-                            "locations/list 401-retry: transient error (%s) on attempt %d"
-                            " — retrying in %.0fs",
-                            exc,
-                            attempt + 1,
-                            delay,
-                        )
-                        time.sleep(delay)
-                    else:
-                        raise
+
+            def _refetch_list(
+                token: str = fresh_token, cursor: str = page_cursor
+            ) -> httpx.Response:
+                return httpx.get(
+                    f"{api_base_url}/locations/list",
+                    headers={**_auth_headers(token), "X-ISI-Start-Page": cursor},
+                    timeout=30,
+                )
+
+            resp = retry_transient(
+                _refetch_list,
+                on_retry=lambda exc, attempt, delay: logger.warning(
+                    "locations/list 401-retry: transient error (%s) on attempt %d"
+                    " — retrying in %.0fs",
+                    exc,
+                    attempt,
+                    delay,
+                ),
+            )
         resp.raise_for_status()
         page = resp.json()
         all_locations.extend(page)
@@ -157,9 +165,6 @@ def _fetch_locations(api_base_url: str, tm: _TokenManager) -> list[dict]:
 
 
 _LOCATION_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
-_MAX_RETRIES = 3
-_RETRY_BACKOFF = (2.0, 4.0, 8.0)
-_TRANSIENT_ERRORS = (httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError)
 _429_BACKOFF = 60.0  # seconds to wait on 429 when Retry-After header is absent
 _MAX_RATE_LIMIT_RETRIES = 3
 
@@ -199,71 +204,63 @@ def _fetch_location_data(
         url = f"{api_base_url}/locations/{location_id}/data"
         params = {"startTime": start_time}
 
-        resp = None
-        for attempt in range(_MAX_RETRIES):
-            try:
-                resp = httpx.get(
-                    url,
-                    headers={**_auth_headers(tm.get()), "X-ISI-Start-Page": page_cursor},
-                    params=params,
-                    timeout=_LOCATION_TIMEOUT,
-                )
-                break
-            except _TRANSIENT_ERRORS as exc:
-                if attempt < _MAX_RETRIES - 1:
-                    delay = _RETRY_BACKOFF[attempt]
-                    logger.warning(
-                        "Location %s: transient error (%s) on attempt %d — retrying in %.0fs",
-                        location_id,
-                        exc,
-                        attempt + 1,
-                        delay,
-                    )
-                    time.sleep(delay)
-                else:
-                    logger.warning(
-                        "Location %s: transient error after %d attempts — skipping",
-                        location_id,
-                        _MAX_RETRIES,
-                    )
-                    return None, f"transient network error after {_MAX_RETRIES} attempts: {exc}"
+        def _fetch_page(
+            u: str = url, cursor: str = page_cursor, p: dict = params
+        ) -> httpx.Response:
+            return httpx.get(
+                u,
+                headers={**_auth_headers(tm.get()), "X-ISI-Start-Page": cursor},
+                params=p,
+                timeout=_LOCATION_TIMEOUT,
+            )
 
-        if resp is None:
-            return None, "no response after retries"
+        try:
+            resp = retry_transient(
+                _fetch_page,
+                on_retry=lambda exc, attempt, delay: logger.warning(
+                    "Location %s: transient error (%s) on attempt %d — retrying in %.0fs",
+                    location_id,
+                    exc,
+                    attempt,
+                    delay,
+                ),
+            )
+        except _TRANSIENT_ERRORS as exc:
+            logger.warning(
+                "Location %s: transient error after %d attempts — skipping",
+                location_id,
+                _MAX_RETRIES,
+            )
+            return None, f"transient network error after {_MAX_RETRIES} attempts: {exc}"
 
         if resp.status_code == 401:
             logger.warning("401 on location %s — refreshing token and retrying", location_id)
             fresh_token = tm.force_refresh()
-            retry_resp = None
-            for attempt in range(_MAX_RETRIES):
-                try:
-                    retry_resp = httpx.get(
-                        url,
-                        headers={**_auth_headers(fresh_token), "X-ISI-Start-Page": page_cursor},
-                        params=params,
-                        timeout=_LOCATION_TIMEOUT,
-                    )
-                    break
-                except _TRANSIENT_ERRORS as exc:
-                    if attempt < _MAX_RETRIES - 1:
-                        delay = _RETRY_BACKOFF[attempt]
-                        logger.warning(
-                            "Location %s: 401-retry transient error (%s) on attempt %d"
-                            " — retrying in %.0fs",
-                            location_id,
-                            exc,
-                            attempt + 1,
-                            delay,
-                        )
-                        time.sleep(delay)
-                    else:
-                        return (
-                            None,
-                            f"transient network error after token refresh: {exc}",
-                        )
-            if retry_resp is None:
-                return None, "no response after token refresh"
-            resp = retry_resp
+
+            def _refetch_page(
+                u: str = url, token: str = fresh_token, cursor: str = page_cursor, p: dict = params
+            ) -> httpx.Response:
+                return httpx.get(
+                    u,
+                    headers={**_auth_headers(token), "X-ISI-Start-Page": cursor},
+                    params=p,
+                    timeout=_LOCATION_TIMEOUT,
+                )
+
+            try:
+                resp = retry_transient(
+                    _refetch_page,
+                    on_retry=lambda exc, attempt, delay: logger.warning(
+                        "Location %s: 401-retry transient error (%s) on attempt %d"
+                        " — retrying in %.0fs",
+                        location_id,
+                        exc,
+                        attempt,
+                        delay,
+                    ),
+                )
+            except _TRANSIENT_ERRORS as exc:
+                return (None, f"transient network error after token refresh: {exc}")
 
         if resp.status_code == 404:
             logger.warning("Location %s: 404 — no data endpoint", location_id)
@@ -518,19 +515,7 @@ def hydrovu_readings(
 
 
 def build_pipeline() -> dlt.Pipeline:
-    """
-    Returns a configured dlt pipeline writing parquet to GCS.
-    Bucket is read from config.toml [destination.filesystem] bucket_url.
-    Writes to gs://<bucket>/raw_pvacd/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/
-
-    Always call pipeline.run(..., loader_file_format="parquet") — the format
-    cannot be set reliably via config.toml for the filesystem destination.
-    """
-    return dlt.pipeline(
-        pipeline_name="pvacd_hydrovu",
-        destination="filesystem",
-        dataset_name="raw_pvacd",
-    )
+    return build_source_pipeline("pvacd_hydrovu", "raw_pvacd")
 
 
 def run_pipeline() -> None:
