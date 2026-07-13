@@ -2,34 +2,38 @@
 tests/sources/hydrovu/test_dlt_pipeline.py
 
 Unit tests for the HydroVu dlt pipeline private helpers.
-No real API calls — all HTTP interactions are mocked.
+No real API calls — HTTP interactions are simulated via httpx.MockTransport,
+so requests go through a real httpx.Client + BearerAuth (exercising real
+httpx semantics: raise_for_status, headers, auth_flow) without patching
+httpx.get.
 
 Covers:
-  _TokenManager        — caching, expiry, force-refresh
-  _fetch_locations     — success, 401 retry, error propagation
-  _fetch_location_data — typed result tuple: success, 404, 5xx, 429, transient errors, 401 retry
+  _fetch_locations     — success, pagination, error propagation, transient retry
+  _fetch_location_data — typed result tuple: success, 404, 5xx, 429, transient errors
   hydrovu_readings     — allowlist filtering, error stats, cursor behaviour
+
+TokenManager/BearerAuth's own behavior (401 refresh-and-retry, token caching)
+is covered in tests/shared/test_http.py — the 401 tests here only confirm
+_fetch_locations/_fetch_location_data are wired to the client correctly.
 """
 
 from __future__ import annotations
 
-import time
 from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
 
+from aqueduct_dagster.shared.http import TokenManager
 from aqueduct_dagster.sources.hydrovu.dlt_pipeline import (
-    _auth_headers,
     _fetch_location_data,
     _fetch_locations,
-    _TokenManager,
     hydrovu_readings,
 )
+from tests.conftest import client_with_responses as _client_with_responses_base
+from tests.conftest import make_tm as _make_tm
 
 # ── Fixtures / shared test data ───────────────────────────────────────────────
-
-TOKEN_RESPONSE = {"access_token": "tok-abc", "expires_in": 3600}
 
 LOCATIONS_RESPONSE = [
     {
@@ -54,106 +58,12 @@ DATA_RESPONSE = {
 }
 
 
-def _mock_resp(status_code: int, body=None) -> MagicMock:
-    """Build a fake httpx response."""
-    resp = MagicMock()
-    resp.status_code = status_code
-    # Real httpx responses expose headers as a mapping; without this the cursor
-    # pagination loop reads a truthy MagicMock for X-ISI-Next-Page and never ends.
-    resp.headers = {}
-    resp.json.return_value = body if body is not None else {}
-    if status_code >= 400:
-        resp.raise_for_status.side_effect = Exception(f"HTTP {status_code}")
-    else:
-        resp.raise_for_status.return_value = None
-    return resp
-
-
-def _make_tm(token: str = "tok-abc") -> _TokenManager:
-    """Return a pre-seeded mock _TokenManager."""
-    tm = MagicMock(spec=_TokenManager)
-    tm.get.return_value = token
-    tm.force_refresh.return_value = "tok-new"
-    return tm
-
-
-# ── _auth_headers ─────────────────────────────────────────────────────────────
-
-
-class TestAuthHeaders:
-    def test_includes_bearer_token(self):
-        h = _auth_headers("my-token")
-        assert h["Authorization"] == "Bearer my-token"
-
-    def test_includes_accept_json(self):
-        h = _auth_headers("x")
-        assert h["Accept"] == "application/json"
-
-
-# ── _TokenManager ─────────────────────────────────────────────────────────────
-
-
-class TestTokenManager:
-    def test_get_fetches_token_on_first_call(self):
-        with patch("httpx.post", return_value=_mock_resp(200, TOKEN_RESPONSE)) as mock_post:
-            tm = _TokenManager("https://token.url", "cid", "csec")
-            token = tm.get()
-        assert token == "tok-abc"
-        mock_post.assert_called_once()
-
-    def test_get_returns_cached_token_on_second_call(self):
-        with patch("httpx.post", return_value=_mock_resp(200, TOKEN_RESPONSE)) as mock_post:
-            tm = _TokenManager("https://token.url", "cid", "csec")
-            tm.get()
-            tm.get()
-        assert mock_post.call_count == 1
-
-    def test_get_refreshes_when_token_expired(self):
-        with patch("httpx.post", return_value=_mock_resp(200, TOKEN_RESPONSE)) as mock_post:
-            tm = _TokenManager("https://token.url", "cid", "csec")
-            tm.get()
-            tm._expires_at = time.monotonic() - 1  # force expiry
-            tm.get()
-        assert mock_post.call_count == 2
-
-    def test_force_refresh_always_re_fetches(self):
-        with patch("httpx.post", return_value=_mock_resp(200, TOKEN_RESPONSE)) as mock_post:
-            tm = _TokenManager("https://token.url", "cid", "csec")
-            tm.get()
-            tm.force_refresh()
-        assert mock_post.call_count == 2
-
-    def test_refresh_sends_client_credentials_grant(self):
-        with patch("httpx.post", return_value=_mock_resp(200, TOKEN_RESPONSE)) as mock_post:
-            tm = _TokenManager("https://token.url", "cid", "csec")
-            tm.get()
-        data = mock_post.call_args[1]["data"]
-        assert data["grant_type"] == "client_credentials"
-        assert data["client_id"] == "cid"
-        assert data["client_secret"] == "csec"
-
-    def test_expires_at_set_60s_before_ttl(self):
-        with patch("httpx.post", return_value=_mock_resp(200, TOKEN_RESPONSE)):
-            with patch("time.monotonic", return_value=1000.0):
-                tm = _TokenManager("https://token.url", "cid", "csec")
-                tm.get()
-        # expires_in=3600 → _expires_at = 1000 + 3600 - 60 = 4540
-        assert tm._expires_at == pytest.approx(4540.0, abs=1.0)
-
-    def test_missing_expires_in_defaults_to_3600(self):
-        body = {"access_token": "tok-xyz"}  # no expires_in field
-        with patch("httpx.post", return_value=_mock_resp(200, body)):
-            with patch("time.monotonic", return_value=0.0):
-                tm = _TokenManager("https://token.url", "cid", "csec")
-                tm.get()
-        # 0 + 3600 - 60 = 3540
-        assert tm._expires_at == pytest.approx(3540.0, abs=1.0)
-
-    def test_raises_on_auth_failure(self):
-        with patch("httpx.post", return_value=_mock_resp(401)):
-            tm = _TokenManager("https://token.url", "cid", "csec")
-            with pytest.raises(Exception, match="HTTP 401"):
-                tm.get()
+def _client_with_responses(
+    responses: list[httpx.Response | Exception], tm: TokenManager | None = None
+) -> tuple[httpx.Client, list[httpx.Request]]:
+    """Thin wrapper over tests.conftest.client_with_responses fixing base_url
+    to HydroVu's mock API root, so call sites below don't repeat it."""
+    return _client_with_responses_base(responses, tm=tm, base_url="https://api")
 
 
 # ── _fetch_locations ──────────────────────────────────────────────────────────
@@ -161,56 +71,66 @@ class TestTokenManager:
 
 class TestFetchLocations:
     def test_returns_list_on_success(self):
-        with patch("httpx.get", return_value=_mock_resp(200, LOCATIONS_RESPONSE)):
-            result = _fetch_locations("https://api", _make_tm())
+        client, _ = _client_with_responses([httpx.Response(200, json=LOCATIONS_RESPONSE)])
+        result = _fetch_locations(client)
         assert result == LOCATIONS_RESPONSE
 
     def test_sends_empty_start_page_header(self):
         # First request sends X-ISI-Start-Page="" (empty cursor); the response's
         # X-ISI-Next-Page token drives subsequent pages.
-        with patch("httpx.get", return_value=_mock_resp(200, LOCATIONS_RESPONSE)) as mock_get:
-            _fetch_locations("https://api", _make_tm())
-        headers = mock_get.call_args[1]["headers"]
-        assert headers["X-ISI-Start-Page"] == ""
+        client, calls = _client_with_responses([httpx.Response(200, json=LOCATIONS_RESPONSE)])
+        _fetch_locations(client)
+        assert calls[0].headers["X-ISI-Start-Page"] == ""
 
     def test_sends_bearer_token(self):
-        with patch("httpx.get", return_value=_mock_resp(200, LOCATIONS_RESPONSE)) as mock_get:
-            _fetch_locations("https://api", _make_tm("my-token"))
-        headers = mock_get.call_args[1]["headers"]
-        assert headers["Authorization"] == "Bearer my-token"
+        client, calls = _client_with_responses(
+            [httpx.Response(200, json=LOCATIONS_RESPONSE)], tm=_make_tm("my-token")
+        )
+        _fetch_locations(client)
+        assert calls[0].headers["Authorization"] == "Bearer my-token"
 
-    def test_retries_with_fresh_token_on_401(self):
-        tm = _make_tm()
-        responses = [_mock_resp(401), _mock_resp(200, LOCATIONS_RESPONSE)]
-        with patch("httpx.get", side_effect=responses):
-            result = _fetch_locations("https://api", tm)
-        tm.force_refresh.assert_called_once()
+    def test_401_then_success_returns_list(self):
+        # BearerAuth's refresh-and-retry-on-401 behavior is unit-tested in
+        # tests/shared/test_http.py — this only confirms _fetch_locations is
+        # wired to the client (not calling httpx.get directly).
+        client, calls = _client_with_responses(
+            [httpx.Response(401), httpx.Response(200, json=LOCATIONS_RESPONSE)]
+        )
+        result = _fetch_locations(client)
         assert result == LOCATIONS_RESPONSE
-
-    def test_retry_uses_refreshed_token(self):
-        tm = _make_tm()
-        responses = [_mock_resp(401), _mock_resp(200, LOCATIONS_RESPONSE)]
-        with patch("httpx.get", side_effect=responses) as mock_get:
-            _fetch_locations("https://api", tm)
-        second_call_headers = mock_get.call_args_list[1][1]["headers"]
-        assert second_call_headers["Authorization"] == "Bearer tok-new"
-
-    def test_raises_if_retry_also_returns_401(self):
-        responses = [_mock_resp(401), _mock_resp(401)]
-        with patch("httpx.get", side_effect=responses):
-            with pytest.raises(Exception, match="HTTP 401"):
-                _fetch_locations("https://api", _make_tm())
+        assert calls[1].headers["Authorization"] == "Bearer tok-new"
 
     def test_raises_on_server_error(self):
-        with patch("httpx.get", return_value=_mock_resp(500)):
-            with pytest.raises(Exception, match="HTTP 500"):
-                _fetch_locations("https://api", _make_tm())
+        client, _ = _client_with_responses([httpx.Response(500)])
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            _fetch_locations(client)
+        assert exc_info.value.response.status_code == 500
 
     def test_hits_correct_endpoint(self):
-        with patch("httpx.get", return_value=_mock_resp(200, LOCATIONS_RESPONSE)) as mock_get:
-            _fetch_locations("https://api", _make_tm())
-        url = mock_get.call_args[0][0]
-        assert url == "https://api/locations/list"
+        client, calls = _client_with_responses([httpx.Response(200, json=LOCATIONS_RESPONSE)])
+        _fetch_locations(client)
+        assert str(calls[0].url) == "https://api/locations/list"
+
+    def test_paginates_using_next_page_header(self):
+        client, calls = _client_with_responses(
+            [
+                httpx.Response(200, json=[{"id": 1}], headers={"X-ISI-Next-Page": "cursor-2"}),
+                httpx.Response(200, json=[{"id": 2}]),
+            ]
+        )
+        result = _fetch_locations(client)
+        assert result == [{"id": 1}, {"id": 2}]
+        assert calls[0].headers["X-ISI-Start-Page"] == ""
+        assert calls[1].headers["X-ISI-Start-Page"] == "cursor-2"
+
+    def test_transient_error_retries_then_succeeds(self):
+        client, calls = _client_with_responses(
+            [httpx.ReadError("reset"), httpx.Response(200, json=LOCATIONS_RESPONSE)]
+        )
+        with patch("time.sleep"):
+            result = _fetch_locations(client)
+        assert result == LOCATIONS_RESPONSE
+        assert len(calls) == 2
 
 
 # ── _fetch_location_data ──────────────────────────────────────────────────────
@@ -218,132 +138,102 @@ class TestFetchLocations:
 
 class TestFetchLocationData:
     def test_returns_data_and_no_error_on_success(self):
-        with patch("httpx.get", return_value=_mock_resp(200, DATA_RESPONSE)):
-            data, err = _fetch_location_data("https://api", 123, 1780704000, _make_tm())
+        client, _ = _client_with_responses([httpx.Response(200, json=DATA_RESPONSE)])
+        data, err = _fetch_location_data(client, 123, 1780704000)
         assert data == DATA_RESPONSE
         assert err is None
 
     def test_returns_none_none_on_404(self):
-        with patch("httpx.get", return_value=_mock_resp(404)):
-            data, err = _fetch_location_data("https://api", 123, 1780704000, _make_tm())
+        client, _ = _client_with_responses([httpx.Response(404)])
+        data, err = _fetch_location_data(client, 123, 1780704000)
         assert data is None
         assert err is None
 
     def test_404_does_not_raise(self):
-        with patch("httpx.get", return_value=_mock_resp(404)):
-            _fetch_location_data("https://api", 123, 1780704000, _make_tm())  # must not raise
+        client, _ = _client_with_responses([httpx.Response(404)])
+        _fetch_location_data(client, 123, 1780704000)  # must not raise
 
     def test_returns_error_reason_on_500(self):
-        with patch("httpx.get", return_value=_mock_resp(500)):
-            data, err = _fetch_location_data("https://api", 123, 1780704000, _make_tm())
+        client, _ = _client_with_responses([httpx.Response(500)])
+        data, err = _fetch_location_data(client, 123, 1780704000)
         assert data is None
         assert err is not None
         assert "500" in err
 
     def test_returns_error_reason_on_503(self):
-        with patch("httpx.get", return_value=_mock_resp(503)):
-            data, err = _fetch_location_data("https://api", 123, 1780704000, _make_tm())
+        client, _ = _client_with_responses([httpx.Response(503)])
+        data, err = _fetch_location_data(client, 123, 1780704000)
         assert data is None
         assert err is not None
         assert "503" in err
 
-    def test_retries_with_fresh_token_on_401(self):
-        tm = _make_tm()
-        responses = [_mock_resp(401), _mock_resp(200, DATA_RESPONSE)]
-        with patch("httpx.get", side_effect=responses):
-            data, err = _fetch_location_data("https://api", 123, 1780704000, tm)
-        tm.force_refresh.assert_called_once()
+    def test_401_then_success_returns_data(self):
+        client, calls = _client_with_responses(
+            [httpx.Response(401), httpx.Response(200, json=DATA_RESPONSE)]
+        )
+        data, err = _fetch_location_data(client, 123, 1780704000)
         assert data == DATA_RESPONSE
         assert err is None
-
-    def test_retry_uses_refreshed_token(self):
-        tm = _make_tm()
-        responses = [_mock_resp(401), _mock_resp(200, DATA_RESPONSE)]
-        with patch("httpx.get", side_effect=responses) as mock_get:
-            _fetch_location_data("https://api", 123, 1780704000, tm)
-        second_call_headers = mock_get.call_args_list[1][1]["headers"]
-        assert second_call_headers["Authorization"] == "Bearer tok-new"
-
-    def test_raises_if_retry_also_returns_401(self):
-        responses = [_mock_resp(401), _mock_resp(401)]
-        with patch("httpx.get", side_effect=responses):
-            with pytest.raises(Exception, match="HTTP 401"):
-                _fetch_location_data("https://api", 123, 1780704000, _make_tm())
+        assert calls[1].headers["Authorization"] == "Bearer tok-new"
 
     def test_passes_start_time_as_query_param(self):
-        with patch("httpx.get", return_value=_mock_resp(200, DATA_RESPONSE)) as mock_get:
-            _fetch_location_data("https://api", 123, 1780704000, _make_tm())
-        params = mock_get.call_args[1]["params"]
-        assert params["startTime"] == 1780704000
+        client, calls = _client_with_responses([httpx.Response(200, json=DATA_RESPONSE)])
+        _fetch_location_data(client, 123, 1780704000)
+        assert calls[0].url.params["startTime"] == "1780704000"
 
     def test_hits_correct_endpoint(self):
-        with patch("httpx.get", return_value=_mock_resp(200, DATA_RESPONSE)) as mock_get:
-            _fetch_location_data("https://api", 123, 1780704000, _make_tm())
-        url = mock_get.call_args[0][0]
-        assert url == "https://api/locations/123/data"
+        client, calls = _client_with_responses([httpx.Response(200, json=DATA_RESPONSE)])
+        _fetch_location_data(client, 123, 1780704000)
+        assert calls[0].url.path == "/locations/123/data"
 
     def test_raises_on_unexpected_4xx(self):
-        with patch("httpx.get", return_value=_mock_resp(403)):
-            with pytest.raises(Exception, match="HTTP 403"):
-                _fetch_location_data("https://api", 123, 1780704000, _make_tm())
+        client, _ = _client_with_responses([httpx.Response(403)])
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            _fetch_location_data(client, 123, 1780704000)
+        assert exc_info.value.response.status_code == 403
 
     def test_transient_error_exhausted_returns_error_reason(self):
-        exc = httpx.ReadError("connection reset")
-        with patch("httpx.get", side_effect=exc):
-            with patch("time.sleep"):
-                data, err = _fetch_location_data("https://api", 123, 1780704000, _make_tm())
-        assert data is None
-        assert err is not None
-        assert "transient" in err.lower()
-
-    def test_401_retry_transient_error_returns_error_reason(self):
-        # First request returns 401; then the refresh retry hits a transient error.
-        responses = [
-            _mock_resp(401),
-            httpx.ReadError("reset"),
-            httpx.ReadError("reset"),
-            httpx.ReadError("reset"),
-        ]
-        with patch("httpx.get", side_effect=responses):
-            with patch("time.sleep"):
-                data, err = _fetch_location_data("https://api", 123, 1780704000, _make_tm())
+        # Handler raises on every attempt — retry_transient exhausts its
+        # budget (3 attempts) and _fetch_location_data converts that into an
+        # error-reason tuple rather than propagating.
+        client, _ = _client_with_responses([httpx.ReadError("reset")] * 3)
+        with patch("time.sleep"):
+            data, err = _fetch_location_data(client, 123, 1780704000)
         assert data is None
         assert err is not None
         assert "transient" in err.lower()
 
     def test_429_returns_error_after_exhausted_retries(self):
-        with patch("httpx.get", return_value=_mock_resp(429)):
-            with patch("time.sleep"):
-                data, err = _fetch_location_data("https://api", 123, 1780704000, _make_tm())
+        client, _ = _client_with_responses([httpx.Response(429)] * 4)
+        with patch("time.sleep"):
+            data, err = _fetch_location_data(client, 123, 1780704000)
         assert data is None
         assert err is not None
         assert "429" in err
 
     def test_429_respects_retry_after_header(self):
-        resp_429 = _mock_resp(429)
-        resp_429.headers = {"Retry-After": "30"}
-        with patch("httpx.get", side_effect=[resp_429, resp_429, resp_429, resp_429]):
-            with patch("time.sleep") as mock_sleep:
-                _fetch_location_data("https://api", 123, 1780704000, _make_tm())
+        client, _ = _client_with_responses([httpx.Response(429, headers={"Retry-After": "30"})] * 4)
+        with patch("time.sleep") as mock_sleep:
+            _fetch_location_data(client, 123, 1780704000)
         assert mock_sleep.call_args_list[0][0][0] == 30.0
 
     def test_429_uses_default_backoff_when_no_retry_after(self):
         from aqueduct_dagster.sources.hydrovu.dlt_pipeline import _429_BACKOFF
 
-        resp_429 = _mock_resp(429)
-        resp_429.headers = {}
-        with patch("httpx.get", side_effect=[resp_429, resp_429, resp_429, resp_429]):
-            with patch("time.sleep") as mock_sleep:
-                _fetch_location_data("https://api", 123, 1780704000, _make_tm())
+        client, _ = _client_with_responses([httpx.Response(429)] * 4)
+        with patch("time.sleep") as mock_sleep:
+            _fetch_location_data(client, 123, 1780704000)
         assert mock_sleep.call_args_list[0][0][0] == _429_BACKOFF
 
     def test_429_succeeds_after_one_retry(self):
-        resp_429 = _mock_resp(429)
-        resp_429.headers = {"Retry-After": "1"}
-        responses = [resp_429, _mock_resp(200, DATA_RESPONSE)]
-        with patch("httpx.get", side_effect=responses):
-            with patch("time.sleep"):
-                data, err = _fetch_location_data("https://api", 123, 1780704000, _make_tm())
+        client, _ = _client_with_responses(
+            [
+                httpx.Response(429, headers={"Retry-After": "1"}),
+                httpx.Response(200, json=DATA_RESPONSE),
+            ]
+        )
+        with patch("time.sleep"):
+            data, err = _fetch_location_data(client, 123, 1780704000)
         assert data == DATA_RESPONSE
         assert err is None
 
@@ -367,6 +257,8 @@ _READINGS_DATA = {
     ]
 }
 
+_DUMMY_CLIENT = MagicMock(spec=httpx.Client)
+
 
 class TestHydroVuReadingsFilter:
     @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
@@ -375,9 +267,8 @@ class TestHydroVuReadingsFilter:
         mock_fetch.return_value = (_READINGS_DATA, None)
         list(
             hydrovu_readings(
-                api_base_url="https://api",
+                client=_DUMMY_CLIENT,
                 start_ts=1000,
-                tm=_make_tm(),
                 locations=_LOCATIONS,
                 location_ids=[111, 222],
             )
@@ -391,9 +282,8 @@ class TestHydroVuReadingsFilter:
         mock_fetch.return_value = (_READINGS_DATA, None)
         list(
             hydrovu_readings(
-                api_base_url="https://api",
+                client=_DUMMY_CLIENT,
                 start_ts=1000,
-                tm=_make_tm(),
                 locations=_LOCATIONS,
                 location_ids=[111],
             )
@@ -407,9 +297,8 @@ class TestHydroVuReadingsFilter:
     def test_empty_allowlist_skips_all_locations(self, mock_fetch, _mock_state):
         list(
             hydrovu_readings(
-                api_base_url="https://api",
+                client=_DUMMY_CLIENT,
                 start_ts=1000,
-                tm=_make_tm(),
                 locations=_LOCATIONS,
                 location_ids=[],
             )
@@ -428,9 +317,8 @@ class TestHydroVuReadingsErrorStats:
         stats: dict = {}
         list(
             hydrovu_readings(
-                api_base_url="https://api",
+                client=_DUMMY_CLIENT,
                 start_ts=1000,
-                tm=_make_tm(),
                 locations=[{"id": 111, "name": "Well A"}],
                 location_ids=[111],
                 _stats=stats,
@@ -446,9 +334,8 @@ class TestHydroVuReadingsErrorStats:
         stats: dict = {}
         list(
             hydrovu_readings(
-                api_base_url="https://api",
+                client=_DUMMY_CLIENT,
                 start_ts=1000,
-                tm=_make_tm(),
                 locations=[{"id": 111, "name": "Well A"}],
                 location_ids=[111],
                 _stats=stats,
@@ -466,9 +353,8 @@ class TestHydroVuReadingsErrorStats:
             mock_fetch.return_value = (None, "HTTP 500")
             list(
                 hydrovu_readings(
-                    api_base_url="https://api",
+                    client=_DUMMY_CLIENT,
                     start_ts=1000,
-                    tm=_make_tm(),
                     locations=[{"id": 111, "name": "Well A"}],
                     location_ids=[111],
                 )
@@ -483,9 +369,8 @@ class TestHydroVuReadingsErrorStats:
         stats: dict = {}
         list(
             hydrovu_readings(
-                api_base_url="https://api",
+                client=_DUMMY_CLIENT,
                 start_ts=1000,
-                tm=_make_tm(),
                 locations=[{"id": 111, "name": "Well A"}, {"id": 222, "name": "Well B"}],
                 location_ids=[111, 222],
                 _stats=stats,
