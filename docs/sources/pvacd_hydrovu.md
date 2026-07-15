@@ -46,7 +46,7 @@ Pagination for both Locations and Readings: cursor-based via `X-ISI-Start-Page` 
 | Source Field | Type | Notes |
 |---|---|---|
 | `hydrovu_description` | str | `locations[].description` — the HydroVu description field (well number, e.g. `"827276"`) |
-| `elevation` | {value: float, unit: str} \| None | **Not provided by HydroVu API.** `/locations/list` returns only `gps.latitude` and `gps.longitude` — no elevation field exists in the response. |
+| `elevation` | {value: float, unit: "m"} \| None | **Not provided by HydroVu API.** `/locations/list` returns only `gps.latitude` and `gps.longitude` — no elevation field exists in the response. |
 
 ---
 
