@@ -91,9 +91,10 @@ class HydroVuAdapter(BaseAdapter):
                 "coordinates": [record["longitude"], record["latitude"]],
             },
             properties={
-                "agency": self.agency,
-                "source_id": record["location_id"],
-                "hydrovu.description": record["location_description"],
+                "source_id": source_id,
+                "source_specific": {
+                    "hydrovu_description": record["location_description"],
+                },
             },
         )
 
@@ -104,8 +105,10 @@ class HydroVuAdapter(BaseAdapter):
             location=location,
             properties={
                 "agency": self.agency,
-                "source_id": record["location_id"],
-                "hydrovu.description": record["location_description"],
+                "source_id": source_id,
+                "source_specific": {
+                    "hydrovu_description": record["location_description"],
+                },
             },
         )
 
