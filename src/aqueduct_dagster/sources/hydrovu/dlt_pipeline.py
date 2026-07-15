@@ -19,10 +19,11 @@ Two resources returned from hydrovu_source():
     embedded; join to hydrovu_locations on location_id at transform time.
     Written to: gs://<bucket>/raw_pvacd/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/
 
-_TokenManager is created once in hydrovu_source() and passed to both
-resources so a single token covers the full run.
+A TokenManager is created once in hydrovu_source() and wrapped in an
+authenticated httpx.Client (base_url + BearerAuth) shared by both resources,
+so a single token and a single client cover the full run.
 
-This module is NOT a Dagster asset — it is called by defs/assets/ingest_hydrovu.py
+This module is NOT a Dagster asset — it is called by sources/hydrovu/ingest.py
 
 dlt destination = filesystem (GCS)
   → GCS is the final destination for the raw data ingested by this pipeline.
@@ -34,7 +35,8 @@ API endpoints confirmed:
   - Readings:  GET  https://www.hydrovu.com/public-api/v1/locations/{id}/data?startTime={unix_ts}
   - Pagination: X-ISI-Start-Page="" on first request; response carries X-ISI-Next-Page opaque
                 cursor token; pass it verbatim on the next request; stop when absent or empty
-  - Token refresh: client credentials tokens have a finite TTL; 401 triggers one automatic retry
+  - Token refresh: client credentials tokens have a finite TTL; BearerAuth (shared/http.py)
+                refreshes and retries once automatically on a 401 — no per-call-site handling needed.
 """
 
 from __future__ import annotations
@@ -58,55 +60,17 @@ from aqueduct_dagster.shared.http import (
 from aqueduct_dagster.shared.http import (
     TRANSIENT_HTTP_ERRORS as _TRANSIENT_ERRORS,
 )
-from aqueduct_dagster.shared.http import retry_transient
+from aqueduct_dagster.shared.http import (
+    TokenManager,
+    build_authenticated_client,
+    retry_transient,
+)
 from aqueduct_dagster.shared.pipeline import build_source_pipeline
 
 logger = logging.getLogger(__name__)
 
 
-class _TokenManager:
-    """Fetches and caches a client-credentials token; re-fetches on expiry or 401."""
-
-    def __init__(self, token_url: str, client_id: str, client_secret: str) -> None:
-        self._token_url = token_url
-        self._client_id = client_id
-        self._client_secret = client_secret
-        self._token: str | None = None
-        self._expires_at: float = 0.0
-
-    def get(self) -> str:
-        if self._token is None or time.monotonic() >= self._expires_at:
-            self._refresh()
-        return self._token  # type: ignore[return-value]
-
-    def force_refresh(self) -> str:
-        self._refresh()
-        return self._token  # type: ignore[return-value]
-
-    def _refresh(self) -> None:
-        resp = httpx.post(
-            self._token_url,
-            data={
-                "grant_type": "client_credentials",
-                "client_id": self._client_id,
-                "client_secret": self._client_secret,
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
-        body = resp.json()
-        self._token = body["access_token"]
-        # Refresh 60 s before actual expiry; default to 55 min if field absent
-        ttl = body.get("expires_in", 3600)
-        self._expires_at = time.monotonic() + ttl - 60
-        logger.info("HydroVu token refreshed (expires_in=%ss)", ttl)
-
-
-def _auth_headers(token: str) -> dict:
-    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-
-
-def _fetch_locations(api_base_url: str, tm: _TokenManager) -> list[dict]:
+def _fetch_locations(client: httpx.Client) -> list[dict]:
     """Fetches all locations, walking cursor-based pages (same pattern as location data)."""
     all_locations: list[dict] = []
     page_cursor: str = ""
@@ -115,34 +79,19 @@ def _fetch_locations(api_base_url: str, tm: _TokenManager) -> list[dict]:
     logger.info("Fetching HydroVu location list")
     while True:
         page_num += 1
-        resp = httpx.get(
-            f"{api_base_url}/locations/list",
-            headers={**_auth_headers(tm.get()), "X-ISI-Start-Page": page_cursor},
-            timeout=30,
+
+        def _fetch_page(cursor: str = page_cursor) -> httpx.Response:
+            return client.get("/locations/list", headers={"X-ISI-Start-Page": cursor})
+
+        resp = retry_transient(
+            _fetch_page,
+            on_retry=lambda exc, attempt, delay: logger.warning(
+                "locations/list: transient error (%s) on attempt %d — retrying in %.0fs",
+                exc,
+                attempt,
+                delay,
+            ),
         )
-        if resp.status_code == 401:
-            logger.warning("401 on /locations/list — refreshing token and retrying")
-            fresh_token = tm.force_refresh()
-
-            def _refetch_list(
-                token: str = fresh_token, cursor: str = page_cursor
-            ) -> httpx.Response:
-                return httpx.get(
-                    f"{api_base_url}/locations/list",
-                    headers={**_auth_headers(token), "X-ISI-Start-Page": cursor},
-                    timeout=30,
-                )
-
-            resp = retry_transient(
-                _refetch_list,
-                on_retry=lambda exc, attempt, delay: logger.warning(
-                    "locations/list 401-retry: transient error (%s) on attempt %d"
-                    " — retrying in %.0fs",
-                    exc,
-                    attempt,
-                    delay,
-                ),
-            )
         resp.raise_for_status()
         page = resp.json()
         all_locations.extend(page)
@@ -164,13 +113,13 @@ def _fetch_locations(api_base_url: str, tm: _TokenManager) -> list[dict]:
     return all_locations
 
 
-_LOCATION_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
+_LOCATION_TIMEOUT = httpx.Timeout(connect=30.0, read=60.0, write=30.0, pool=30.0)
 _429_BACKOFF = 60.0  # seconds to wait on 429 when Retry-After header is absent
 _MAX_RATE_LIMIT_RETRIES = 3
 
 
 def _fetch_location_data(
-    api_base_url: str, location_id: int, start_time: int, tm: _TokenManager
+    client: httpx.Client, location_id: int, start_time: int
 ) -> tuple[dict | None, str | None]:
     """
     Fetches all readings for one location, walking cursor-based pages.
@@ -180,7 +129,8 @@ def _fetch_location_data(
       (None, None)   — HTTP 404: location has no data endpoint (expected, not an error)
       (None, reason) — real error: HTTP 429, 5xx, or exhausted retries
 
-    On 401: refreshes token and retries once (with transient-error protection).
+    On 401: BearerAuth (shared/http.py) refreshes the token and retries the
+            request automatically — no handling needed here.
     On 429: respects Retry-After header; falls back to _429_BACKOFF seconds.
             Retries up to _MAX_RATE_LIMIT_RETRIES times, then returns (None, reason).
     On transient network errors: retries up to _MAX_RETRIES times with exponential
@@ -193,6 +143,8 @@ def _fetch_location_data(
     all_data: dict | None = None
     page_cursor: str = ""
     page_num = 0
+    path = f"/locations/{location_id}/data"
+    params = {"startTime": start_time}
     # Per-location counter — resets for each new location, intentionally spans all pages
     # of that location's fetch so a single badly-behaved location can't burn the full
     # _MAX_RATE_LIMIT_RETRIES budget across multiple other locations.
@@ -201,18 +153,9 @@ def _fetch_location_data(
     while True:
         page_num += 1
         logger.info("Location %s: fetching readings page %d", location_id, page_num)
-        url = f"{api_base_url}/locations/{location_id}/data"
-        params = {"startTime": start_time}
 
-        def _fetch_page(
-            u: str = url, cursor: str = page_cursor, p: dict = params
-        ) -> httpx.Response:
-            return httpx.get(
-                u,
-                headers={**_auth_headers(tm.get()), "X-ISI-Start-Page": cursor},
-                params=p,
-                timeout=_LOCATION_TIMEOUT,
-            )
+        def _fetch_page(cursor: str = page_cursor) -> httpx.Response:
+            return client.get(path, headers={"X-ISI-Start-Page": cursor}, params=params)
 
         try:
             resp = retry_transient(
@@ -232,35 +175,6 @@ def _fetch_location_data(
                 _MAX_RETRIES,
             )
             return None, f"transient network error after {_MAX_RETRIES} attempts: {exc}"
-
-        if resp.status_code == 401:
-            logger.warning("401 on location %s — refreshing token and retrying", location_id)
-            fresh_token = tm.force_refresh()
-
-            def _refetch_page(
-                u: str = url, token: str = fresh_token, cursor: str = page_cursor, p: dict = params
-            ) -> httpx.Response:
-                return httpx.get(
-                    u,
-                    headers={**_auth_headers(token), "X-ISI-Start-Page": cursor},
-                    params=p,
-                    timeout=_LOCATION_TIMEOUT,
-                )
-
-            try:
-                resp = retry_transient(
-                    _refetch_page,
-                    on_retry=lambda exc, attempt, delay: logger.warning(
-                        "Location %s: 401-retry transient error (%s) on attempt %d"
-                        " — retrying in %.0fs",
-                        location_id,
-                        exc,
-                        attempt,
-                        delay,
-                    ),
-                )
-            except _TRANSIENT_ERRORS as exc:
-                return (None, f"transient network error after token refresh: {exc}")
 
         if resp.status_code == 404:
             logger.warning("Location %s: 404 — no data endpoint", location_id)
@@ -328,8 +242,9 @@ def hydrovu_source(
 ) -> Any:
     """
     Reads config from dlt.config under [hydrovu].
-    Creates a single _TokenManager shared by both resources so the token is
-    fetched once and reused across the full run.
+    Creates a single TokenManager and authenticated httpx.Client shared by both
+    resources, so the token is fetched once and both requests and auth-retries
+    go through one client for the full run.
     Fetches the location list once and passes it to both resources to avoid
     a redundant second API call.
 
@@ -345,9 +260,9 @@ def hydrovu_source(
         config_path = os.path.join(os.getcwd(), ".dlt", "config.toml")
         project_number = toml.load(config_path)["destination"]["filesystem"]["gcp_project_number"]
 
-        client = secretmanager.SecretManagerServiceClient()
-        name = client.secret_version_path(project_number, gcp_secret, "latest")
-        response = client.access_secret_version(name=name)
+        sm_client = secretmanager.SecretManagerServiceClient()
+        name = sm_client.secret_version_path(project_number, gcp_secret, "latest")
+        response = sm_client.access_secret_version(name=name)
         payload = json.loads(response.payload.data.decode("UTF-8"))
 
         client_id = payload["id"]
@@ -356,14 +271,20 @@ def hydrovu_source(
     start_ts = int(
         datetime.strptime(initial_start_date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
     )
-    tm = _TokenManager(token_url, client_id, client_secret)
-    locations = _fetch_locations(api_base_url, tm)
+    tm = TokenManager(token_url, client_id, client_secret)
+    client = build_authenticated_client(api_base_url, tm, timeout=_LOCATION_TIMEOUT)
+    try:
+        locations = _fetch_locations(client)
+    except Exception:
+        # hydrovu_readings (the only other user of this client) never gets
+        # constructed if this raises, so it must close the client itself.
+        client.close()
+        raise
     return (
         hydrovu_locations(locations=locations),
         hydrovu_readings(
-            api_base_url=api_base_url,
+            client=client,
             start_ts=start_ts,
-            tm=tm,
             locations=locations,
             location_ids=location_ids,
             _stats=_stats if _stats is not None else {},
@@ -404,9 +325,8 @@ def hydrovu_locations(locations: list[dict]) -> Iterator[dict]:
     primary_key="reading_id",
 )
 def hydrovu_readings(
-    api_base_url: str,
+    client: httpx.Client,
     start_ts: int,
-    tm: _TokenManager,
     locations: list[dict],
     location_ids: list[int],
     _stats: dict | None = None,
@@ -432,86 +352,94 @@ def hydrovu_readings(
       parameter_id — HydroVu param code (e.g. "4"=DTW, "1"=Temperature, "33"=Battery)
       unit_id      — HydroVu unit code (e.g. "35"=feet)
       value        — float measurement
+
+    Closes the shared client in a finally block once this generator is done —
+    this is the only resource that does any I/O with it (hydrovu_locations
+    just yields pre-fetched dicts), so this is where its lifetime ends. The
+    finally also runs if dlt abandons the generator mid-run (GeneratorExit).
     """
-    cursors: dict[str, int] = dlt.current.resource_state().setdefault("location_cursors", {})
-    _allowed: frozenset[int] = frozenset(location_ids)
+    try:
+        cursors: dict[str, int] = dlt.current.resource_state().setdefault("location_cursors", {})
+        _allowed: frozenset[int] = frozenset(location_ids)
 
-    skipped = 0
-    fetched = 0
-    no_data = 0
-    errored = 0
-    failed_ids: list[int] = []
-    rows_yielded = 0
-    for location in locations:
-        loc_id = location["id"]
-        if loc_id not in _allowed:
-            skipped += 1
-            continue
+        skipped = 0
+        fetched = 0
+        no_data = 0
+        errored = 0
+        failed_ids: list[int] = []
+        rows_yielded = 0
+        for location in locations:
+            loc_id = location["id"]
+            if loc_id not in _allowed:
+                skipped += 1
+                continue
 
-        loc_start = max(cursors.get(str(loc_id), 0), start_ts)
-        logger.info(
-            "Fetching readings for location %s (%s) from Unix timestamp %s",
-            loc_id,
-            location["name"],
-            loc_start,
-        )
-
-        data, err = _fetch_location_data(api_base_url, loc_id, loc_start, tm)
-        if err is not None:
-            logger.warning(
-                "Location %s (%s) failed: %s — cursor not advanced, will retry next run",
+            loc_start = max(cursors.get(str(loc_id), 0), start_ts)
+            logger.info(
+                "Fetching readings for location %s (%s) from Unix timestamp %s",
                 loc_id,
                 location["name"],
-                err,
+                loc_start,
             )
-            errored += 1
-            failed_ids.append(loc_id)
-            continue
-        if data is None:
-            logger.warning("Location %s (%s): no data (404)", loc_id, location["name"])
-            no_data += 1
-            continue
 
-        fetched += 1
-        max_ts = loc_start
-        for param in data.get("parameters", []):
-            for reading in param.get("readings", []):
-                ts = reading["timestamp"]
-                if ts > max_ts:
-                    max_ts = ts
-                rows_yielded += 1
-                yield {
-                    "reading_id": f"{loc_id}_{param['parameterId']}_{ts}",
-                    "location_id": loc_id,
-                    "timestamp": ts,
-                    "parameter_id": param["parameterId"],
-                    "unit_id": param["unitId"],
-                    "value": reading["value"],
-                }
+            data, err = _fetch_location_data(client, loc_id, loc_start)
+            if err is not None:
+                logger.warning(
+                    "Location %s (%s) failed: %s — cursor not advanced, will retry next run",
+                    loc_id,
+                    location["name"],
+                    err,
+                )
+                errored += 1
+                failed_ids.append(loc_id)
+                continue
+            if data is None:
+                logger.warning("Location %s (%s): no data (404)", loc_id, location["name"])
+                no_data += 1
+                continue
 
-        # Advance this location's cursor only after a successful fetch.
-        # A failed location keeps its old cursor and retries from the same point next run.
-        cursors[str(loc_id)] = max_ts
+            fetched += 1
+            max_ts = loc_start
+            for param in data.get("parameters", []):
+                for reading in param.get("readings", []):
+                    ts = reading["timestamp"]
+                    if ts > max_ts:
+                        max_ts = ts
+                    rows_yielded += 1
+                    yield {
+                        "reading_id": f"{loc_id}_{param['parameterId']}_{ts}",
+                        "location_id": loc_id,
+                        "timestamp": ts,
+                        "parameter_id": param["parameterId"],
+                        "unit_id": param["unitId"],
+                        "value": reading["value"],
+                    }
 
-    logger.info(
-        "hydrovu_readings extract complete: %d fetched, %d errored, %d no-data, "
-        "%d skipped (allowlist), %d rows yielded",
-        fetched,
-        errored,
-        no_data,
-        skipped,
-        rows_yielded,
-    )
-    # NOTE: _stats is populated here at generator end. If dlt abandons the generator
-    # mid-run (pipeline error, KeyboardInterrupt), _stats stays empty and the asset
-    # falls back to stats.get(..., 0) defaults — metadata shows zeros, no exception raised.
-    if _stats is not None:
-        _stats["rows_yielded"] = rows_yielded
-        _stats["locations_fetched"] = fetched
-        _stats["locations_skipped"] = skipped
-        _stats["locations_no_data"] = no_data
-        _stats["locations_errored"] = errored
-        _stats["failed_location_ids"] = failed_ids
+            # Advance this location's cursor only after a successful fetch.
+            # A failed location keeps its old cursor and retries from the same point next run.
+            cursors[str(loc_id)] = max_ts
+
+        logger.info(
+            "hydrovu_readings extract complete: %d fetched, %d errored, %d no-data, "
+            "%d skipped (allowlist), %d rows yielded",
+            fetched,
+            errored,
+            no_data,
+            skipped,
+            rows_yielded,
+        )
+        # NOTE: _stats is populated here at generator end. If dlt abandons the generator
+        # mid-run (pipeline error, KeyboardInterrupt), _stats stays empty and the asset
+        # falls back to stats.get(..., 0) defaults — metadata shows zeros, no exception raised.
+        if _stats is not None:
+            _stats["rows_yielded"] = rows_yielded
+            _stats["locations_fetched"] = fetched
+            _stats["locations_skipped"] = skipped
+            _stats["locations_no_data"] = no_data
+            _stats["locations_errored"] = errored
+            _stats["failed_location_ids"] = failed_ids
+    finally:
+        client.close()
 
 
 def build_pipeline() -> dlt.Pipeline:

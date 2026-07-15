@@ -54,7 +54,7 @@ Aqueduct/
 │   ├── shared/                     # cross-cutting infra used by every source — no domain logic
 │   │   ├── gcs.py                  # GCS filesystem access, parquet reads, watermark read/write
 │   │   ├── pipeline.py             # build_source_pipeline() — shared dlt pipeline factory
-│   │   ├── http.py                 # retry_transient() — shared HTTP retry-with-backoff helper
+│   │   ├── http.py                 # retry_transient(), TokenManager, BearerAuth, build_authenticated_client()
 │   │   └── source_registry.py      # SOURCE_REGISTRY — single per-source config for definitions.py + load.py
 │   ├── sources/                    # one folder per agency source (vertical slice)
 │   │   ├── hydrovu/
@@ -76,6 +76,7 @@ Aqueduct/
 │       ├── frost_loader.py         # FrostLoader (abstract) + FrostStaClientLoader (concrete)
 │       └── watermark_store.py      # FrostWatermarkStore — per-run dedup via Dagster context
 └── tests/                          # mirrors src/aqueduct_dagster/'s layout above
+    ├── conftest.py                 # cross-file test helpers (e.g. httpx.MockTransport/BearerAuth builders)
     ├── sources/{hydrovu,cabq}/
     ├── shared/
     ├── defs/assets/

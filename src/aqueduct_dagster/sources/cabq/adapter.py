@@ -10,7 +10,7 @@ Responsibilities:
   - _build_datastreams() build CanonicalDatastream for this Thing
   - extract()            reads from GCS — called by run()
 
-Fetching and auth live entirely in pipeline/cabq_dlt_pipeline.py
+Fetching and auth live entirely in sources/cabq/dlt_pipeline.py
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ class CabqAdapter(BaseAdapter):
     Adapter for CABQ groundwater level data.
 
     Receives pre-grouped records (one per location) from the transform asset.
-    transform_cabq.py owns GCS reading — this adapter only does mapping.
+    cabq/transform.py owns GCS reading — this adapter only does mapping.
 
     Record shape expected (one per location — to define when implementing):
       {
