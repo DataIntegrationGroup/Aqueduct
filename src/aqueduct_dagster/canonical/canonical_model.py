@@ -24,7 +24,8 @@ from datetime import datetime
 class CanonicalLocation:
     """Where the Thing is. In water data: lat/lon of a well or gauge station.
 
-    geometry: GeoJSON Point — {'type': 'Point', 'coordinates': [lon, lat, elev_metres]}
+    geometry: GeoJSON Point — {'type': 'Point', 'coordinates': [lon, lat]}. Elevation
+        is not part of the geometry — it lives in properties.source_specific.
     external_key: e.g. 'pvacd-NM-28258' or 'cabq-COA-0001'
     """
 

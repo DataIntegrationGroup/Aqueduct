@@ -79,15 +79,30 @@ class TestToThing:
         thing = HydroVuAdapter([rec]).to_thing(rec)
         assert thing.properties["agency"] == "PVACD"
 
-    def test_source_id_is_integer_location_id(self):
-        rec = _record(location_id=4745648669458432, location_description="827276")
+    def test_agency_not_in_location_properties(self):
+        rec = _record()
         thing = HydroVuAdapter([rec]).to_thing(rec)
-        assert thing.properties["source_id"] == 4745648669458432
+        assert "agency" not in thing.location.properties
 
-    def test_well_number_stored_in_hydrovu_description(self):
+    def test_source_id_is_string_on_thing(self):
         rec = _record(location_id=4745648669458432, location_description="827276")
         thing = HydroVuAdapter([rec]).to_thing(rec)
-        assert thing.properties["hydrovu.description"] == "827276"
+        assert thing.properties["source_id"] == "4745648669458432"
+
+    def test_source_id_is_string_on_location(self):
+        rec = _record(location_id=4745648669458432, location_description="827276")
+        thing = HydroVuAdapter([rec]).to_thing(rec)
+        assert thing.location.properties["source_id"] == "4745648669458432"
+
+    def test_well_number_stored_in_source_specific_on_thing(self):
+        rec = _record(location_id=4745648669458432, location_description="827276")
+        thing = HydroVuAdapter([rec]).to_thing(rec)
+        assert thing.properties["source_specific"]["hydrovu_description"] == "827276"
+
+    def test_well_number_stored_in_source_specific_on_location(self):
+        rec = _record(location_id=4745648669458432, location_description="827276")
+        thing = HydroVuAdapter([rec]).to_thing(rec)
+        assert thing.location.properties["source_specific"]["hydrovu_description"] == "827276"
 
     def test_geometry_is_geojson_point(self):
         rec = _record(latitude=33.067, longitude=-104.371)

@@ -86,9 +86,9 @@ canonical_constants.py      ← defines shared values (units, sensors, obs prope
 base_adapter.py             ← defines the interface every adapter must follow
 
 # Each source adapter imports all three:
-cabq_adapter.py     → inherits BaseAdapter → produces CanonicalBundle
-hydrovu_adapter.py  → inherits BaseAdapter → produces CanonicalBundle
-source_c_adapter.py → inherits BaseAdapter → produces CanonicalBundle  (future)
+sources/cabq/adapter.py     → inherits BaseAdapter → produces CanonicalBundle
+sources/hydrovu/adapter.py  → inherits BaseAdapter → produces CanonicalBundle
+sources/source_c/adapter.py → inherits BaseAdapter → produces CanonicalBundle  (future)
 
 # The loader imports canonical_model.py only:
 frost_loader.py     → consumes CanonicalBundle → writes to FROST

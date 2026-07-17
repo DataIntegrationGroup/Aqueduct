@@ -66,9 +66,10 @@ class HydroVuAdapter(BaseAdapter):
     from the transform asset. Converts metres to feet and builds CanonicalBundles.
 
     external_key convention:
-      - Uses location_description (well number e.g. "827276") when present
-      - Falls back to str(location_id) for unnamed locations (e.g. Transwestern)
-      - Format: "pvacd-{source_id}"  e.g. "pvacd-827276", "pvacd-4586726273318912"
+      - Always str(location_id) — the HydroVu integer location ID, cast to str.
+      - location_description (well number, e.g. "827276") is NOT used in the key —
+        it's stored separately in properties.source_specific.hydrovu_description.
+      - Format: "pvacd-{source_id}"  e.g. "pvacd-4745648669458432"
     """
 
     def __init__(self, records: list[dict]) -> None:
@@ -91,9 +92,10 @@ class HydroVuAdapter(BaseAdapter):
                 "coordinates": [record["longitude"], record["latitude"]],
             },
             properties={
-                "agency": self.agency,
-                "source_id": record["location_id"],
-                "hydrovu.description": record["location_description"],
+                "source_id": source_id,
+                "source_specific": {
+                    "hydrovu_description": record["location_description"],
+                },
             },
         )
 
@@ -104,8 +106,10 @@ class HydroVuAdapter(BaseAdapter):
             location=location,
             properties={
                 "agency": self.agency,
-                "source_id": record["location_id"],
-                "hydrovu.description": record["location_description"],
+                "source_id": source_id,
+                "source_specific": {
+                    "hydrovu_description": record["location_description"],
+                },
             },
         )
 
