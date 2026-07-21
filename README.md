@@ -41,6 +41,7 @@ Aqueduct/
 ├── .dlt/
 │   └── config.toml                 # dlt non-secret config (bucket URL, API URLs, start dates)
 ├── docs/
+│   ├── PIPELINE.md                 # end-to-end pipeline walkthrough (HydroVu reference)
 │   ├── STORAGE_CONVENTIONS.md      # GCS bucket/path naming conventions
 │   └── sources/
 │       ├── _mapping_template.md    # blank template for onboarding a new source
