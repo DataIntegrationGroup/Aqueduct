@@ -12,21 +12,21 @@
 
 **Standard SensorThings fields:**
 
-| Canonical Field | Type | Status | Source Field | Notes |
-|---|---|---|--------------|---|
-| `name` | str | Required | `loc_name`     | Human-readable site name |
-| `description` | str | Required | (fixed)      | Fixed: `Location of well where measurements are made` |
-| `encodingType` | str | Required | (fixed)      | Fixed: `application/vnd.geo+json` |
-| `location` (longitude) | float | Required | `longitude`    | GeoJSON coordinates[0] |
-| `location` (latitude) | float | Required | `latitude`     | GeoJSON coordinates[1] |
+| Canonical Field        | Type  | Status   | Source Field | Notes                                                 |
+|------------------------|-------|----------|--------------|-------------------------------------------------------|
+| `name`                 | str   | Required | `loc_name`   | Human-readable site name                              |
+| `description`          | str   | Required | (fixed)      | Fixed: `Location of well where measurements are made` |
+| `encodingType`         | str   | Required | (fixed)      | Fixed: `application/vnd.geo+json`                     |
+| `location` (longitude) | float | Required | `longitude`  | GeoJSON coordinates[0]                                |
+| `location` (latitude)  | float | Required | `latitude`   | GeoJSON coordinates[1]                                |
 
 **properties — standard keys:**
 
-| Canonical Field | Type | Status | Source Field | Notes                                                            |
-|---|---|---|--------------|------------------------------------------------------------------|
-| `source_id` | str | Required | `OBJECTID `    | returns as an integer - cast to `str` at adapter boundary        |
-| `geoconnex` | str | Optional | (not in API) | geoconnex.us URI if available                                    |
-| `alternate_id` | [{id: str, agency: str}] \| None | Optional | (not in API) | Cross-reference IDs, e.g. `[{id: "NM-28258", agency: "NMBGMR"}]` |
+| Canonical Field | Type                             | Status   | Source Field | Notes                                                            |
+|-----------------|----------------------------------|----------|--------------|------------------------------------------------------------------|
+| `source_id`     | str                              | Required | `OBJECTID`   | returns as an integer - cast to `str` at adapter boundary        |
+| `geoconnex`     | str                              | Optional | (not in API) | geoconnex.us URI if available                                    |
+| `alternate_id`  | [{id: str, agency: str}] \| None | Optional | (not in API) | Cross-reference IDs, e.g. `[{id: "NM-28258", agency: "NMBGMR"}]` |
 
 **properties.source_specific:**
 
@@ -40,25 +40,25 @@
 
 **Standard SensorThings fields:**
 
-| Canonical Field | Type | Status | Source Field | Notes |
-|---|---|---|--------------|---|
-| `name` | str | Required | (fixed)      | Fixed: `Water Well` |
-| `description` | str | Required | (fixed)      | Fixed: `Well drilled or set into subsurface for the purposes of pumping water or monitoring groundwater` |
+| Canonical Field | Type | Status   | Source Field | Notes                                                                                                    |
+|-----------------|------|----------|--------------|----------------------------------------------------------------------------------------------------------|
+| `name`          | str  | Required | (fixed)      | Fixed: `Water Well`                                                                                      |
+| `description`   | str  | Required | (fixed)      | Fixed: `Well drilled or set into subsurface for the purposes of pumping water or monitoring groundwater` |
 
 **properties — standard keys:**
 
-| Canonical Field | Type | Status | Source Field | Notes                                                           |
-|---|---|---|--------------|-----------------------------------------------------------------|
-| `agency` | str | Required | (fixed)      | Fixed: `CABQ`                                                   |
-| `source_id` | str | Required | `OBJECTID`   | Same as Location                                                |
-| `alternate_id` | [{id: str, agency: str}] \| None | Optional | (not in API) | Cross-reference IDs, e.g. `[{id: "BC-0002", agency: "NMBGMR"}]` |
+| Canonical Field | Type                             | Status   | Source Field | Notes                                                           |
+|-----------------|----------------------------------|----------|--------------|-----------------------------------------------------------------|
+| `agency`        | str                              | Required | (fixed)      | Fixed: `CABQ`                                                   |
+| `source_id`     | str                              | Required | `OBJECTID`   | Same as Location                                                |
+| `alternate_id`  | [{id: str, agency: str}] \| None | Optional | (not in API) | Cross-reference IDs, e.g. `[{id: "BC-0002", agency: "NMBGMR"}]` |
 
 **properties.source_specific:**
 
-| Source Field | Type | Notes |
-|---|---|---|
-| `well_depth` | {value: float, unit: str} \| None | Always `{value: X, unit: "ft"}` — convert if needed |
-| `screens` | [{top: float, bottom: float}] \| None | Screen intervals, or N/A |
+| Source Field | Type                                  | Notes                                               |
+|--------------|---------------------------------------|-----------------------------------------------------|
+| `well_depth` | {value: float, unit: str} \| None     | Always `{value: X, unit: "ft"}` — convert if needed |
+| `screens`    | [{top: float, bottom: float}] \| None | Screen intervals, or N/A                            |
 
 ---
 
@@ -67,8 +67,8 @@
 Shared constants — pick one or describe a new one.
 
 | Existing Constant | Use for this source?                                                |
-|---|---------------------------------------------------------------------|
-| NoSensor | `measurement_method` field indicates how depth measurement was made |
+|-------------------|---------------------------------------------------------------------|
+| NoSensor          | `measurement_method` field indicates how depth measurement was made |
 
 **New sensor needed?** No
 
@@ -78,15 +78,15 @@ Shared constants — pick one or describe a new one.
 
 Shared constants — check all that apply.
 
-| Existing Constant | Provided? | Source field/param code  | Notes                                             |
-|---|-----------|--------------------------|---------------------------------------------------|
+| Existing Constant                   | Provided? | Source field/param code  | Notes                                             |
+|-------------------------------------|-----------|--------------------------|---------------------------------------------------|
 | Depth to Water Below Ground Surface | yes       | `measured_depth_of_well` | Field exists but appears to often times be `null` |
-| Groundwater Elevation | yes       | `reference_elevation`    |                                                   |
-| Groundwater Head | yes       | `water_level`            |                                                   |
-| Adjusted Groundwater Head | yes       | `exact_elev`             |                                                   |
-| Raw Depth to Water | yes       | `water_depth`            |                                                   |
-| OSERealTimeDischarge | no        |                          |                                                   |
-| OSERealTimeGageHeight | no         |                          |                                                   |
+| Groundwater Elevation               | yes       | `reference_elevation`    |                                                   |
+| Groundwater Head                    | yes       | `water_level`            |                                                   |
+| Adjusted Groundwater Head           | yes       | `exact_elev`             |                                                   |
+| Raw Depth to Water                  | yes       | `water_depth`            |                                                   |
+| OSERealTimeDischarge                | no        |                          |                                                   |
+| OSERealTimeGageHeight               | no        |                          |                                                   |
 
 **New observed property needed?** No
 
@@ -98,24 +98,24 @@ One per (Thing, ObservedProperty, Sensor) combination.
 
 **Standard SensorThings fields:**
 
-| Canonical Field | Type | Status | Source Field | Notes |
-|---|---|---|--------------|---|
-| `name` | str | Required | (fixed)      | e.g. `Groundwater Levels` |
-| `description` | str | Required | (fixed)      | e.g. `Measurement of groundwater depth in a water well, as measured below ground surface` |
-| `unitOfMeasurement` | JSON | Required | (fixed)      | Fixed: `{name: Foot, symbol: ft, definition: ...}` |
+| Canonical Field     | Type | Status   | Source Field | Notes                                                                                     |
+|---------------------|------|----------|--------------|-------------------------------------------------------------------------------------------|
+| `name`              | str  | Required | (fixed)      | e.g. `Groundwater Levels`                                                                 |
+| `description`       | str  | Required | (fixed)      | e.g. `Measurement of groundwater depth in a water well, as measured below ground surface` |
+| `unitOfMeasurement` | JSON | Required | (fixed)      | Fixed: `{name: Foot, symbol: ft, definition: ...}`                                        |
 
 **properties — standard keys:**
 
-| Canonical Field | Type | Status | Source Field | Notes |
-|---|---|---|--------------|---|
-| `topic` | str \| None | Optional | (not in API) | `Water Quantity` if applicable |
-| `is_provisional` | bool \| None | Optional | (not in API) | True if QC not completed |
+| Canonical Field  | Type         | Status   | Source Field | Notes                          |
+|------------------|--------------|----------|--------------|--------------------------------|
+| `topic`          | str \| None  | Optional | (not in API) | `Water Quantity` if applicable |
+| `is_provisional` | bool \| None | Optional | (not in API) | True if QC not completed       |
 
 **properties.source_specific:**
 
 | Source Field | Type | Notes |
-|---|---|---|
-| | | |
+|--------------|------|-------|
+|              |      |       |
 
 **Datastream suffix(es):** Not Applicable
 
@@ -127,38 +127,38 @@ One per (Thing, ObservedProperty, Sensor) combination.
 
 **Standard SensorThings fields:**
 
-| Canonical Field | Type | Status | Source Field       | Notes                                                             |
-|---|---|---|--------------------|-------------------------------------------------------------------|
-| `phenomenonTime` | datetime | Required | `measurement_date` | Unix epoch seconds                                                |
-| `result` | float | Required | `water_level`      | Raw value, units provided in `depth_unit` field, usually `ft msl` |
-| `resultTime` | datetime | Optional | (not in API)       | Not applicable                                                    |
-| `resultQuality` | str \| None | Optional | (not in API)       | Not applicable                                                    |
-| `validTime` | period | Optional | (not in API)       | Not applicable                                                    |
+| Canonical Field  | Type        | Status   | Source Field       | Notes                                                             |
+|------------------|-------------|----------|--------------------|-------------------------------------------------------------------|
+| `phenomenonTime` | datetime    | Required | `measurement_date` | Unix epoch seconds                                                |
+| `result`         | float       | Required | `water_level`      | Raw value, units provided in `depth_unit` field, usually `ft msl` |
+| `resultTime`     | datetime    | Optional | (not in API)       | Not applicable                                                    |
+| `resultQuality`  | str \| None | Optional | (not in API)       | Not applicable                                                    |
+| `validTime`      | period      | Optional | (not in API)       | Not applicable                                                    |
 
 **parameters — standard keys:**
 
-| Canonical Field | Type | Source Field         | Notes                                                         |
-|---|---|----------------------|---------------------------------------------------------------|
-| `measuring_agency` | str \| None | `facility_code`      | Might be constant `COA`                                       |
-| `measurement_method` | str \| None | `measurement_method` | Often `null`, occasionally lists `Elastic Tape` or `Solonist` |
-| `data_source` | str \| None | (not in API)         | Not available                                                 |
-| `water_level_status` | str \| None | `dry_indicator_yn`   | always either `N` or `Y`                                      |
-| `measurement_point_height` | float \| None | (not in API)         | Not available                                                 |
-| `water_level_accuracy` | float \| None | (not in API)         | Not available                                                 |
+| Canonical Field            | Type          | Source Field         | Notes                                                          |
+|----------------------------|---------------|----------------------|----------------------------------------------------------------|
+| `measuring_agency`         | str \| None   | `facility_code`      | Might be constant `COA`                                        |
+| `measurement_method`       | str \| None   | `measurement_method` | Often `null`, occasionally lists `Electric Tape` or `Solonist` |
+| `data_source`              | str \| None   | (not in API)         | Not available                                                  |
+| `water_level_status`       | str \| None   | `dry_indicator_yn`   | always either `N` or `Y`                                       |
+| `measurement_point_height` | float \| None | (not in API)         | Not available                                                  |
+| `water_level_accuracy`     | float \| None | (not in API)         | Not available                                                  |
 
 **parameters.source_specific:**
 
 | Source Field | Type | Notes |
-|---|---|---|
-| | | |
+|--------------|------|-------|
+|              |      |       |
 
 ---
 
 ## Unit Conversions
 
 | Field | Source Unit | Canonical Unit | Conversion |
-|---|---|---|---|
-| | | | |
+|-------|-------------|----------------|------------|
+|       |             |                |            |
 
 ---
 
