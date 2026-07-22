@@ -8,6 +8,8 @@ Dagster + dlt + GCS + FROST SensorThings
 
 **Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md) for branching, PRs, and releases.
 
+**Adding a new source:** copy [docs/sources/_mapping_template.md](docs/sources/_mapping_template.md) to document the field mapping.
+
 Two independent source pipelines, each running on its own schedule:
 
 ```
