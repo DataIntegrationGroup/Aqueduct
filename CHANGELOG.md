@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.2.0...Aqueduct-v0.2.1) (2026-07-22)
+
+
+### Documentation
+
+* **cabq:** document cabq source schema ([#31](https://github.com/DataIntegrationGroup/Aqueduct/issues/31)) ([bf9f441](https://github.com/DataIntegrationGroup/Aqueduct/commit/bf9f44122c1b9035997b331fdd52e2d7ef2da3c9))
+
 ## [0.2.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.1.0...Aqueduct-v0.2.0) (2026-07-21)
 
 
