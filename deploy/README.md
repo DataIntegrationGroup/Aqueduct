@@ -78,7 +78,11 @@ gcloud compute instances create frost-verify \
 
 # From the VM — expect the SensorThings service document (Things, Locations,
 # Datastreams, Observations, ...):
-curl -s "https://<frost-run-url>/FROST-Server/v1.1"
+gcloud compute ssh frost-verify --project=waterdatainitiative-271000 --zone=us-west3-a \
+--command='curl -sS -m 15 -w "\nHTTP %{http_code}\n" https://<frost-run-url>/FROST-Server/v1.1'
+
+gcloud compute ssh frost-verify --project=waterdatainitiative-271000 --zone=us-west3-a \
+--command='curl -sS -m 15 -w "\nHTTP %{http_code}\n" https://<frost-run-url>/FROST-Server/v1.1/Things'
 
 # Tear down:
 gcloud compute instances delete frost-verify --zone=us-west3-a --quiet
