@@ -127,24 +127,24 @@ One per (Thing, ObservedProperty, Sensor) combination.
 
 **Standard SensorThings fields:**
 
-| Canonical Field  | Type        | Status   | Source Field       | Notes                                                             |
-|------------------|-------------|----------|--------------------|-------------------------------------------------------------------|
-| `phenomenonTime` | datetime    | Required | `measurement_date` | Unix epoch seconds                                                |
-| `result`         | float       | Required | `water_level`      | Raw value, units provided in `depth_unit` field, usually `ft msl` |
-| `resultTime`     | datetime    | Optional | (not in API)       | Not applicable                                                    |
-| `resultQuality`  | str \| None | Optional | (not in API)       | Not applicable                                                    |
-| `validTime`      | period      | Optional | (not in API)       | Not applicable                                                    |
+| Canonical Field  | Type        | Status   | Source Field       | Notes                                                                     |
+|------------------|-------------|----------|--------------------|---------------------------------------------------------------------------|
+| `phenomenonTime` | datetime    | Required | `measurement_date` | Unix epoch seconds                                                        |
+| `result`         | float       | Required | `water_level`      | Raw value, units provided in `depth_unit` field, may be constant `ft msl` |
+| `resultTime`     | datetime    | Optional | (not in API)       | Not applicable                                                            |
+| `resultQuality`  | str \| None | Optional | (not in API)       | Not applicable                                                            |
+| `validTime`      | period      | Optional | (not in API)       | Not applicable                                                            |
 
 **parameters — standard keys:**
 
-| Canonical Field            | Type          | Source Field         | Notes                                                          |
-|----------------------------|---------------|----------------------|----------------------------------------------------------------|
-| `measuring_agency`         | str \| None   | `facility_code`      | Might be constant `COA`                                        |
-| `measurement_method`       | str \| None   | `measurement_method` | Often `null`, occasionally lists `Electric Tape` or `Solonist` |
-| `data_source`              | str \| None   | (not in API)         | Not available                                                  |
-| `water_level_status`       | str \| None   | `dry_indicator_yn`   | always either `N` or `Y`                                       |
-| `measurement_point_height` | float \| None | (not in API)         | Not available                                                  |
-| `water_level_accuracy`     | float \| None | (not in API)         | Not available                                                  |
+| Canonical Field            | Type          | Source Field         | Notes                                             |
+|----------------------------|---------------|----------------------|---------------------------------------------------|
+| `measuring_agency`         | str \| None   | `facility_code`      | Might be constant `COA`                           |
+| `measurement_method`       | str \| None   | `measurement_method` | Often `null` for early entries                    |
+| `data_source`              | str \| None   | (not in API)         | Not available                                     |
+| `water_level_status`       | str \| None   | `dry_indicator_yn`   | always either `N` or `Y`, `null` in early entries |
+| `measurement_point_height` | float \| None | (not in API)         | Not available                                     |
+| `water_level_accuracy`     | float \| None | (not in API)         | Not available                                     |
 
 **parameters.source_specific:**
 
@@ -165,8 +165,8 @@ One per (Thing, ObservedProperty, Sensor) combination.
 ## Raw Response Example
 
 Queried from [here](https://services.arcgis.com/CWv1abTnC3urn4bV/ArcGIS/rest/services/All_WL_Locations/FeatureServer/25/query)
-with `OBJECTID` = 1, out fields = *, and format = JSON. \
-`GET https://services.arcgis.com/CWv1abTnC3urn4bV/ArcGIS/rest/services/All_WL_Locations/FeatureServer/25/query?where=OBJECTID%3D1&outFields=*&f=pjson`
+with `OBJECTID` = 2000, out fields = *, and format = JSON. \
+`GET https://services.arcgis.com/CWv1abTnC3urn4bV/ArcGIS/rest/services/All_WL_Locations/FeatureServer/25/query?where=OBJECTID%3D2000&outFields=*&f=pjson`
 ```json
 {
   "objectIdFieldName" : "OBJECTID",
@@ -478,40 +478,40 @@ with `OBJECTID` = 1, out fields = *, and format = JSON. \
   "features" : [
     {
       "attributes" : {
-        "OBJECTID" : 1,
+        "OBJECTID" : 2000,
         "facility_id" : 1,
         "facility_code" : "COA",
-        "sys_loc_code" : "4HILLS1",
-        "loc_name" : "4 HILLS WELL 1",
+        "sys_loc_code" : "IW4",
+        "loc_name" : "LALF GROUNDWATER INJECTION WELL 4",
         "loc_group" : null,
         "loc_report_order" : null,
-        "measurement_date" : 790341900000,
-        "reference_elev" : 5668.67,
-        "water_level" : "5611.42",
-        "exact_elev" : 5611.42,
+        "measurement_date" : 1391079600000,
+        "reference_elev" : 5089.55,
+        "water_level" : "4927.15",
+        "exact_elev" : 4927.154,
         "measured_depth_of_well" : null,
         "depth_unit" : "ft msl",
         "batch_number" : null,
-        "technician" : null,
-        "dry_indicator_yn" : null,
-        "measurement_method" : null,
-        "dip_or_elevation" : "DIP",
+        "technician" : "KZ",
+        "dry_indicator_yn" : "N",
+        "measurement_method" : "Level Logger",
+        "dip_or_elevation" : "dip",
         "remark" : null,
         "equipment_code" : null,
         "lnapl_cas_rn" : null,
         "lnapl_depth" : null,
         "lnapl_thickness" : null,
         "lnapl_density" : null,
-        "water_depth" : 57.25,
+        "water_depth" : 162.396,
         "dnapl_cas_rn" : null,
         "dnapl_depth" : null,
         "dnapl_thickness" : null,
-        "task_code" : null,
+        "task_code" : "COA GWL LL",
         "approval_code" : null,
-        "x_coord" : 1567067,
-        "y_coord" : 1477640,
-        "longitude" : -106.495198,
-        "latitude" : 35.061669
+        "x_coord" : 1536019.16999999,
+        "y_coord" : 1517613.04,
+        "longitude" : 35.170730266,
+        "latitude" : -106.599332407
       }
     }
   ]
