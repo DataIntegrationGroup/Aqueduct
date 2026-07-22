@@ -21,9 +21,8 @@ fi
 export PROJECT_NUMBER
 
 # --- Networking -------------------------------------------------------------
-# The `default` VPC, us-west3 — where the existing FROST fleet (frostproduction,
-# frost1, frost-nmed, frostdev*) and the pvacd Postgres already run. `default` has
-# PSA, so private-IP Cloud SQL attaches here. Cloud Run reaches Cloud SQL over
+# Deploy into the `default` VPC on its us-west3 subnet. `default` has PSA, so a
+# private-IP Cloud SQL instance attaches here. Cloud Run reaches Cloud SQL over
 # Direct VPC egress on this network/subnet — no Serverless VPC connector needed.
 export VPC_NAME="${VPC_NAME:-default}"
 export SUBNET="${SUBNET:-default}"          # auto-mode default subnet in ${REGION}

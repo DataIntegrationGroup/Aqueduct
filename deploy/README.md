@@ -7,9 +7,7 @@ GCP, not reachable from the public internet until V1.
   `fraunhoferiosb/frost-server:2.6` (matches the repo's `docker-compose.yml`).
   Reaches Cloud SQL over **Direct VPC egress** (no Serverless VPC connector).
 - **PostGIS** → a new dedicated **Cloud SQL for PostgreSQL** instance, private IP
-  only, on the **`default`** VPC in **us-west3** — where the existing FROST fleet
-  (`frostproduction`, `frost1`, `frost-nmed`, `frostdev*`) and the `pvacd` Postgres
-  already run.
+  only, on the **`default`** VPC in **us-west3**
 - **Project:** `waterdatainitiative-271000` · **Region:** `us-west3` ·
   **VPC/subnet:** `default` / `default` (auto-mode).
 
@@ -50,7 +48,7 @@ needed (it already exists).
 ./deploy/10_sql.sh
 
 # 2. Enable PostGIS BEFORE first FROST boot (private IP → connect from in-VPC).
-#    From a VM in the default VPC (us-west3) running cloud-sql-proxy, or a bastion:
+#    From a VM in the default VPC's us-west3 subnet running cloud-sql-proxy, or a bastion:
 #      psql "host=<sql-private-ip> dbname=sensorthings user=frost" \
 #        -c "CREATE EXTENSION IF NOT EXISTS postgis;" \
 #        -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'   # optional, per FROST docs
@@ -69,7 +67,7 @@ revision. To rotate the password deliberately: add a new secret version, run
 ## Verify (satisfies the acceptance criterion)
 
 `ingress=internal` means you **cannot** curl from a laptop — that's the point.
-Verify from **inside the `default` VPC** (us-west3):
+Verify from **inside the `default` VPC** (us-west3 subnet):
 
 ```bash
 # One-off e2-micro VM in the default subnet (Private Google Access on):
