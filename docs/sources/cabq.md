@@ -164,9 +164,9 @@ One per (Thing, ObservedProperty, Sensor) combination.
 
 ## Raw Response Example
 
-Queried from [here](https://services.arcgis.com/CWv1abTnC3urn4bV/ArcGIS/rest/services/All_WL_tabel_view/FeatureServer/25/query)
-with `OBJECTID`=1, out fields = *, and format = JSON.
-
+Queried from [here](https://services.arcgis.com/CWv1abTnC3urn4bV/ArcGIS/rest/services/All_WL_Locations/FeatureServer/25/query)
+with `OBJECTID` = 1, out fields = *, and format = JSON. \
+`GET https://services.arcgis.com/CWv1abTnC3urn4bV/ArcGIS/rest/services/All_WL_Locations/FeatureServer/25/query?where=OBJECTID%3D1&outFields=*&f=pjson`
 ```json
 {
   "objectIdFieldName" : "OBJECTID",
