@@ -18,6 +18,10 @@ location_ids = [
     6505900885147648,  # Orchard Park Level Troll
 ]
 
+[sources.cabq]
+api_base_url = "https://services.arcgis.com/CWv1abTnC3urn4bV/ArcGIS/rest/services/All_WL_Locations/FeatureServer/25"
+initial_start_date = "2026-01-01"
+
 [cabq]
 api_base_url       = "https://cabq-api-url.com"   # TODO: confirm CABQ API endpoint
 initial_start_date = "2026-01-01"   # change to limit initial load
