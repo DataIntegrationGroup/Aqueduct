@@ -18,13 +18,47 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import Any
 
 import dlt
+import httpx
 
+from aqueduct_dagster.shared.http import build_unauthenticated_client, retry_transient
 from aqueduct_dagster.shared.pipeline import build_source_pipeline
 
 logger = logging.getLogger(__name__)
+
+
+def _transform_locations(locations: dict) -> list[dict]:
+    """
+    The structure of data we get back from CABQ is:
+    {
+        "objectIdFieldName": "OBJECTID",
+        "uniqueIdField": {
+            "name": "OBJECTID",
+            "isSystemMaintained": true
+        },
+        "globalIdFieldName": "",
+        "fields": [ list of fields in attributes ... ],
+        "exceededTransferLimit": true,
+        "features": [
+            {
+                "attributes": { ... }
+            },{
+                "attributes": { ... }
+            },{
+                ...
+            }
+        ]
+    }
+    The content of "attributes" in each entry of "features" list is what we actually want.
+    This function simply reads in the response from CABQ and returns a list the JSON objects in each "attributes" field.
+    """
+    all_locations: list[dict] = []
+    for feature in locations["features"]:
+        all_locations.append(feature["attributes"])
+    return all_locations
 
 
 @dlt.source(name="cabq")
@@ -32,9 +66,10 @@ def cabq_source(
     api_base_url: str = dlt.config.value,
     initial_start_date: str = dlt.config.value,
 ) -> Any:
-    # TODO: parse initial_start_date to a start timestamp (same pattern as hydrovu_source)
-    # TODO: return cabq_readings resource
-    raise NotImplementedError("cabq_source is not implemented yet")
+    start_ts = int(
+        datetime.strptime(initial_start_date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
+    )
+    return cabq_readings(api_base_url, start_ts)
 
 
 @dlt.resource(
@@ -72,6 +107,21 @@ def cabq_readings(
     # TODO: fetch readings per station using max(cursors.get(str(station_id), 0), start_ts) as start
     # TODO: advance cursor per station only after successful fetch: cursors[str(station_id)] = max_ts
     # TODO: yield one flat record per reading (no location metadata — join at transform time)
+    client = build_unauthenticated_client(api_base_url, timeout=httpx.Timeout())
+    try:
+
+        def _fetch_water_level_locations() -> httpx.Response:
+            return client.get("/query?where=OBJECTID>0&outFields=*&f=pjson")
+
+        resp = retry_transient(
+            _fetch_water_level_locations,
+            on_retry=lambda exc, attempt, delay: logger.warning("", exec, attempt, delay),
+        )
+        resp.raise_for_status()
+        json_resp = resp.json()
+        _transform_locations(json_resp)
+    finally:
+        client.close()
     raise NotImplementedError("cabq_readings is not implemented yet")
 
 
