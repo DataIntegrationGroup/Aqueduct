@@ -22,11 +22,11 @@
 
 **properties — standard keys:**
 
-| Canonical Field | Type                             | Status   | Source Field | Notes                                                            |
-|-----------------|----------------------------------|----------|--------------|------------------------------------------------------------------|
-| `source_id`     | str                              | Required | `OBJECTID`   | returns as an integer - cast to `str` at adapter boundary        |
-| `geoconnex`     | str                              | Optional | (not in API) | geoconnex.us URI if available                                    |
-| `alternate_id`  | [{id: str, agency: str}] \| None | Optional | (not in API) | Cross-reference IDs, e.g. `[{id: "NM-28258", agency: "NMBGMR"}]` |
+| Canonical Field | Type                             | Status   | Source Field   | Notes                                                            |
+|-----------------|----------------------------------|----------|----------------|------------------------------------------------------------------|
+| `source_id`     | str                              | Required | `sys_loc_code` |                                                                  |
+| `geoconnex`     | str                              | Optional | (not in API)   | geoconnex.us URI if available                                    |
+| `alternate_id`  | [{id: str, agency: str}] \| None | Optional | (not in API)   | Cross-reference IDs, e.g. `[{id: "NM-28258", agency: "NMBGMR"}]` |
 
 **properties.source_specific:**
 
@@ -47,11 +47,11 @@
 
 **properties — standard keys:**
 
-| Canonical Field | Type                             | Status   | Source Field | Notes                                                           |
-|-----------------|----------------------------------|----------|--------------|-----------------------------------------------------------------|
-| `agency`        | str                              | Required | (fixed)      | Fixed: `CABQ`                                                   |
-| `source_id`     | str                              | Required | `OBJECTID`   | Same as Location                                                |
-| `alternate_id`  | [{id: str, agency: str}] \| None | Optional | (not in API) | Cross-reference IDs, e.g. `[{id: "BC-0002", agency: "NMBGMR"}]` |
+| Canonical Field | Type                             | Status   | Source Field   | Notes                                                           |
+|-----------------|----------------------------------|----------|----------------|-----------------------------------------------------------------|
+| `agency`        | str                              | Required | (fixed)        | Fixed: `CABQ`                                                   |
+| `source_id`     | str                              | Required | `sys_loc_code` | Same as Location                                                |
+| `alternate_id`  | [{id: str, agency: str}] \| None | Optional | (not in API)   | Cross-reference IDs, e.g. `[{id: "BC-0002", agency: "NMBGMR"}]` |
 
 **properties.source_specific:**
 
@@ -78,15 +78,15 @@ Shared constants — pick one or describe a new one.
 
 Shared constants — check all that apply.
 
-| Existing Constant                   | Provided? | Source field/param code  | Notes                                             |
-|-------------------------------------|-----------|--------------------------|---------------------------------------------------|
-| Depth to Water Below Ground Surface | yes       | `measured_depth_of_well` | Field exists but appears to often times be `null` |
-| Groundwater Elevation               | yes       | `reference_elevation`    |                                                   |
-| Groundwater Head                    | yes       | `water_level`            |                                                   |
-| Adjusted Groundwater Head           | yes       | `exact_elev`             |                                                   |
-| Raw Depth to Water                  | yes       | `water_depth`            |                                                   |
-| OSERealTimeDischarge                | no        |                          |                                                   |
-| OSERealTimeGageHeight               | no        |                          |                                                   |
+| Existing Constant                   | Provided? | Source field/param code  | Notes                                |
+|-------------------------------------|-----------|--------------------------|--------------------------------------|
+| Depth to Water Below Ground Surface | yes       | `measured_depth_of_well` | Field exists but sometimes is `null` |
+| Groundwater Elevation               | yes       | `reference_elevation`    |                                      |
+| Groundwater Head                    | yes       | `water_level`            |                                      |
+| Adjusted Groundwater Head           | yes       | `exact_elev`             |                                      |
+| Raw Depth to Water                  | yes       | `water_depth`            |                                      |
+| OSERealTimeDischarge                | no        |                          |                                      |
+| OSERealTimeGageHeight               | no        |                          |                                      |
 
 **New observed property needed?** No
 

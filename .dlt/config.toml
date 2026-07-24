@@ -20,7 +20,7 @@ location_ids = [
 
 [sources.cabq]
 api_base_url = "https://services.arcgis.com/CWv1abTnC3urn4bV/ArcGIS/rest/services/All_WL_Locations/FeatureServer/25"
-initial_start_date = "2026-01-01"
+initial_start_date = "2026-05-01"
 
 [cabq]
 api_base_url       = "https://cabq-api-url.com"   # TODO: confirm CABQ API endpoint
@@ -28,7 +28,7 @@ initial_start_date = "2026-01-01"   # change to limit initial load
 
 [destination.filesystem]
 gcp_project_number = "95715287188" # for Secret Manager
-bucket_url = "gs://aqueduct-poc-bravo-pvacd"
+bucket_url = "gs://aqueduct-dev-njones"
 layout     = "{table_name}/year={YYYY}/month={MM}/day={DD}/{load_id}.{file_id}.{ext}"
 
 [destination.frost]
