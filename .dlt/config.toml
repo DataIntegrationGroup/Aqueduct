@@ -24,9 +24,8 @@ initial_start_date = "2026-01-01"   # change to limit initial load
 
 [destination.filesystem]
 gcp_project_number = "95715287188" # for Secret Manager
-# Default bucket. Override per run with the GCS_BUCKET_URL env var (e.g. in a
-# gitignored .env) to point at a personal test bucket — see .env.example.
-bucket_url = "gs://aqueduct-poc-bravo-pvacd"
+# bucket_url is intentionally NOT set here — it is required per environment via
+# the GCS_BUCKET_URL env var (see .env.example). No default on purpose.
 layout     = "{table_name}/year={YYYY}/month={MM}/day={DD}/{load_id}.{file_id}.{ext}"
 
 [destination.frost]

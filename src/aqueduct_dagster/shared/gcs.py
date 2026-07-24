@@ -13,7 +13,6 @@ from collections.abc import Callable
 
 import gcsfs
 import pyarrow.parquet as pq
-import toml
 
 logger = logging.getLogger(__name__)
 
@@ -21,14 +20,17 @@ logger = logging.getLogger(__name__)
 def _gcs_bucket_url() -> str:
     """Resolve the GCS bucket URL for the current run.
 
-    Prefers the GCS_BUCKET_URL env var, falling back to the committed
-    [destination.filesystem] bucket_url in .dlt/config.toml.
+    Sourced exclusively from the GCS_BUCKET_URL env var — there is no default.
+    Every environment must set it explicitly: a gitignored .env for local runs
+    (see .env.example) or the deployment environment for Dagster+.
     """
-    env_url = os.environ.get("GCS_BUCKET_URL")
-    if env_url:
-        return env_url
-    config_path = os.path.join(os.getcwd(), ".dlt", "config.toml")
-    return toml.load(config_path)["destination"]["filesystem"]["bucket_url"]
+    url = os.environ.get("GCS_BUCKET_URL")
+    if not url:
+        raise RuntimeError(
+            "GCS_BUCKET_URL is not set. There is no default bucket — set it "
+            "explicitly (a local .env, see .env.example, or the deployment env)."
+        )
+    return url
 
 
 def _gcs_filesystem(project: str = "") -> gcsfs.GCSFileSystem:

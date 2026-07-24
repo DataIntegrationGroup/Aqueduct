@@ -17,8 +17,7 @@ def build_source_pipeline(pipeline_name: str, dataset_name: str) -> dlt.Pipeline
     """
     Returns a dlt pipeline writing parquet to the filesystem (GCS) destination.
 
-    Bucket is resolved by _gcs_bucket_url(): the GCS_BUCKET_URL env var if set,
-    otherwise [destination.filesystem] bucket_url in config.toml
+    Bucket is resolved by _gcs_bucket_url() (via the GCS_BUCKET_URL env var).
 
     Both args are required so a new source module can't omit either by accident.
     Always call pipeline.run(..., loader_file_format="parquet") at the call site.
