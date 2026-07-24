@@ -30,7 +30,7 @@ from aqueduct_dagster.shared.pipeline import build_source_pipeline
 logger = logging.getLogger(__name__)
 
 
-def _transform_locations(locations: dict) -> list[dict]:
+def _transform_result(data: dict) -> list[dict]:
     """
     The structure of data we get back from CABQ is:
     {
@@ -55,10 +55,68 @@ def _transform_locations(locations: dict) -> list[dict]:
     The content of "attributes" in each entry of "features" list is what we actually want.
     This function simply reads in the response from CABQ and returns a list the JSON objects in each "attributes" field.
     """
-    all_locations: list[dict] = []
-    for feature in locations["features"]:
-        all_locations.append(feature["attributes"])
-    return all_locations
+    all_attributes: list[dict] = []
+    for feature in data["features"]:
+        all_attributes.append(feature["attributes"])
+    return all_attributes
+
+
+def _fetch_locations(client: httpx.Client) -> list[dict]:
+    """
+    get location information from CABQ
+    format of location:
+    {
+                "sys_loc_code": str,    *string code for identifying location
+                "loc_name": str,        *full human-readable name of location
+                "latitude": num,        *latitude coordinate for location
+                "longitude": num        *longitude coordinate for location
+        }
+    """
+
+    def _fetch_location_info() -> httpx.Response:
+        return client.get(
+            "/query?"
+            + "where=OBJECTID>0"
+            + "&outFields=sys_loc_code,loc_name,latitude,longitude"
+            + "&returnDistinctValues=true"
+            + "&f=pjson"
+        )
+
+    resp = retry_transient(
+        _fetch_location_info,
+        on_retry=lambda exc, attempt, delay: logger.warning("", exec, attempt, delay),
+    )
+    resp.raise_for_status()
+    return _transform_result(resp.json())
+
+
+def _fetch_readings_for_location(
+    client: httpx.Client, loc_id: str, loc_start: int
+) -> tuple[list[dict] | None, str | None]:
+    """
+    get reading information for location from CABQ
+    format of location:
+    {
+
+        }
+    """
+
+    def _fetch_readings() -> httpx.Response:
+        return client.get(
+            "/query?"
+            + "where=sys_loc_code%3D'"
+            + loc_id
+            + "'"
+            + "&outfields=measurement_date,water_level"
+            + "&f=pjson"
+        )
+
+    resp = retry_transient(
+        _fetch_readings,
+        on_retry=lambda exc, attempt, delay: logger.warning("", exec, attempt, delay),
+    )
+    resp.raise_for_status()
+    return _transform_result(resp.json()), None
 
 
 @dlt.source(name="cabq")
@@ -107,19 +165,20 @@ def cabq_readings(
     # TODO: fetch readings per station using max(cursors.get(str(station_id), 0), start_ts) as start
     # TODO: advance cursor per station only after successful fetch: cursors[str(station_id)] = max_ts
     # TODO: yield one flat record per reading (no location metadata — join at transform time)
+    cursors: dict[str, int] = dlt.current.resource_state().setdefault("location_cursors", {})
     client = build_unauthenticated_client(api_base_url, timeout=httpx.Timeout())
     try:
-
-        def _fetch_water_level_locations() -> httpx.Response:
-            return client.get("/query?where=OBJECTID>0&outFields=*&f=pjson")
-
-        resp = retry_transient(
-            _fetch_water_level_locations,
-            on_retry=lambda exc, attempt, delay: logger.warning("", exec, attempt, delay),
-        )
-        resp.raise_for_status()
-        json_resp = resp.json()
-        _transform_locations(json_resp)
+        locations = _fetch_locations(client)
+        for location in locations:
+            loc_id = location["sys_loc_code"]
+            loc_start = max(cursors.get(str(loc_id), 0), start_ts)
+            logger.info(
+                "Fetching readings for location %s (%s) from Unix timestamp %s",
+                loc_id,
+                location["name"],
+                loc_start,
+            )
+            # data, err = _fetch_readings_for_location(client, loc_id, loc_start)
     finally:
         client.close()
     raise NotImplementedError("cabq_readings is not implemented yet")
