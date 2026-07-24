@@ -26,21 +26,25 @@ from aqueduct_dagster.shared.gcs import (
 
 
 class TestGcsBucketUrl:
-    def test_returns_env_var(self, monkeypatch: pytest.MonkeyPatch):
+    def test_prefers_env_var(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("GCS_BUCKET_URL", "gs://my-test-bucket")
-        assert _gcs_bucket_url() == "gs://my-test-bucket"
+        # config.toml must not even be read when the env var wins.
+        with patch("aqueduct_dagster.shared.gcs.toml.load") as mock_load:
+            assert _gcs_bucket_url() == "gs://my-test-bucket"
+        mock_load.assert_not_called()
 
-    def test_raises_when_env_unset(self, monkeypatch: pytest.MonkeyPatch):
-        # No default — an unset run must fail loudly, never write to a baked-in bucket.
+    def test_falls_back_to_config_toml_when_env_unset(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("GCS_BUCKET_URL", raising=False)
-        with pytest.raises(RuntimeError, match="GCS_BUCKET_URL is not set"):
-            _gcs_bucket_url()
+        cfg = {"destination": {"filesystem": {"bucket_url": "gs://from-config"}}}
+        with patch("aqueduct_dagster.shared.gcs.toml.load", return_value=cfg):
+            assert _gcs_bucket_url() == "gs://from-config"
 
-    def test_raises_when_env_empty(self, monkeypatch: pytest.MonkeyPatch):
-        # An empty string is treated as unset — raise rather than write to "".
+    def test_empty_env_var_falls_back_to_config_toml(self, monkeypatch: pytest.MonkeyPatch):
+        # An empty string is treated as unset — fall back rather than write to "".
         monkeypatch.setenv("GCS_BUCKET_URL", "")
-        with pytest.raises(RuntimeError, match="GCS_BUCKET_URL is not set"):
-            _gcs_bucket_url()
+        cfg = {"destination": {"filesystem": {"bucket_url": "gs://from-config"}}}
+        with patch("aqueduct_dagster.shared.gcs.toml.load", return_value=cfg):
+            assert _gcs_bucket_url() == "gs://from-config"
 
 
 # ── _load_id_from_filename ────────────────────────────────────────────────────
