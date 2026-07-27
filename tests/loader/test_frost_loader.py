@@ -365,3 +365,58 @@ def test_delete_observations_in_window_returns_zero_when_nothing_matches():
 
     assert deleted == 0
     service.delete.assert_not_called()
+
+
+def test_delete_observations_in_window_materializes_all_pages_before_deleting():
+    """
+    Regression test: EntityList.__next__ fetches later pages lazily via
+    @iot.nextLink, and FROST builds that link as $top=N&$skip=N (skip/offset
+    based). Deleting while still iterating would shrink the underlying result
+    set mid-pagination, shifting the skip offset for every later page and
+    silently skipping matches for any window spanning more than one page.
+    This verifies every entity is consumed from the query result before the
+    first delete() call happens, regardless of how many "pages" it spans.
+    """
+    import frost_sta_client as fsc
+
+    call_order: list[tuple[str, int]] = []
+
+    class _LazyPaginatedResult:
+        """Simulates EntityList: iterating triggers lazy per-item fetch."""
+
+        def __init__(self, items: list) -> None:
+            self._items = items
+
+        def __iter__(self):
+            def gen():
+                for item in self._items:
+                    call_order.append(("yield", item))
+                    yield item
+
+            return gen()
+
+    obs_1, obs_2, obs_3 = 1, 2, 3  # plain ints stand in for observation entities
+    service = MagicMock()
+    service.delete.side_effect = lambda ob: call_order.append(("delete", ob))
+
+    loader = FrostStaClientLoader(service, InMemoryWatermarkStore())
+
+    with patch.object(fsc, "Datastream") as mock_ds_cls:
+        mock_ds = MagicMock()
+        mock_ds_cls.return_value = mock_ds
+        mock_query = mock_ds.get_observations.return_value.query.return_value
+        mock_query.filter.return_value = mock_query
+        mock_query.select.return_value = mock_query
+        mock_query.list.return_value = _LazyPaginatedResult([obs_1, obs_2, obs_3])
+
+        deleted = loader._delete_observations_in_window(
+            "42",
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 2, 1, tzinfo=UTC),
+        )
+
+    assert deleted == 3
+    # All three yields must happen before the first delete — i.e. the full
+    # result set is materialized before any entity is deleted.
+    first_delete_idx = next(i for i, (kind, _) in enumerate(call_order) if kind == "delete")
+    assert [kind for kind, _ in call_order[:first_delete_idx]] == ["yield", "yield", "yield"]

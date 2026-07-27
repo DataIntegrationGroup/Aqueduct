@@ -513,6 +513,14 @@ class FrostStaClientLoader(FrostLoader):
         endpoint (BaseDao.delete() takes one entity at a time — see
         dao/base.py), so this queries matching observations by id, then
         deletes them one at a time, retrying each delete independently.
+
+        The query result is fully materialized into a list before any delete
+        happens. EntityList.__next__ fetches later pages lazily via
+        @iot.nextLink, and FROST builds that link as $top=N&$skip=N
+        (skip/offset-based, default page size 100) — deleting entities while
+        still iterating would shrink the underlying result set mid-pagination,
+        shifting the skip offset for every later page and silently skipping
+        some matches for any window spanning more than one page.
         """
         import frost_sta_client as fsc
 
@@ -522,10 +530,12 @@ class FrostStaClientLoader(FrostLoader):
         )
         ds = fsc.Datastream(id=int(datastream_id))
         ds.service = self.service
-        obs_list = ds.get_observations().query().filter(flt).select("id").list()
+        # list(...) forces every page to be fetched now, against the
+        # untouched result set, before the delete loop below can shrink it.
+        to_delete = list(ds.get_observations().query().filter(flt).select("id").list())
 
         count = 0
-        for ob in obs_list:
+        for ob in to_delete:
             _with_retry(lambda ob=ob: self.service.delete(ob))
             count += 1
         return count
