@@ -124,11 +124,12 @@ def _fetch_readings_for_location(
 def cabq_source(
     api_base_url: str = dlt.config.value,
     initial_start_date: str = dlt.config.value,
+    _stats: dict | None = None,
 ) -> Any:
     start_ts = int(
         datetime.strptime(initial_start_date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
     )
-    return cabq_readings(api_base_url, start_ts)
+    return cabq_readings(api_base_url=api_base_url, start_ts=start_ts, _stats=_stats)
 
 
 @dlt.resource(
@@ -139,6 +140,7 @@ def cabq_source(
 def cabq_readings(
     api_base_url: str,
     start_ts: int,
+    _stats: dict | None = None,
     # dlt detects the incremental cursor via this default — idiomatic, so B008 is expected.
     updated_at: dlt.sources.incremental[int] = dlt.sources.incremental(  # noqa: B008
         "timestamp",
@@ -215,6 +217,12 @@ def cabq_readings(
             no_data,
             rows_yielded,
         )
+        if _stats is not None:
+            _stats["rows_yielded"] = rows_yielded
+            _stats["locations_fetched"] = fetched
+            _stats["locations_no_data"] = no_data
+            _stats["locations_errored"] = errored
+            _stats["failed_location_ids"] = failed_ids
     finally:
         client.close()
 
