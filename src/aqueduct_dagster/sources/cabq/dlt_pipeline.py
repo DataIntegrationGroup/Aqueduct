@@ -66,11 +66,11 @@ def _fetch_locations(client: httpx.Client) -> list[dict]:
     get location information from CABQ
     format of location:
     {
-                "sys_loc_code": str,    *string code for identifying location
-                "loc_name": str,        *full human-readable name of location
-                "latitude": num,        *latitude coordinate for location
-                "longitude": num        *longitude coordinate for location
-        }
+        "sys_loc_code": str,    *string code for identifying location
+        "loc_name": str,        *full human-readable name of location
+        "latitude": num,        *latitude coordinate for location
+        "longitude": num        *longitude coordinate for location
+    }
     """
 
     def _fetch_location_info() -> httpx.Response:
@@ -97,8 +97,9 @@ def _fetch_readings_for_location(
     get reading information for location from CABQ
     format of location:
     {
-
-        }
+        measurement_date: num, *timestamp of when measurement was taken in unix epoch seconds
+        water_level: num, *water level in ft msl
+    }
     """
 
     def _fetch_readings() -> httpx.Response:
@@ -160,14 +161,14 @@ def cabq_readings(
       value        — float measurement
       # add other fields as needed
     """
-    # TODO: fetch CABQ stations/locations from CKAN API
-    # TODO: use dlt.current.resource_state().setdefault("location_cursors", {}) for per-station cursors
-    # TODO: fetch readings per station using max(cursors.get(str(station_id), 0), start_ts) as start
-    # TODO: advance cursor per station only after successful fetch: cursors[str(station_id)] = max_ts
-    # TODO: yield one flat record per reading (no location metadata — join at transform time)
     cursors: dict[str, int] = dlt.current.resource_state().setdefault("location_cursors", {})
     client = build_unauthenticated_client(api_base_url, timeout=httpx.Timeout())
     try:
+        fetched = 0
+        no_data = 0
+        errored = 0
+        failed_ids: list[int] = []
+        rows_yielded = 0
         locations = _fetch_locations(client)
         for location in locations:
             loc_id = location["sys_loc_code"]
@@ -178,10 +179,44 @@ def cabq_readings(
                 location["name"],
                 loc_start,
             )
-            # data, err = _fetch_readings_for_location(client, loc_id, loc_start)
+            data, err = _fetch_readings_for_location(client, loc_id, loc_start)
+            if err is not None:
+                logger.warning(
+                    "Location %s (%s) failed: %s — cursor not advanced, will retry next run",
+                    loc_id,
+                    location["name"],
+                    err,
+                )
+                errored += 1
+                failed_ids.append(loc_id)
+                continue
+            if data is None:
+                logger.warning("Location %s (%s): no data (404)", loc_id, location["name"])
+                no_data += 1
+                continue
+            fetched += 1
+            max_timestamp = loc_start
+            for measurement in data:
+                timestamp = measurement["measurement_date"]
+                if timestamp > max_timestamp:
+                    max_timestamp = timestamp
+                rows_yielded += 1
+                yield {
+                    "reading_id": f"{loc_id}_{timestamp}",
+                    "location_id": loc_id,
+                    "timestamp": timestamp,
+                    "value": measurement["water_level"],
+                }
+            cursors[str(loc_id)] = max_timestamp
+        logger.info(
+            "cabq readings extract complete: %d fetched, %d errored, %d no-data, %d rows yielded",
+            fetched,
+            errored,
+            no_data,
+            rows_yielded,
+        )
     finally:
         client.close()
-    raise NotImplementedError("cabq_readings is not implemented yet")
 
 
 def build_pipeline() -> dlt.Pipeline:
