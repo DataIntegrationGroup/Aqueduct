@@ -67,6 +67,14 @@ def atomic_write_json_with_retry(fs: gcsfs.GCSFileSystem, path: str, data: dict,
 
 
 def _gcs_bucket_url() -> str:
+    """Resolve the GCS bucket URL for the current run.
+
+    Prefers the GCS_BUCKET_URL env var, falling back to the committed
+    [destination.filesystem] bucket_url in .dlt/config.toml.
+    """
+    env_url = os.environ.get("GCS_BUCKET_URL")
+    if env_url:
+        return env_url
     config_path = os.path.join(os.getcwd(), ".dlt", "config.toml")
     return toml.load(config_path)["destination"]["filesystem"]["bucket_url"]
 
