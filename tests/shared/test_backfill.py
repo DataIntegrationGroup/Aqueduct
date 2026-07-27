@@ -232,8 +232,12 @@ def test_save_raises_after_all_retries_exhausted():
 
 def test_sum_chunk_results_adds_fields_across_chunks():
     results = [
-        ChunkResult(rows_ingested=10, bundles_loaded=2, observations_posted=10, observations_deleted=0),
-        ChunkResult(rows_ingested=5, bundles_loaded=1, observations_posted=5, observations_deleted=3),
+        ChunkResult(
+            rows_ingested=10, bundles_loaded=2, observations_posted=10, observations_deleted=0
+        ),
+        ChunkResult(
+            rows_ingested=5, bundles_loaded=1, observations_posted=5, observations_deleted=3
+        ),
     ]
     totals = sum_chunk_results(results)
     assert totals == ChunkResult(
