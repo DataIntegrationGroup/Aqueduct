@@ -5,15 +5,24 @@ Unit tests for the shared parquet/watermark helpers in shared/gcs.py.
 All GCS and parquet I/O is mocked — no live GCS required.
 
 Covers:
-  _load_id_from_filename — dlt parquet filename parsing
-  read_new_parquet_rows  — glob + watermark filtering + row_filter
+  _load_id_from_filename        — dlt parquet filename parsing
+  read_new_parquet_rows         — glob + watermark filtering + row_filter
+  atomic_write_json_with_retry  — tmp+rename write, retry with backoff
 """
 
 from __future__ import annotations
 
+import io
 from unittest.mock import MagicMock, patch
 
-from aqueduct_dagster.shared.gcs import _load_id_from_filename, read_new_parquet_rows
+import pytest
+
+from aqueduct_dagster.shared.gcs import (
+    _load_id_from_filename,
+    atomic_write_json_with_retry,
+    read_new_parquet_rows,
+    read_parquet_rows_for_load_id,
+)
 
 # ── _load_id_from_filename ────────────────────────────────────────────────────
 
@@ -116,3 +125,118 @@ class TestReadNewParquetRows:
         rows, max_load_id = read_new_parquet_rows("bucket", "ds/*.parquet", None, fs)
         assert rows == []
         assert max_load_id is None
+
+
+# ── read_parquet_rows_for_load_id ──────────────────────────────────────────────
+
+
+class TestReadParquetRowsForLoadId:
+    def test_returns_empty_when_no_matching_load_id(self):
+        files = ["bucket/ds/year=2024/month=01/day=01/100.0.0.parquet"]
+        tables = {files[0]: {"v": [1]}}
+        fs = _mock_fs(files, tables)
+        with patch(
+            "aqueduct_dagster.shared.gcs.pq.read_table", side_effect=_fake_read_table(tables)
+        ):
+            rows = read_parquet_rows_for_load_id("bucket", "ds/*.parquet", 999.0, fs)
+        assert rows == []
+
+    def test_reads_only_the_exact_load_id_not_greater(self):
+        files = [
+            "bucket/ds/year=2024/month=01/day=01/100.0.0.parquet",
+            "bucket/ds/year=2024/month=01/day=02/200.0.0.parquet",
+        ]
+        tables = {files[0]: {"v": [1]}, files[1]: {"v": [2]}}
+        fs = _mock_fs(files, tables)
+        with patch(
+            "aqueduct_dagster.shared.gcs.pq.read_table", side_effect=_fake_read_table(tables)
+        ):
+            rows = read_parquet_rows_for_load_id("bucket", "ds/*.parquet", 100.0, fs)
+        assert rows == [{"v": 1}]
+
+    def test_reads_multiple_files_sharing_the_same_load_id(self):
+        files = [
+            "bucket/ds/year=2024/month=01/day=01/100.0.0.parquet",
+            "bucket/ds/year=2024/month=01/day=01/100.0.1.parquet",
+        ]
+        tables = {files[0]: {"v": [1]}, files[1]: {"v": [2]}}
+        fs = _mock_fs(files, tables)
+        with patch(
+            "aqueduct_dagster.shared.gcs.pq.read_table", side_effect=_fake_read_table(tables)
+        ):
+            rows = read_parquet_rows_for_load_id("bucket", "ds/*.parquet", 100.0, fs)
+        assert rows == [{"v": 1}, {"v": 2}]
+
+    def test_applies_row_filter(self):
+        files = ["bucket/ds/year=2024/month=01/day=01/100.0.0.parquet"]
+        tables = {files[0]: {"parameter_id": ["4", "1"], "value": [10.0, 20.0]}}
+        fs = _mock_fs(files, tables)
+        with patch(
+            "aqueduct_dagster.shared.gcs.pq.read_table", side_effect=_fake_read_table(tables)
+        ):
+            rows = read_parquet_rows_for_load_id(
+                "bucket",
+                "ds/*.parquet",
+                100.0,
+                fs,
+                row_filter=lambda row: row["parameter_id"] == "4",
+            )
+        assert rows == [{"parameter_id": "4", "value": 10.0}]
+
+
+# ── atomic_write_json_with_retry ───────────────────────────────────────────────
+
+
+class TestAtomicWriteJsonWithRetry:
+    def test_writes_tmp_then_renames(self):
+        fs = MagicMock()
+        write_buf = io.StringIO()
+        fs.open.return_value.__enter__ = lambda _: write_buf
+        fs.open.return_value.__exit__ = MagicMock(return_value=False)
+        log = MagicMock()
+
+        atomic_write_json_with_retry(fs, "bucket/path/file.json", {"a": 1}, log)
+
+        fs.open.assert_called_with("bucket/path/file.json.tmp", "w")
+        fs.rename.assert_called_once_with("bucket/path/file.json.tmp", "bucket/path/file.json")
+        log.warning.assert_not_called()
+        log.error.assert_not_called()
+
+    def test_retries_on_transient_failure_then_succeeds(self):
+        fs = MagicMock()
+        write_buf = io.StringIO()
+        fs.open.side_effect = [
+            OSError("transient"),
+            MagicMock(__enter__=lambda _: write_buf, __exit__=MagicMock(return_value=False)),
+        ]
+        log = MagicMock()
+
+        atomic_write_json_with_retry(fs, "bucket/path/file.json", {"a": 1}, log)
+
+        assert fs.open.call_count == 2
+        log.warning.assert_called_once()
+        log.error.assert_not_called()
+
+    def test_raises_after_all_retries_exhausted(self):
+        fs = MagicMock()
+        fs.open.side_effect = OSError("persistent failure")
+        log = MagicMock()
+
+        with pytest.raises(OSError, match="persistent failure"):
+            atomic_write_json_with_retry(fs, "bucket/path/file.json", {"a": 1}, log)
+
+        assert fs.open.call_count == 3
+        log.error.assert_called_once()
+
+    def test_accepts_either_stdlib_logger_or_dagster_log(self):
+        """log only needs .warning()/.error() — a plain logging.Logger works too."""
+        import logging
+
+        fs = MagicMock()
+        write_buf = io.StringIO()
+        fs.open.return_value.__enter__ = lambda _: write_buf
+        fs.open.return_value.__exit__ = MagicMock(return_value=False)
+
+        atomic_write_json_with_retry(
+            fs, "bucket/path/file.json", {"a": 1}, logging.getLogger("test")
+        )  # must not raise

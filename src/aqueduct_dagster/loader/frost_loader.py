@@ -3,7 +3,7 @@ loader/frost_loader.py
 
 Writes CanonicalBundles to a FROST SensorThings API server.
 
-Two responsibilities:
+Three responsibilities:
   1. ensure_datastream() — idempotent upsert of full metadata graph:
        Location → Thing (linked to Location) → Sensor → ObservedProperty
        → Datastream (linked to all four)
@@ -13,6 +13,14 @@ Two responsibilities:
   2. load_observations() — posts observations as chunked Data Array batches.
      Watermark filters already-loaded records. Watermark is advanced per chunk
      so a partial failure doesn't re-post on the next run.
+     Used by the normal scheduled pipeline (append-only, never overwrites).
+
+  3. load_window() — delete-then-repost for an explicit [window_start, window_end)
+     range: deletes existing observations in that window first, then posts the
+     given records, per docs/BACKFILL_STRATEGY.md §4.4. Used by backfill (Mode A
+     refetch) and, later, Mode B replay — both need to be able to overwrite
+     already-loaded data (e.g. a vendor correction), not just append behind a
+     watermark. The watermark is only ever advanced forward, never rewound.
 
 frost_sta_client object model notes:
   - Thing.locations accepts a list of Location objects (wraps in EntityList)
@@ -21,6 +29,9 @@ frost_sta_client object model notes:
   - unit_of_measurement must be a UnitOfMeasurement instance, not a dict
   - DataArrayValue: set datastream then components (order matters), then add_observation
   - Observation.phenomenon_time is stored as-is (str or datetime) by the library
+  - No bulk-delete endpoint: BaseDao.delete() takes one entity at a time, so
+    deleting a window means query-then-delete-per-entity (see
+    FrostStaClientLoader._delete_observations_in_window).
 """
 
 import abc
@@ -58,13 +69,14 @@ class ObservationRecord:
 
 
 class LoadResult:
-    __slots__ = ("datastream_key", "considered", "posted", "skipped", "new_watermark")
+    __slots__ = ("datastream_key", "considered", "posted", "skipped", "deleted", "new_watermark")
 
     def __init__(self, datastream_key: str) -> None:
         self.datastream_key = datastream_key
         self.considered = 0
         self.posted = 0
         self.skipped = 0
+        self.deleted = 0  # only ever set by load_window() — load_observations() never deletes
         self.new_watermark: datetime | None = None
 
 
@@ -76,6 +88,11 @@ class LoadResult:
 def _chunked(items: Sequence, size: int) -> Iterator[Sequence]:
     for i in range(0, len(items), size):
         yield items[i : i + size]
+
+
+def _odata_datetime(dt: datetime) -> str:
+    """Formats a datetime as an OData/SensorThings datetime literal, e.g. 2026-01-01T00:00:00Z."""
+    return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _with_retry[T](fn: Callable[..., T], *, attempts: int = 5, base_delay: float = 0.5) -> T:
@@ -187,6 +204,72 @@ class FrostLoader(abc.ABC):
         )
         return result
 
+    def load_window(
+        self,
+        datastream_key: str,
+        datastream_id: str,
+        records: Iterable[ObservationRecord],
+        window_start: datetime,
+        window_end: datetime,
+    ) -> LoadResult:
+        """
+        Delete-then-repost for the explicit half-open range [window_start, window_end).
+
+        Unlike load_observations(), this does not filter by watermark — it
+        unconditionally deletes whatever observations already exist for this
+        datastream in the window, then posts every given record. This is what
+        lets a backfill or replay correct already-loaded data (e.g. a vendor
+        correction), not just append new data behind a watermark.
+
+        Deletion happens before posting (not after) — see
+        docs/BACKFILL_STRATEGY.md §4.4: a crash between delete and repost
+        leaves a visible, self-healing hole (re-running the same window fixes
+        it); the reverse order risks a crash leaving both old and new values
+        coexisting, silently double-counting with no way to detect it.
+
+        The persisted watermark is only ever extended forward — if this
+        window's data doesn't reach past the current watermark (e.g.
+        correcting old history), the watermark is left untouched.
+        """
+        result = LoadResult(datastream_key=datastream_key)
+        ordered = sorted(records, key=lambda r: r.phenomenon_time)
+        result.considered = len(ordered)
+
+        result.deleted = _with_retry(
+            lambda: self._delete_observations_in_window(datastream_id, window_start, window_end)
+        )
+        logger.info(
+            "datastream %s: deleted %d existing observation(s) in window [%s, %s)",
+            datastream_key,
+            result.deleted,
+            window_start,
+            window_end,
+        )
+
+        current_wm = self.watermarks.get(datastream_key)
+        if not ordered:
+            result.new_watermark = current_wm
+            return result
+
+        for chunk in _chunked(ordered, self.chunk_size):
+            self._post_data_array(datastream_id, chunk)
+            result.posted += len(chunk)
+
+        chunk_max = ordered[-1].phenomenon_time
+        if current_wm is None or chunk_max > current_wm:
+            self.watermarks.set(datastream_key, chunk_max)
+            result.new_watermark = chunk_max
+        else:
+            result.new_watermark = current_wm
+
+        logger.info(
+            "datastream %s: window load posted %d, watermark→%s",
+            datastream_key,
+            result.posted,
+            result.new_watermark,
+        )
+        return result
+
     @abc.abstractmethod
     def _find_location(self, external_key: str) -> str | None: ...
     @abc.abstractmethod
@@ -218,6 +301,10 @@ class FrostLoader(abc.ABC):
     def _post_data_array(self, datastream_id: str, chunk: Sequence[ObservationRecord]) -> None: ...
     @abc.abstractmethod
     def _max_phenomenon_time(self, datastream_id: str) -> datetime | None: ...
+    @abc.abstractmethod
+    def _delete_observations_in_window(
+        self, datastream_id: str, window_start: datetime, window_end: datetime
+    ) -> int: ...
 
 
 # --------------------------------------------------------------------------- #
@@ -414,3 +501,31 @@ class FrostStaClientLoader(FrostLoader):
         except Exception as exc:
             logger.warning("Could not recover watermark for datastream %s: %s", datastream_id, exc)
         return None
+
+    # ── window delete (backfill / replay) ────────────────────────────────────
+
+    def _delete_observations_in_window(
+        self, datastream_id: str, window_start: datetime, window_end: datetime
+    ) -> int:
+        """
+        Deletes every observation on this datastream with phenomenonTime in
+        [window_start, window_end). frost_sta_client has no bulk-delete
+        endpoint (BaseDao.delete() takes one entity at a time — see
+        dao/base.py), so this queries matching observations by id, then
+        deletes them one at a time, retrying each delete independently.
+        """
+        import frost_sta_client as fsc
+
+        flt = (
+            f"phenomenonTime ge {_odata_datetime(window_start)} "
+            f"and phenomenonTime lt {_odata_datetime(window_end)}"
+        )
+        ds = fsc.Datastream(id=int(datastream_id))
+        ds.service = self.service
+        obs_list = ds.get_observations().query().filter(flt).select("id").list()
+
+        count = 0
+        for ob in obs_list:
+            _with_retry(lambda ob=ob: self.service.delete(ob))
+            count += 1
+        return count

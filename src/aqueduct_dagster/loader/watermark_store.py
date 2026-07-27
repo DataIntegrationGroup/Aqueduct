@@ -33,15 +33,14 @@ from __future__ import annotations
 
 import abc
 import json
-import time
 from datetime import datetime
 
 import gcsfs
-from dagster import AssetExecutionContext
+from dagster import AssetExecutionContext, OpExecutionContext
+
+from aqueduct_dagster.shared.gcs import atomic_write_json_with_retry
 
 _FROST_WATERMARKS_FILENAME = "_frost_watermarks.json"
-_SAVE_RETRIES = 3
-_SAVE_BACKOFF = (1.0, 2.0, 4.0)
 
 
 class WatermarkStore(abc.ABC):
@@ -73,14 +72,13 @@ class FrostWatermarkStore(WatermarkStore):
     immediately after every set() so partial failures resume from the last
     successful chunk on the next run.
 
-    Writes are atomic: content is written to a .tmp object then renamed to
-    the final path, so the live file is never partially overwritten. Failed
-    writes are retried up to _SAVE_RETRIES times with exponential backoff.
+    Writes are atomic with retry, via shared/gcs.py's atomic_write_json_with_retry()
+    (also used by shared/backfill.py's BackfillCheckpointStore).
     """
 
     def __init__(
         self,
-        context: AssetExecutionContext,
+        context: AssetExecutionContext | OpExecutionContext,
         fs: gcsfs.GCSFileSystem,
         bucket: str,
         dataset: str,
@@ -109,33 +107,8 @@ class FrostWatermarkStore(WatermarkStore):
 
     def _save(self) -> None:
         """Write cache to GCS atomically (write tmp → rename) with retry."""
-        final_path = self._watermarks_path
-        tmp_path = f"{final_path}.tmp"
-        last_exc: Exception | None = None
-        for attempt in range(_SAVE_RETRIES):
-            try:
-                with self._fs.open(tmp_path, "w") as f:
-                    json.dump({k: v.isoformat() for k, v in self._cache.items()}, f)
-                self._fs.rename(tmp_path, final_path)
-                return
-            except Exception as exc:
-                last_exc = exc
-                if attempt < _SAVE_RETRIES - 1:
-                    delay = _SAVE_BACKOFF[attempt]
-                    self._context.log.warning(
-                        "FROST watermark write failed (attempt %d/%d): %s — retrying in %.0fs",
-                        attempt + 1,
-                        _SAVE_RETRIES,
-                        exc,
-                        delay,
-                    )
-                    time.sleep(delay)
-        self._context.log.error(
-            "FROST watermark write failed after %d attempts — watermark not persisted: %s",
-            _SAVE_RETRIES,
-            last_exc,
-        )
-        raise last_exc  # type: ignore[misc]
+        data = {k: v.isoformat() for k, v in self._cache.items()}
+        atomic_write_json_with_retry(self._fs, self._watermarks_path, data, self._context.log)
 
     def get(self, datastream_key: str) -> datetime | None:
         self._load()
