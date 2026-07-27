@@ -5,6 +5,7 @@ Unit tests for the shared parquet/watermark helpers in shared/gcs.py.
 All GCS and parquet I/O is mocked — no live GCS required.
 
 Covers:
+  _gcs_bucket_url        — GCS_BUCKET_URL env override + config.toml fallback
   _load_id_from_filename — dlt parquet filename parsing
   read_new_parquet_rows  — glob + watermark filtering + row_filter
 """
@@ -13,7 +14,38 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from aqueduct_dagster.shared.gcs import _load_id_from_filename, read_new_parquet_rows
+import pytest
+
+from aqueduct_dagster.shared.gcs import (
+    _gcs_bucket_url,
+    _load_id_from_filename,
+    read_new_parquet_rows,
+)
+
+# ── _gcs_bucket_url ────────────────────────────────────────────────────────────
+
+
+class TestGcsBucketUrl:
+    def test_prefers_env_var(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("GCS_BUCKET_URL", "gs://my-test-bucket")
+        # config.toml must not even be read when the env var wins.
+        with patch("aqueduct_dagster.shared.gcs.toml.load") as mock_load:
+            assert _gcs_bucket_url() == "gs://my-test-bucket"
+        mock_load.assert_not_called()
+
+    def test_falls_back_to_config_toml_when_env_unset(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("GCS_BUCKET_URL", raising=False)
+        cfg = {"destination": {"filesystem": {"bucket_url": "gs://from-config"}}}
+        with patch("aqueduct_dagster.shared.gcs.toml.load", return_value=cfg):
+            assert _gcs_bucket_url() == "gs://from-config"
+
+    def test_empty_env_var_falls_back_to_config_toml(self, monkeypatch: pytest.MonkeyPatch):
+        # An empty string is treated as unset — fall back rather than write to "".
+        monkeypatch.setenv("GCS_BUCKET_URL", "")
+        cfg = {"destination": {"filesystem": {"bucket_url": "gs://from-config"}}}
+        with patch("aqueduct_dagster.shared.gcs.toml.load", return_value=cfg):
+            assert _gcs_bucket_url() == "gs://from-config"
+
 
 # ── _load_id_from_filename ────────────────────────────────────────────────────
 
