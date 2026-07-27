@@ -75,11 +75,7 @@ def _fetch_locations(client: httpx.Client) -> list[dict]:
 
     def _fetch_location_info() -> httpx.Response:
         return client.get(
-            "/query?"
-            + "where=OBJECTID>0"
-            + "&outFields=sys_loc_code,loc_name,latitude,longitude"
-            + "&returnDistinctValues=true"
-            + "&f=pjson"
+            "/query?where=OBJECTID>0&outFields=sys_loc_code,loc_name,latitude,longitude&returnDistinctValues=true&f=pjson"
         )
 
     resp = retry_transient(
@@ -104,12 +100,9 @@ def _fetch_readings_for_location(
 
     def _fetch_readings() -> httpx.Response:
         return client.get(
-            "/query?"
-            + "where=sys_loc_code%3D'"
+            "/query?where=sys_loc_code%3D'"
             + loc_id
-            + "'"
-            + "&outfields=measurement_date,water_level"
-            + "&f=pjson"
+            + "'&outfields=measurement_date,water_level&f=pjson"
         )
 
     resp = retry_transient(
