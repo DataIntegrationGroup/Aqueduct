@@ -173,7 +173,7 @@ class TestCabqReadings:
         self, mock_fetch_locations, mock_fetch_readings, mock_state
     ):
         mock_fetch_locations.return_value = LOCATIONS_PROCESSED
-        mock_fetch_readings.return_value = (None, None)
+        mock_fetch_readings.return_value = (None, "HTTP 500")
         state: dict = {"location_cursors": {"IW4": 1000}}
         with patch("dlt.current.resource_state", return_value=state):
             list(
