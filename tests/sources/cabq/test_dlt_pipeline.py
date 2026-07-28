@@ -128,12 +128,7 @@ class TestCabqReadings:
     def test_returns_cabq_readings(self, mock_fetch_locations, mock_fetch_readings, mock_state):
         mock_fetch_locations.return_value = LOCATIONS_PROCESSED
         mock_fetch_readings.return_value = (READINGS_PROCESSED, None)
-        results = list(
-            cabq_readings(
-                client=DUMMY_CLIENT,
-                start_ts=1000,
-            )
-        )
+        results = list(cabq_readings(client=DUMMY_CLIENT, start_ts=1000))
         assert mock_fetch_locations.called
         assert mock_fetch_readings.called
         assert mock_fetch_readings.call_args.args.__contains__("IW4")
@@ -176,10 +171,32 @@ class TestCabqReadings:
         mock_fetch_readings.return_value = (None, "HTTP 500")
         state: dict = {"location_cursors": {"IW4": 1000}}
         with patch("dlt.current.resource_state", return_value=state):
-            list(
-                cabq_readings(
-                    client=DUMMY_CLIENT,
-                    start_ts=1000,
-                )
-            )
+            list(cabq_readings(client=DUMMY_CLIENT, start_ts=1000))
         assert state["location_cursors"] == {"IW4": 1000}  # unchanged
+
+    @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
+    @patch("aqueduct_dagster.sources.cabq.dlt_pipeline._fetch_readings_for_location")
+    @patch("aqueduct_dagster.sources.cabq.dlt_pipeline._fetch_locations")
+    def test_partial_failure_stats(self, mock_fetch_locations, mock_fetch_readings, mock_state):
+        locations = [
+            {
+                "sys_loc_code": "IW4",
+                "loc_name": "LALF GROUNDWATER INJECTION WELL 4",
+                "latitude": -106.599332407,
+                "longitude": 35.170730266,
+            },
+            {
+                "sys_loc_code": "IW3",
+                "loc_name": "LALF GROUNDWATER INJECTION WELL 3",
+                "latitude": -106.599332407,
+                "longitude": 35.170730266,
+            },
+        ]
+        mock_fetch_locations.return_value = locations
+        # IW4 succeeds, IW3 fails
+        mock_fetch_readings.side_effect = [(READINGS_PROCESSED, None), (None, "HTTP 500")]
+        stats: dict = {}
+        list(cabq_readings(client=DUMMY_CLIENT, start_ts=1000, _stats=stats))
+        assert stats["locations_fetched"] == 1
+        assert stats["locations_errored"] == 1
+        assert stats["failed_location_ids"] == ["IW3"]
