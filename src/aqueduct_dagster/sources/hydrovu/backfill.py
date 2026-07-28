@@ -214,6 +214,23 @@ def run_backfill_chunk(
         ),
         loader_file_format="parquet",
     )
+    if not load_info.loads_ids:
+        # dlt only creates a load package when there's something new to persist.
+        # On this pipeline's very first-ever run, that's always true regardless
+        # of data (schema/state bookkeeping alone counts). On every run after
+        # that, if this chunk's requested location(s) yielded zero rows — e.g.
+        # a bad/nonexistent location_id, or a genuinely empty month — there is
+        # nothing new at all, and loads_ids comes back empty. That's a normal
+        # outcome, not a failure: report an empty chunk rather than indexing
+        # into an empty list.
+        logger.info(
+            "Backfill chunk [%s, %s): ingest yielded no new data — nothing to transform or load",
+            chunk_start,
+            chunk_end,
+        )
+        return ChunkResult(
+            rows_ingested=0, bundles_loaded=0, observations_posted=0, observations_deleted=0
+        )
     load_id = float(load_info.loads_ids[0])
     logger.info(
         "Backfill chunk [%s, %s): ingest complete, load_id=%s", chunk_start, chunk_end, load_id

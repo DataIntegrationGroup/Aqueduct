@@ -316,3 +316,43 @@ def test_run_backfill_chunk_with_no_rows_loads_nothing(mock_build_pipeline, mock
     assert result.observations_posted == 0
     assert result.observations_deleted == 0
     assert loader.ensure_calls == []
+
+
+@patch("aqueduct_dagster.sources.hydrovu.backfill.read_parquet_rows_for_load_id")
+@patch("aqueduct_dagster.sources.hydrovu.backfill.build_backfill_pipeline")
+def test_run_backfill_chunk_handles_empty_loads_ids_without_crashing(
+    mock_build_pipeline, mock_read_rows
+):
+    """
+    Regression test: dlt only creates a load package when there's new data or
+    schema/state to persist. On a reused pipeline (every chunk in a backfill
+    run shares the same pipeline_name), a chunk whose requested location(s)
+    yield zero rows — e.g. a wrong/nonexistent location_id, confirmed via a
+    real report — gets back an EMPTY loads_ids list, not a list with one
+    entry. Indexing into it unconditionally used to raise IndexError and kill
+    the whole chunk.
+    """
+    mock_pipeline = MagicMock()
+    mock_pipeline.run.return_value = MagicMock(loads_ids=[])
+    mock_build_pipeline.return_value = mock_pipeline
+
+    loader = _StubFrostLoader()
+    result = run_backfill_chunk(
+        client=_DUMMY_CLIENT,
+        locations=_LOCATIONS,
+        locations_by_id=_locations_by_id(_LOCATIONS),
+        location_ids=[999999],  # e.g. a mistyped/nonexistent location id
+        chunk_start=CHUNK_START,
+        chunk_end=CHUNK_END,
+        loader=loader,  # type: ignore[arg-type]
+        bucket="my-bucket",
+        fs=MagicMock(),
+    )
+
+    assert result.rows_ingested == 0
+    assert result.bundles_loaded == 0
+    assert result.observations_posted == 0
+    assert result.observations_deleted == 0
+    assert loader.ensure_calls == []
+    # No point reading parquet back — there's no load_id to look up.
+    mock_read_rows.assert_not_called()
