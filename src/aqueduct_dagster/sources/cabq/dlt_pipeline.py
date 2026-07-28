@@ -130,7 +130,8 @@ def cabq_source(
     start_ts = int(
         datetime.strptime(initial_start_date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
     )
-    return cabq_readings(api_base_url=api_base_url, start_ts=start_ts, _stats=_stats)
+    client = build_unauthenticated_client(api_base_url, timeout=httpx.Timeout())
+    return cabq_readings(client=client, start_ts=start_ts, _stats=_stats)
 
 
 @dlt.resource(
@@ -139,7 +140,7 @@ def cabq_source(
     primary_key="reading_id",
 )
 def cabq_readings(
-    api_base_url: str,
+    client: httpx.Client,
     start_ts: int,
     _stats: dict | None = None,
     # dlt detects the incremental cursor via this default — idiomatic, so B008 is expected.
@@ -165,7 +166,6 @@ def cabq_readings(
       # add other fields as needed
     """
     cursors: dict[str, int] = dlt.current.resource_state().setdefault("location_cursors", {})
-    client = build_unauthenticated_client(api_base_url, timeout=httpx.Timeout())
     try:
         fetched = 0
         no_data = 0
@@ -179,7 +179,7 @@ def cabq_readings(
             logger.info(
                 "Fetching readings for location %s (%s) from Unix timestamp %s",
                 loc_id,
-                location["name"],
+                location["loc_name"],
                 loc_start,
             )
             data, err = _fetch_readings_for_location(client, loc_id, loc_start)
@@ -187,14 +187,14 @@ def cabq_readings(
                 logger.warning(
                     "Location %s (%s) failed: %s — cursor not advanced, will retry next run",
                     loc_id,
-                    location["name"],
+                    location["loc_name"],
                     err,
                 )
                 errored += 1
                 failed_ids.append(loc_id)
                 continue
             if data is None:
-                logger.warning("Location %s (%s): no data (404)", loc_id, location["name"])
+                logger.warning("Location %s (%s): no data (404)", loc_id, location["loc_name"])
                 no_data += 1
                 continue
             fetched += 1

@@ -7,12 +7,15 @@ No real API calls, simulated via httpx.MockTransport.          -
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import httpx
 import pytest
 
 from aqueduct_dagster.sources.cabq.dlt_pipeline import (
     _fetch_locations,
     _fetch_readings_for_location,
+    cabq_readings,
 )
 from tests.conftest import client_with_responses_unauthenticated as _client_with_responses_base
 
@@ -58,7 +61,7 @@ class TestFetchLocations:
         )
 
 
-# -- _fetch_readings_for_location
+# -- _fetch_readings_for_location --
 
 READINGS_PROCESSED = [{"measurement_date": 1391079600000, "water_level": "4927.15"}]
 
@@ -104,3 +107,79 @@ class TestFetchReadings:
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
             _fetch_readings_for_location(client, loc_id="IW4", loc_start=1391079600000)
         assert exc_info.value.response.status_code == 403
+
+
+# -- cabq_readings --
+
+CABQ_RESULTS = {
+    "reading_id": "IW4_1391079600000",
+    "location_id": "IW4",
+    "timestamp": 1391079600000,
+    "value": "4927.15",
+}
+
+DUMMY_CLIENT = MagicMock(spec=httpx.Client)
+
+
+class TestCabqReadings:
+    @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
+    @patch("aqueduct_dagster.sources.cabq.dlt_pipeline._fetch_readings_for_location")
+    @patch("aqueduct_dagster.sources.cabq.dlt_pipeline._fetch_locations")
+    def test_returns_cabq_readings(self, mock_fetch_locations, mock_fetch_readings, mock_state):
+        mock_fetch_locations.return_value = LOCATIONS_PROCESSED
+        mock_fetch_readings.return_value = (READINGS_PROCESSED, None)
+        results = list(
+            cabq_readings(
+                client=DUMMY_CLIENT,
+                start_ts=1000,
+            )
+        )
+        assert mock_fetch_locations.called
+        assert mock_fetch_readings.called
+        assert mock_fetch_readings.call_args.args.__contains__("IW4")
+        assert mock_fetch_readings.call_args.args.__contains__(1000)
+        assert results[0] == CABQ_RESULTS
+
+    @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
+    @patch("aqueduct_dagster.sources.cabq.dlt_pipeline._fetch_readings_for_location")
+    @patch("aqueduct_dagster.sources.cabq.dlt_pipeline._fetch_locations")
+    def test_real_error_increments_errored_count(
+        self, mock_fetch_locations, mock_fetch_readings, mock_state
+    ):
+        mock_fetch_locations.return_value = LOCATIONS_PROCESSED
+        mock_fetch_readings.return_value = (None, "HTTP 500")
+        stats: dict = {}
+        list(cabq_readings(client=DUMMY_CLIENT, start_ts=1000, _stats=stats))
+        assert stats["locations_errored"] == 1
+
+    @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
+    @patch("aqueduct_dagster.sources.cabq.dlt_pipeline._fetch_readings_for_location")
+    @patch("aqueduct_dagster.sources.cabq.dlt_pipeline._fetch_locations")
+    def test_404_does_not_increment_errored_count(
+        self, mock_fetch_locations, mock_fetch_readings, mock_state
+    ):
+        mock_fetch_locations.return_value = LOCATIONS_PROCESSED
+        mock_fetch_readings.return_value = (None, None)
+        stats: dict = {}
+        list(cabq_readings(client=DUMMY_CLIENT, start_ts=1000, _stats=stats))
+        assert stats["locations_errored"] == 0
+        assert stats["locations_no_data"] == 1
+        assert stats["failed_location_ids"] == []
+
+    @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
+    @patch("aqueduct_dagster.sources.cabq.dlt_pipeline._fetch_readings_for_location")
+    @patch("aqueduct_dagster.sources.cabq.dlt_pipeline._fetch_locations")
+    def test_error_does_not_advance_cursor(
+        self, mock_fetch_locations, mock_fetch_readings, mock_state
+    ):
+        mock_fetch_locations.return_value = LOCATIONS_PROCESSED
+        mock_fetch_readings.return_value = (None, None)
+        state: dict = {"location_cursors": {"IW4": 1000}}
+        with patch("dlt.current.resource_state", return_value=state):
+            list(
+                cabq_readings(
+                    client=DUMMY_CLIENT,
+                    start_ts=1000,
+                )
+            )
+        assert state["location_cursors"] == {"IW4": 1000}  # unchanged
