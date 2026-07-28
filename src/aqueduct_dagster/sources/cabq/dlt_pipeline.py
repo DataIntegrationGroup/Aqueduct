@@ -74,8 +74,9 @@ def _fetch_locations(client: httpx.Client) -> list[dict]:
     """
 
     def _fetch_location_info() -> httpx.Response:
+        # query for OBJECTID > 0, aka all entries, for unique location info
         return client.get(
-            "/query?where=OBJECTID>0&outFields=sys_loc_code,loc_name,latitude,longitude&returnDistinctValues=true&f=pjson"
+            "/query?where=OBJECTID%3E0&outFields=sys_loc_code,loc_name,latitude,longitude&returnDistinctValues=true&f=pjson"
         )
 
     resp = retry_transient(
@@ -99,6 +100,7 @@ def _fetch_readings_for_location(
     """
 
     def _fetch_readings() -> httpx.Response:
+        # query for location code = given location id for measurement info
         return client.get(
             "/query?where=sys_loc_code%3D'"
             + loc_id
@@ -109,6 +111,12 @@ def _fetch_readings_for_location(
         _fetch_readings,
         on_retry=lambda exc, attempt, delay: logger.warning("", exec, attempt, delay),
     )
+    if resp.status_code == 404:
+        logger.warning("Location %s: 404 — no data endpoint", loc_id)
+        return None, None
+    if resp.status_code >= 500:
+        logger.warning("Location %s: HTTP %s — skipping", loc_id, resp.status_code)
+        return None, f"HTTP {resp.status_code}"
     resp.raise_for_status()
     return _transform_result(resp.json()), None
 
