@@ -147,7 +147,7 @@ def build_authenticated_client(
     base_url: str, tm: TokenManager, timeout: httpx.Timeout
 ) -> httpx.Client:
     """
-    Returns an httpx.Client with base_url, a default Accept header, BearerAuth
+    Returns a httpx.Client with base_url, a default Accept header, BearerAuth
     (token attached + refreshed-on-401 automatically), and timeout all
     configured once — call sites just do client.get("/some/path", ...).
 
@@ -159,5 +159,22 @@ def build_authenticated_client(
         base_url=base_url,
         headers={"Accept": "application/json"},
         auth=BearerAuth(tm),
+        timeout=timeout,
+    )
+
+
+def build_unauthenticated_client(base_url: str, timeout: httpx.Timeout) -> httpx.Client:
+    """
+    Returns a httpx.Client with base_url, a default Accept header, and timeout all
+    configured once — call sites just do client.get("/some/path", ...).
+    No auth handler, for sources that do not require authentication.
+
+    Callers still need retry_transient() around each client.get()/post() call
+    for transient network errors (timeouts, connection resets) — that's a
+    separate concern from auth and isn't handled by the client itself.
+    """
+    return httpx.Client(
+        base_url=base_url,
+        headers={"Accept": "application/json"},
         timeout=timeout,
     )

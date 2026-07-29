@@ -54,3 +54,33 @@ def client_with_responses(
         transport=httpx.MockTransport(handler),
     )
     return client, calls
+
+
+def client_with_responses_unauthenticated(
+    responses: list[httpx.Response | Exception],
+    base_url: str | httpx.URL = "",
+) -> tuple[httpx.Client, list[httpx.Request]]:
+    """
+    Builds a real httpx.Client backed by a
+    MockTransport that returns `responses` in order — or raises, if an item
+    is an Exception instance (simulates a transient network error).
+
+    Exercises real httpx semantics (raise_for_status, headers, pagination via
+    response headers, auth_flow) without patching httpx.get. Returns
+    (client, calls) — calls records every request the transport actually saw.
+    """
+    calls: list[httpx.Request] = []
+    remaining = iter(responses)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        item = next(remaining)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    client = httpx.Client(
+        base_url=base_url,
+        transport=httpx.MockTransport(handler),
+    )
+    return client, calls
