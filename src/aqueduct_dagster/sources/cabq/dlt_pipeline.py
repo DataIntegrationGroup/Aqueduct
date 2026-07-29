@@ -81,7 +81,7 @@ def _fetch_locations(client: httpx.Client) -> list[dict]:
 
     resp = retry_transient(
         _fetch_location_info,
-        on_retry=lambda exc, attempt, delay: logger.warning("", exec, attempt, delay),
+        on_retry=lambda exc, attempt, delay: logger.warning("", exc, attempt, delay),
     )
     resp.raise_for_status()
     return _transform_result(resp.json())
