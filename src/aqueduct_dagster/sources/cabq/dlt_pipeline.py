@@ -109,7 +109,7 @@ def _fetch_readings_for_location(
 
     resp = retry_transient(
         _fetch_readings,
-        on_retry=lambda exc, attempt, delay: logger.warning("", exec, attempt, delay),
+        on_retry=lambda exc, attempt, delay: logger.warning("", exc, attempt, delay),
     )
     if resp.status_code == 404:
         logger.warning("Location %s: 404 — no data endpoint", loc_id)
