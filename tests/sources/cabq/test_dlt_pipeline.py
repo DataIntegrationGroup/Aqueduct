@@ -43,14 +43,15 @@ LOCATIONS_RESPONSE = {"features": [{"attributes": LOCATIONS_PROCESSED[0]}]}
 class TestFetchLocations:
     def test_returns_list_on_success(self):
         client, _ = _client_with_responses([httpx.Response(200, json=LOCATIONS_RESPONSE)])
-        result = _fetch_locations(client)
+        result, err = _fetch_locations(client)
         assert result == LOCATIONS_PROCESSED
 
     def test_raises_on_server_error(self):
         client, _ = _client_with_responses([httpx.Response(500)])
-        with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            _fetch_locations(client)
-        assert exc_info.value.response.status_code == 500
+        data, err = _fetch_locations(client)
+        assert data is None
+        assert err is not None
+        assert "500" in err
 
     def test_hits_correct_endpoint(self):
         client, calls = _client_with_responses([httpx.Response(200, json=LOCATIONS_RESPONSE)])
@@ -126,7 +127,7 @@ class TestCabqReadings:
     @patch("aqueduct_dagster.sources.cabq.dlt_pipeline._fetch_readings_for_location")
     @patch("aqueduct_dagster.sources.cabq.dlt_pipeline._fetch_locations")
     def test_returns_cabq_readings(self, mock_fetch_locations, mock_fetch_readings, mock_state):
-        mock_fetch_locations.return_value = LOCATIONS_PROCESSED
+        mock_fetch_locations.return_value = (LOCATIONS_PROCESSED, None)
         mock_fetch_readings.return_value = (READINGS_PROCESSED, None)
         results = list(cabq_readings(client=DUMMY_CLIENT, start_ts=1000))
         assert mock_fetch_locations.called
@@ -141,7 +142,7 @@ class TestCabqReadings:
     def test_real_error_increments_errored_count(
         self, mock_fetch_locations, mock_fetch_readings, mock_state
     ):
-        mock_fetch_locations.return_value = LOCATIONS_PROCESSED
+        mock_fetch_locations.return_value = (LOCATIONS_PROCESSED, None)
         mock_fetch_readings.return_value = (None, "HTTP 500")
         stats: dict = {}
         list(cabq_readings(client=DUMMY_CLIENT, start_ts=1000, _stats=stats))
@@ -153,7 +154,7 @@ class TestCabqReadings:
     def test_404_does_not_increment_errored_count(
         self, mock_fetch_locations, mock_fetch_readings, mock_state
     ):
-        mock_fetch_locations.return_value = LOCATIONS_PROCESSED
+        mock_fetch_locations.return_value = (LOCATIONS_PROCESSED, None)
         mock_fetch_readings.return_value = (None, None)
         stats: dict = {}
         list(cabq_readings(client=DUMMY_CLIENT, start_ts=1000, _stats=stats))
@@ -167,7 +168,7 @@ class TestCabqReadings:
     def test_error_does_not_advance_cursor(
         self, mock_fetch_locations, mock_fetch_readings, mock_state
     ):
-        mock_fetch_locations.return_value = LOCATIONS_PROCESSED
+        mock_fetch_locations.return_value = (LOCATIONS_PROCESSED, None)
         mock_fetch_readings.return_value = (None, "HTTP 500")
         state: dict = {"location_cursors": {"IW4": 1000}}
         with patch("dlt.current.resource_state", return_value=state):
@@ -192,7 +193,7 @@ class TestCabqReadings:
                 "longitude": 35.170730266,
             },
         ]
-        mock_fetch_locations.return_value = locations
+        mock_fetch_locations.return_value = (locations, None)
         # IW4 succeeds, IW3 fails
         mock_fetch_readings.side_effect = [(READINGS_PROCESSED, None), (None, "HTTP 500")]
         stats: dict = {}

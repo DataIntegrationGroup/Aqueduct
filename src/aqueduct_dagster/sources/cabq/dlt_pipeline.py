@@ -17,6 +17,7 @@ Add CABQ config block to .dlt/config.toml when wiring up:
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
@@ -24,10 +25,15 @@ from typing import Any
 import dlt
 import httpx
 
+from aqueduct_dagster.shared.http import DEFAULT_MAX_RETRIES as _MAX_RETRIES
+from aqueduct_dagster.shared.http import TRANSIENT_HTTP_ERRORS as _TRANSIENT_ERRORS
 from aqueduct_dagster.shared.http import build_unauthenticated_client, retry_transient
 from aqueduct_dagster.shared.pipeline import build_source_pipeline
 
 logger = logging.getLogger(__name__)
+
+_429_BACKOFF = 60.0  # seconds to wait on 429 when Retry-After header is absent
+_MAX_RATE_LIMIT_RETRIES = 3
 
 
 def _transform_result(data: dict) -> list[dict]:
@@ -61,7 +67,7 @@ def _transform_result(data: dict) -> list[dict]:
     return all_attributes
 
 
-def _fetch_locations(client: httpx.Client) -> list[dict]:
+def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | None]:
     """
     get location information from CABQ
     format of location:
@@ -72,19 +78,47 @@ def _fetch_locations(client: httpx.Client) -> list[dict]:
         "longitude": num        *longitude coordinate for location
     }
     """
+    rate_limit_retries = 0
+    result: dict[Any, Any] = {}
+    while True:
 
-    def _fetch_location_info() -> httpx.Response:
-        # query for OBJECTID > 0, aka all entries, for unique location info
-        return client.get(
-            "/query?where=OBJECTID%3E0&outFields=sys_loc_code,loc_name,latitude,longitude&returnDistinctValues=true&f=pjson"
+        def _fetch_location_info() -> httpx.Response:
+            # query for OBJECTID > 0, aka all entries, for unique location info
+            return client.get(
+                "/query?where=OBJECTID%3E0&outFields=sys_loc_code,loc_name,latitude,longitude&returnDistinctValues=true&f=pjson"
+            )
+
+        resp = retry_transient(
+            _fetch_location_info,
+            on_retry=lambda exec, attempt, delay: logger.warning(
+                "Location: error (%s) on attempt %d - retrying in %.0fs", exec, attempt, delay
+            ),
         )
-
-    resp = retry_transient(
-        _fetch_location_info,
-        on_retry=lambda exc, attempt, delay: logger.warning("", exc, attempt, delay),
-    )
-    resp.raise_for_status()
-    return _transform_result(resp.json())
+        if resp.status_code == 429:
+            rate_limit_retries += 1
+            if rate_limit_retries > _MAX_RATE_LIMIT_RETRIES:
+                return None, f"HTTP 429: rate limited after {_MAX_RATE_LIMIT_RETRIES} retries"
+            retry_after = resp.headers.get("Retry-After")
+            try:
+                delay = float(retry_after) if retry_after else _429_BACKOFF
+            except (ValueError, TypeError):
+                # Retry-After can be an HTTP-date string ("Thu, 01 Jan ...") — fall back.
+                delay = _429_BACKOFF
+            logger.warning(
+                "Locations: 429 rate limited — waiting %.0fs (attempt %d/%d)",
+                delay,
+                rate_limit_retries,
+                _MAX_RATE_LIMIT_RETRIES,
+            )
+            time.sleep(delay)
+            continue
+        if resp.status_code >= 500:
+            logger.warning("Location: HTTP %s", resp.status_code)
+            return None, f"HTTP {resp.status_code}"
+        resp.raise_for_status()
+        result = resp.json()
+        break
+    return _transform_result(result), None
 
 
 def _fetch_readings_for_location(
@@ -98,27 +132,65 @@ def _fetch_readings_for_location(
         water_level: num, *water level in ft msl
     }
     """
+    rate_limit_retries = 0
+    result: dict[Any, Any] = {}
+    while True:
 
-    def _fetch_readings() -> httpx.Response:
-        # query for location code = given location id for measurement info
-        return client.get(
-            "/query?where=sys_loc_code%3D'"
-            + loc_id
-            + "'&outfields=measurement_date,water_level&f=pjson"
-        )
+        def _fetch_readings() -> httpx.Response:
+            # query for location code = given location id for measurement info
+            return client.get(
+                "/query?where=sys_loc_code%3D'"
+                + loc_id
+                + "'&outfields=measurement_date,water_level&f=pjson"
+            )
 
-    resp = retry_transient(
-        _fetch_readings,
-        on_retry=lambda exc, attempt, delay: logger.warning("", exc, attempt, delay),
-    )
-    if resp.status_code == 404:
-        logger.warning("Location %s: 404 — no data endpoint", loc_id)
-        return None, None
-    if resp.status_code >= 500:
-        logger.warning("Location %s: HTTP %s — skipping", loc_id, resp.status_code)
-        return None, f"HTTP {resp.status_code}"
-    resp.raise_for_status()
-    return _transform_result(resp.json()), None
+        try:
+            resp = retry_transient(
+                _fetch_readings,
+                on_retry=lambda exec, attempt, delay: logger.warning(
+                    "Location %s: error (%s) on attempt %d - retrying in %.0fs",
+                    loc_id,
+                    exec,
+                    attempt,
+                    delay,
+                ),
+            )
+        except _TRANSIENT_ERRORS as exec:
+            logger.warning(
+                "Location %s: transient error after %d attempts — skipping",
+                loc_id,
+                _MAX_RETRIES,
+            )
+            return None, f"transient network error after {_MAX_RETRIES} attempts: {exec}"
+        if resp.status_code == 404:
+            logger.warning("Location %s: 404 — no data endpoint", loc_id)
+            return None, None
+        if resp.status_code == 429:
+            rate_limit_retries += 1
+            if rate_limit_retries > _MAX_RATE_LIMIT_RETRIES:
+                return None, f"HTTP 429: rate limited after {_MAX_RATE_LIMIT_RETRIES} retries"
+            retry_after = resp.headers.get("Retry-After")
+            try:
+                delay = float(retry_after) if retry_after else _429_BACKOFF
+            except (ValueError, TypeError):
+                # Retry-After can be an HTTP-date string ("Thu, 01 Jan ...") — fall back.
+                delay = _429_BACKOFF
+            logger.warning(
+                "Location %s: 429 rate limited — waiting %.0fs (attempt %d/%d)",
+                loc_id,
+                delay,
+                rate_limit_retries,
+                _MAX_RATE_LIMIT_RETRIES,
+            )
+            time.sleep(delay)
+            continue
+        if resp.status_code >= 500:
+            logger.warning("Location %s: HTTP %s — skipping", loc_id, resp.status_code)
+            return None, f"HTTP {resp.status_code}"
+        resp.raise_for_status()
+        result = resp.json()
+        break
+    return _transform_result(result), None
 
 
 @dlt.source(name="cabq")
@@ -166,13 +238,21 @@ def cabq_readings(
       # add other fields as needed
     """
     cursors: dict[str, int] = dlt.current.resource_state().setdefault("location_cursors", {})
+    locations, err = _fetch_locations(client)
+    if locations is None:
+        logger.error("No locations found")
+        client.close()
+        return
+    if err is not None:
+        logger.error("Error fetching locations %s", err)
+        client.close()
+        return
     try:
         fetched = 0
         no_data = 0
         errored = 0
         failed_ids: list[int] = []
         rows_yielded = 0
-        locations = _fetch_locations(client)
         for location in locations:
             loc_id = location["sys_loc_code"]
             loc_start = max(cursors.get(str(loc_id), 0), start_ts)
