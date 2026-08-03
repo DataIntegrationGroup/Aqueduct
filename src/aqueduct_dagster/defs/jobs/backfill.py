@@ -165,6 +165,7 @@ def _make_backfill_refetch_op(
                         loader=loader,
                         bucket=bucket,
                         fs=fs,
+                        run_key=config.run_key,
                     )
                     checkpoints.mark_complete(chunk_start, chunk_end, config.location_ids)
                     chunks_processed += 1

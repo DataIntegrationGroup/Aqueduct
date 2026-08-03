@@ -28,8 +28,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import dlt
@@ -97,7 +98,12 @@ def hydrovu_backfill_readings(
 
         data, err = _fetch_location_data(client, loc_id, start_ts, end_time=end_ts)
         if err is not None:
-            raise RuntimeError(f"Backfill fetch failed for location {loc_id}: {err}")
+            window_start_iso = datetime.fromtimestamp(start_ts, tz=UTC).isoformat()
+            window_end_iso = datetime.fromtimestamp(end_ts, tz=UTC).isoformat()
+            raise RuntimeError(
+                f"Backfill fetch failed for location {loc_id} in window "
+                f"[{window_start_iso}, {window_end_iso}): {err}"
+            )
         if data is None:
             continue  # 404 — location has no data endpoint
 
@@ -113,9 +119,36 @@ def hydrovu_backfill_readings(
                 }
 
 
-def build_backfill_pipeline() -> dlt.Pipeline:
-    """Isolated dlt pipeline: own pipeline_name, same raw_pvacd dataset as production."""
-    return build_source_pipeline(BACKFILL_PIPELINE_NAME, GCS_DATASET)
+_UNSAFE_PIPELINE_NAME_CHARS = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def _sanitize_run_key(run_key: str) -> str:
+    """
+    run_key becomes part of a local filesystem directory name (dlt's pipeline
+    working dir lives at ~/.dlt/pipelines/<pipeline_name>), so anything that
+    isn't alphanumeric/-/_ is replaced with _ — an operator-typed run_key
+    shouldn't be able to produce a broken or surprising path.
+    """
+    return _UNSAFE_PIPELINE_NAME_CHARS.sub("_", run_key)
+
+
+def build_backfill_pipeline(run_key: str) -> dlt.Pipeline:
+    """
+    Isolated dlt pipeline: one pipeline_name PER run_key (not one shared
+    constant), same raw_pvacd dataset as production.
+
+    A distinct pipeline_name per run_key means two different backfill
+    operations can never share dlt's local pending-load state at all — a
+    pending package left by one (uncleanly terminated) run_key's run can no
+    longer be silently finished and returned by an unrelated run_key's
+    pipeline.run() call later, since they no longer share the same dlt
+    working directory in the first place. drop_pending_packages() (see
+    run_backfill_chunk) still guards the narrower case of retrying the exact
+    same run_key/chunk.
+    """
+    return build_source_pipeline(
+        f"{BACKFILL_PIPELINE_NAME}_{_sanitize_run_key(run_key)}", GCS_DATASET
+    )
 
 
 def _locations_by_id(locations: list[dict]) -> dict[int, dict]:
@@ -179,6 +212,7 @@ def run_backfill_chunk(
     loader: FrostLoader,
     bucket: str,
     fs: gcsfs.GCSFileSystem,
+    run_key: str,
 ) -> ChunkResult:
     """
     Runs ingest + transform + load for one calendar-month chunk:
@@ -199,10 +233,30 @@ def run_backfill_chunk(
     computes them once before the chunk loop — re-parsing .dlt/config.toml
     and rebuilding the GCS filesystem client on every chunk would be pure
     waste for a multi-month backfill.
+
+    run_key gives this run its own dlt pipeline_name (see
+    build_backfill_pipeline), so two different backfill operations can never
+    share dlt's local pending-load state at all.
     """
-    pipeline = build_backfill_pipeline()
+    pipeline = build_backfill_pipeline(run_key)
+    logger.info(
+        "Backfill chunk [%s, %s): using dlt pipeline_name=%s",
+        chunk_start,
+        chunk_end,
+        pipeline.pipeline_name,
+    )
     start_ts = int(chunk_start.timestamp())
     end_ts = int(chunk_end.timestamp())
+
+    # Guards the narrower case within this SAME run_key: a package left
+    # pending by this exact chunk's own earlier, uncleanly-terminated attempt
+    # would otherwise get silently finished and returned by pipeline.run()
+    # below INSTEAD of this chunk's real data — dlt's own run() exits early
+    # once it finds pending data, without ever calling
+    # hydrovu_backfill_readings() at all. This resource has no persisted
+    # cursor to lose, so there's nothing to gain by ever resuming pending
+    # data — always start clean.
+    pipeline.drop_pending_packages()
 
     load_info = pipeline.run(
         hydrovu_backfill_readings(
