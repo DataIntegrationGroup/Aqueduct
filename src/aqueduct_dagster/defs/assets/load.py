@@ -19,7 +19,7 @@ import os
 from typing import Any
 
 import toml
-from dagster import AssetExecutionContext, AssetIn, MetadataValue, asset
+from dagster import AssetExecutionContext, AssetIn, MetadataValue, OpExecutionContext, asset
 
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle, CanonicalObservation
 from aqueduct_dagster.loader.frost_loader import FrostStaClientLoader, ObservationRecord
@@ -48,17 +48,16 @@ def _apply_frost_timeout(service: Any, timeout: int = FROST_REQUEST_TIMEOUT) -> 
     service.execute = _execute_with_timeout
 
 
-def _frost_load(
-    context: AssetExecutionContext, bundles: list[CanonicalBundle], *, dataset: str
-) -> None:
+def build_frost_loader(
+    context: AssetExecutionContext | OpExecutionContext, dataset: str
+) -> FrostStaClientLoader:
     """
-    Loads a list of CanonicalBundles into FROST via the SensorThings API.
-    Called by each source-specific asset — shared logic, no source coupling.
+    Builds a FrostStaClientLoader wired to the local FROST server and a
+    dataset-scoped FrostWatermarkStore.
 
-    For each bundle:
-      1. ensure_datastream() — idempotent upsert of Thing/Location/Sensor/etc.
-      2. load_observations() — filtered by watermark, posted as Data Array chunks
-      3. Watermark advanced per chunk — partial failures resume cleanly
+    Shared by every source's frost_load_* asset (via _frost_load, below) and
+    by the backfill job (defs/jobs/backfill.py) — both need the exact same
+    FROST connection + watermark store construction, so this is written once.
     """
     import frost_sta_client as fsc
 
@@ -72,7 +71,22 @@ def _frost_load(
     _apply_frost_timeout(service)
     bucket = _gcs_bucket_url().replace("gs://", "")
     watermarks = FrostWatermarkStore(context, _gcs_filesystem(), bucket, dataset=dataset)
-    loader = FrostStaClientLoader(service, watermarks)
+    return FrostStaClientLoader(service, watermarks)
+
+
+def _frost_load(
+    context: AssetExecutionContext, bundles: list[CanonicalBundle], *, dataset: str
+) -> None:
+    """
+    Loads a list of CanonicalBundles into FROST via the SensorThings API.
+    Called by each source-specific asset — shared logic, no source coupling.
+
+    For each bundle:
+      1. ensure_datastream() — idempotent upsert of Thing/Location/Sensor/etc.
+      2. load_observations() — filtered by watermark, posted as Data Array chunks
+      3. Watermark advanced per chunk — partial failures resume cleanly
+    """
+    loader = build_frost_loader(context, dataset)
 
     total_posted = 0
     total_skipped = 0

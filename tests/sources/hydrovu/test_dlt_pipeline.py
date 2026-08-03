@@ -19,15 +19,18 @@ _fetch_locations/_fetch_location_data are wired to the client correctly.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
 
-from aqueduct_dagster.shared.http import TokenManager
+from aqueduct_dagster.shared.http import BearerAuth, TokenManager
 from aqueduct_dagster.sources.hydrovu.dlt_pipeline import (
     _fetch_location_data,
     _fetch_locations,
+    _resolve_hydrovu_credentials,
+    build_hydrovu_client,
     hydrovu_readings,
 )
 from tests.conftest import client_with_responses as _client_with_responses_base
@@ -236,6 +239,108 @@ class TestFetchLocationData:
             data, err = _fetch_location_data(client, 123, 1780704000)
         assert data == DATA_RESPONSE
         assert err is None
+
+
+# ── _fetch_location_data — end_time truncation (used by backfill chunks) ─────
+
+
+class TestFetchLocationDataEndTime:
+    def test_drops_readings_at_or_after_end_time(self):
+        data = {
+            "parameters": [
+                {
+                    "parameterId": "4",
+                    "unitId": "35",
+                    "readings": [
+                        {"timestamp": 100, "value": 1.0},
+                        {"timestamp": 200, "value": 2.0},
+                        {"timestamp": 300, "value": 3.0},
+                    ],
+                }
+            ]
+        }
+        client, _ = _client_with_responses([httpx.Response(200, json=data)])
+        result, err = _fetch_location_data(client, 123, start_time=0, end_time=200)
+        assert err is None
+        assert [r["timestamp"] for r in result["parameters"][0]["readings"]] == [100]
+
+    def test_stops_paginating_once_end_time_reached(self):
+        page1 = {
+            "parameters": [
+                {
+                    "parameterId": "4",
+                    "unitId": "35",
+                    "readings": [
+                        {"timestamp": 100, "value": 1.0},
+                        {"timestamp": 250, "value": 2.5},
+                    ],
+                }
+            ]
+        }
+        page2 = {
+            "parameters": [
+                {"parameterId": "4", "unitId": "35", "readings": [{"timestamp": 400, "value": 4.0}]}
+            ]
+        }
+        client, calls = _client_with_responses(
+            [
+                httpx.Response(200, json=page1, headers={"X-ISI-Next-Page": "cursor-2"}),
+                httpx.Response(200, json=page2),
+            ]
+        )
+        result, err = _fetch_location_data(client, 123, start_time=0, end_time=200)
+        assert err is None
+        assert len(calls) == 1  # never fetched page 2 — reached end_time on page 1
+        assert [r["timestamp"] for r in result["parameters"][0]["readings"]] == [100]
+
+    def test_no_end_time_is_unbounded_like_before(self):
+        client, calls = _client_with_responses(
+            [
+                httpx.Response(200, json=DATA_RESPONSE, headers={"X-ISI-Next-Page": "cursor-2"}),
+                httpx.Response(200, json={"parameters": []}),
+            ]
+        )
+        result, err = _fetch_location_data(client, 123, 1780704000)
+        assert err is None
+        assert len(calls) == 2  # paginates all the way through, no early stop
+
+
+# ── _resolve_hydrovu_credentials / build_hydrovu_client ───────────────────────
+
+
+class TestResolveHydroVuCredentials:
+    def test_returns_immediately_when_client_id_already_given(self):
+        result = _resolve_hydrovu_credentials("cid", "csecret", "ignored-secret-name")
+        assert result == ("cid", "csecret")
+
+    @patch("aqueduct_dagster.sources.hydrovu.dlt_pipeline.secretmanager.SecretManagerServiceClient")
+    @patch("aqueduct_dagster.sources.hydrovu.dlt_pipeline.toml.load")
+    def test_fetches_from_secret_manager_when_client_id_empty(self, mock_toml_load, mock_sm_cls):
+        mock_toml_load.return_value = {
+            "destination": {"filesystem": {"gcp_project_number": "12345"}}
+        }
+        mock_sm = mock_sm_cls.return_value
+        mock_sm.secret_version_path.return_value = (
+            "projects/12345/secrets/hydrovu_pvacd/versions/latest"
+        )
+        mock_sm.access_secret_version.return_value = MagicMock(
+            payload=MagicMock(
+                data=json.dumps({"id": "sm-id", "secret": "sm-secret"}).encode("UTF-8")
+            )
+        )
+
+        result = _resolve_hydrovu_credentials("", "", "hydrovu_pvacd")
+
+        assert result == ("sm-id", "sm-secret")
+        mock_sm.secret_version_path.assert_called_once_with("12345", "hydrovu_pvacd", "latest")
+
+
+class TestBuildHydroVuClient:
+    def test_returns_authenticated_client_without_secret_manager(self):
+        client = build_hydrovu_client("cid", "csecret", "ignored", "https://api", "https://token")
+        assert isinstance(client, httpx.Client)
+        assert str(client.base_url).rstrip("/") == "https://api"
+        assert isinstance(client.auth, BearerAuth)
 
 
 # ── hydrovu_readings — location_ids filtering ─────────────────────────────────

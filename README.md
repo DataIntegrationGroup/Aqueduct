@@ -56,13 +56,15 @@ Aqueduct/
 │   │   ├── gcs.py                  # GCS filesystem access, parquet reads, watermark read/write
 │   │   ├── pipeline.py             # build_source_pipeline() — shared dlt pipeline factory
 │   │   ├── http.py                 # retry_transient(), TokenManager, BearerAuth, build_authenticated_client()
+│   │   ├── backfill.py             # month_chunks(), BackfillCheckpointStore, ChunkResult — Mode A refetch infra
 │   │   └── source_registry.py      # SOURCE_REGISTRY — single per-source config for definitions.py + load.py
 │   ├── sources/                    # one folder per agency source (vertical slice)
 │   │   ├── hydrovu/
 │   │   │   ├── adapter.py          # HydroVu → CanonicalBundle mapping
 │   │   │   ├── dlt_pipeline.py     # dlt source + resource + pipeline factory
 │   │   │   ├── ingest.py           # Dagster asset: raw_hydrovu_readings
-│   │   │   └── transform.py        # Dagster asset: canonical_bundles_hydrovu
+│   │   │   ├── transform.py        # Dagster asset: canonical_bundles_hydrovu
+│   │   │   └── backfill.py         # Mode A refetch: isolated ingest + transform + load per chunk
 │   │   └── cabq/                   # same shape as hydrovu/ — currently a stub
 │   │       ├── adapter.py
 │   │       ├── dlt_pipeline.py
@@ -71,6 +73,8 @@ Aqueduct/
 │   ├── defs/
 │   │   ├── assets/
 │   │   │   └── load.py             # Dagster assets: frost_load_hydrovu, frost_load_cabq (shared factory)
+│   │   ├── jobs/
+│   │   │   └── backfill.py         # <source>_backfill_refetch job factory (BackfillRefetchConfig, chunk loop)
 │   │   ├── definitions.py          # Dagster entry point — jobs, schedules, asset registry
 │   │   └── dagster_logging.py      # forward_python_logs_to_dagster() — stdlib logging → Dagster run logs
 │   └── loader/
@@ -81,6 +85,7 @@ Aqueduct/
     ├── sources/{hydrovu,cabq}/
     ├── shared/
     ├── defs/assets/
+    ├── defs/jobs/
     └── loader/
 ```
 
