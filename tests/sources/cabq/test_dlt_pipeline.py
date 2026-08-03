@@ -115,6 +115,9 @@ class TestFetchReadings:
 CABQ_RESULTS = {
     "reading_id": "IW4_1391079600000",
     "location_id": "IW4",
+    "location_name": "LALF GROUNDWATER INJECTION WELL 4",
+    "latitude": -106.599332407,
+    "longitude": 35.170730266,
     "timestamp": 1391079600000,
     "value": "4927.15",
 }

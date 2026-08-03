@@ -21,6 +21,7 @@ from collections.abc import Iterator
 from aqueduct_dagster.canonical.base_adapter import BaseAdapter
 from aqueduct_dagster.canonical.canonical_model import (
     CanonicalDatastream,
+    CanonicalLocation,
     CanonicalObservation,
     CanonicalThing,
 )
@@ -57,13 +58,26 @@ class CabqAdapter(BaseAdapter):
         yield from self._records
 
     def to_thing(self, record: dict) -> CanonicalThing:
-        # TODO: map location record → CanonicalThing + CanonicalLocation
-        # Follow HydroVuAdapter.to_thing() pattern:
-        #   source_id = str(record["location_id"])
-        #   external_key = self.make_location_key(source_id)
-        #   build CanonicalLocation with GeoJSON Point geometry
-        #   build CanonicalThing with agency + source_id in properties
-        raise NotImplementedError("CabqAdapter.to_thing is not implemented yet")
+        source_id = str(record["location_id"])
+        external_key = self.make_location_key(source_id)
+        location = CanonicalLocation(
+            external_key=external_key,
+            name=record["location_name"],
+            description="Location of well where measurements were collected",
+            geometry={"type": "Point", "coordinates": [record["longitude"], record["latitude"]]},
+            properties={"source_id": source_id, "source_specific": {}},
+        )
+        return CanonicalThing(
+            external_key=external_key,
+            name="Water Well",
+            description="Well drilled or set into subsurface for the purposes of pumping water or monitoring groundwater",
+            location=location,
+            properties={
+                "agency": self.agency,
+                "source_id": source_id,
+                "source_specific": {},
+            },
+        )
 
     def to_observations(self, record: dict) -> list[CanonicalObservation]:
         # TODO: map readings → list[CanonicalObservation]

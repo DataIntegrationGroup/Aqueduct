@@ -233,6 +233,9 @@ def cabq_readings(
     Record shape (to define when implementing):
       reading_id   — unique key e.g. "{location_id}_{timestamp}"
       location_id  — CABQ station identifier
+      location_name — human-readable name of the location
+      latitude     — latitude in decimal degrees
+      longitude    — longitude in decimal degrees
       timestamp    — Unix epoch seconds
       value        — float measurement
       # add other fields as needed
@@ -287,6 +290,9 @@ def cabq_readings(
                 yield {
                     "reading_id": f"{loc_id}_{timestamp}",
                     "location_id": loc_id,
+                    "location_name": location["loc_name"],
+                    "latitude": location["latitude"],
+                    "longitude": location["longitude"],
                     "timestamp": timestamp,
                     "value": measurement["water_level"],
                 }
