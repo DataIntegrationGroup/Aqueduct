@@ -308,6 +308,43 @@ def test_load_window_empty_records_preserves_existing_watermark():
     assert result.new_watermark == datetime(2026, 6, 1, tzinfo=UTC)
 
 
+# ── load_window: window-range validation (defense in depth) ──────────────────
+
+
+def test_load_window_raises_on_out_of_window_record_before_any_side_effect():
+    """
+    A record outside [window_start, window_end) must be rejected BEFORE any
+    delete or post happens — zero side effects on failure, so the window is
+    left completely untouched rather than deleted-and-then-wrongly-repostable.
+    """
+    loader = _StubLoader(deleted_count=99)  # would prove delete ran, if it did
+    out_of_window = ObservationRecord(phenomenon_time=datetime(2026, 2, 5, tzinfo=UTC), result=1.0)
+    records = [_rec(5), out_of_window]
+
+    with pytest.raises(ValueError, match="outside the requested window"):
+        loader.load_window("ds-key", "42", records, WINDOW_START, WINDOW_END)
+
+    assert loader.delete_windows == []
+    assert loader.posted_chunks == []
+
+
+def test_load_window_boundary_start_is_inclusive():
+    loader = _StubLoader(deleted_count=0)
+    at_start = ObservationRecord(phenomenon_time=WINDOW_START, result=1.0)
+
+    result = loader.load_window("ds-key", "42", [at_start], WINDOW_START, WINDOW_END)
+
+    assert result.posted == 1
+
+
+def test_load_window_boundary_end_is_exclusive():
+    loader = _StubLoader(deleted_count=0)
+    at_end = ObservationRecord(phenomenon_time=WINDOW_END, result=1.0)
+
+    with pytest.raises(ValueError, match="outside the requested window"):
+        loader.load_window("ds-key", "42", [at_end], WINDOW_START, WINDOW_END)
+
+
 # ── FrostStaClientLoader._delete_observations_in_window ──────────────────────
 
 

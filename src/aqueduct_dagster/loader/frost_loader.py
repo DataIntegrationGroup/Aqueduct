@@ -230,10 +230,28 @@ class FrostLoader(abc.ABC):
         The persisted watermark is only ever extended forward — if this
         window's data doesn't reach past the current watermark (e.g.
         correcting old history), the watermark is left untouched.
+
+        Raises ValueError if any record's phenomenon_time falls outside
+        [window_start, window_end) — checked before anything else, so a
+        mismatch causes zero side effects (no delete, no post) rather than
+        deleting the correct window and reposting the wrong data into it.
+        This is deliberately defense-in-depth: it protects FROST from any bug
+        upstream (not just one specific cause) that could ever hand this
+        function records that don't actually belong to the window it's told
+        to correct.
         """
         result = LoadResult(datastream_key=datastream_key)
         ordered = sorted(records, key=lambda r: r.phenomenon_time)
         result.considered = len(ordered)
+
+        out_of_window = [r for r in ordered if not (window_start <= r.phenomenon_time < window_end)]
+        if out_of_window:
+            raise ValueError(
+                f"datastream {datastream_key}: load_window() given {len(out_of_window)} "
+                f"record(s) outside the requested window [{window_start}, {window_end}) — "
+                f"refusing to delete or post anything for this window. First offending "
+                f"phenomenon_time: {out_of_window[0].phenomenon_time}"
+            )
 
         result.deleted = _with_retry(
             lambda: self._delete_observations_in_window(datastream_id, window_start, window_end)
