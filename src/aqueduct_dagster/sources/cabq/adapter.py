@@ -17,7 +17,15 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
+from datetime import UTC, datetime
 
+from aqueduct_dagster.canonical import (
+    DTW_OBS_PROP,
+    MANUAL_SENSOR,
+    UNIT_FOOT,
+    OM_Measurement,
+    gwl_datastream_meta,
+)
 from aqueduct_dagster.canonical.base_adapter import BaseAdapter
 from aqueduct_dagster.canonical.canonical_model import (
     CanonicalDatastream,
@@ -60,18 +68,21 @@ class CabqAdapter(BaseAdapter):
     def to_thing(self, record: dict) -> CanonicalThing:
         source_id = str(record["location_id"])
         external_key = self.make_location_key(source_id)
-        location = CanonicalLocation(
-            external_key=external_key,
-            name=record["location_name"],
-            description="Location of well where measurements were collected",
-            geometry={"type": "Point", "coordinates": [record["longitude"], record["latitude"]]},
-            properties={"source_id": source_id, "source_specific": {}},
-        )
         return CanonicalThing(
             external_key=external_key,
             name="Water Well",
-            description="Well drilled or set into subsurface for the purposes of pumping water or monitoring groundwater",
-            location=location,
+            description="Well drilled or set into subsurface for the purposes of pumping water or monitoring "
+            + "groundwater",
+            location=CanonicalLocation(
+                external_key=external_key,
+                name=record["location_name"],
+                description="Location of well where measurements were collected",
+                geometry={
+                    "type": "Point",
+                    "coordinates": [record["longitude"], record["latitude"]],
+                },
+                properties={"source_id": source_id, "source_specific": {}},
+            ),
             properties={
                 "agency": self.agency,
                 "source_id": source_id,
@@ -80,16 +91,32 @@ class CabqAdapter(BaseAdapter):
         )
 
     def to_observations(self, record: dict) -> list[CanonicalObservation]:
-        # TODO: map readings → list[CanonicalObservation]
-        # Follow HydroVuAdapter.to_observations() pattern:
-        #   ds_key = self.make_datastream_key(source_id, "dtw")
-        #   for each reading: CanonicalObservation(phenomenon_time=UTC datetime, result=float)
-        raise NotImplementedError("CabqAdapter.to_observations is not implemented yet")
+        source_id = str(record["location_id"])
+        ds_key = self.make_datastream_key(source_id, "dtw")
+        observations = []
+        for reading in record["readings"]:
+            observations.append(
+                CanonicalObservation(
+                    phenomenon_time=datetime.fromtimestamp(reading["timestamp"], tz=UTC),
+                    result=reading["value"],
+                    datastream_external_key=ds_key,
+                )
+            )
+        return observations
 
     def _build_datastreams(self, thing: CanonicalThing) -> list[CanonicalDatastream]:
-        # TODO: build CanonicalDatastream using canonical constants
-        # Follow HydroVuAdapter._build_datastreams() pattern:
-        #   ds_key = self.make_datastream_key(source_id, "dtw")
-        #   meta = gwl_datastream_meta(self.agency, thing.name)
-        #   use MANUAL_SENSOR (CABQ is manual measurement), DTW_OBS_PROP, UNIT_FOOT
-        raise NotImplementedError("CabqAdapter._build_datastreams is not implemented yet")
+        source_id = str(thing.properties["source_id"])
+        ds_key = self.make_datastream_key(source_id, "dtw")
+        meta = gwl_datastream_meta(self.agency, thing.name)
+        return [
+            CanonicalDatastream(
+                external_key=ds_key,
+                name=meta["name"],
+                description=meta["description"],
+                observation_type=OM_Measurement,
+                unit_of_measurement=UNIT_FOOT,
+                thing=thing,
+                sensor=MANUAL_SENSOR,
+                observed_property=DTW_OBS_PROP,
+            )
+        ]
