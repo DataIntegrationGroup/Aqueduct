@@ -21,12 +21,20 @@ Three responsibilities, all with no knowledge of any one source's API or adapter
                            (sources/<name>/backfill.py) returns, so the generic
                            job factory (defs/jobs/backfill.py) can report
                            metadata without importing any one source's module.
+
+  parse_backfill_date/validate_date_order/attach_run_timestamp/
+  sanitize_run_key/resolve_location_ids
+                           run-config validation/resolution shared by every
+                           backfill job (dates, run_key, entity list) — kept
+                           Dagster- and source-free so Mode B (replay) can
+                           reuse it too.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
@@ -35,6 +43,11 @@ import gcsfs
 from aqueduct_dagster.shared.gcs import atomic_write_json_with_retry
 
 logger = logging.getLogger(__name__)
+
+_DATE_FORMAT = "%Y-%m-%d"
+# Matches a trailing _YYYYMMDDTHHMMSSZ segment already appended by attach_run_timestamp().
+_RUN_KEY_TIMESTAMP_RE = re.compile(r"_\d{8}T\d{6}Z$")
+_UNSAFE_PIPELINE_NAME_CHARS = re.compile(r"[^A-Za-z0-9_-]")
 
 
 @dataclass
@@ -96,6 +109,57 @@ def month_chunks(start: date, end: date) -> list[tuple[datetime, datetime]]:
         month_cursor = month_cursor_next
 
     return chunks
+
+
+def parse_backfill_date(value: str, field_name: str) -> date:
+    """Parses a "YYYY-MM-DD" date; raises ValueError naming the field on a bad format."""
+    try:
+        return datetime.strptime(value, _DATE_FORMAT).date()
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be a 'YYYY-MM-DD' date, got {value!r}") from exc
+
+
+def validate_date_order(start_date: str, end_date: str) -> None:
+    """Raises ValueError unless start_date is strictly before end_date (both "YYYY-MM-DD")."""
+    start = parse_backfill_date(start_date, "start_date")
+    end = parse_backfill_date(end_date, "end_date")
+    if start >= end:
+        raise ValueError(f"start_date ({start_date}) must be before end_date ({end_date})")
+
+
+def attach_run_timestamp(run_key: str) -> str:
+    """
+    Appends a UTC timestamp to run_key, unless it already ends with one.
+
+    Keeps two runs launched from the same typed label from colliding, while
+    letting a resume-launch reuse the exact same (already-timestamped)
+    run_key unchanged, so BackfillCheckpointStore finds the same checkpoint.
+    """
+    if _RUN_KEY_TIMESTAMP_RE.search(run_key):
+        return run_key
+    return f"{run_key}_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
+
+
+def sanitize_run_key(run_key: str) -> str:
+    """Replaces any char outside [A-Za-z0-9_-] with _, for embedding run_key in a filesystem path."""
+    return _UNSAFE_PIPELINE_NAME_CHARS.sub("_", run_key)
+
+
+def resolve_location_ids(location_ids: list[int], locations_by_id: dict[int, dict]) -> list[int]:
+    """
+    Empty location_ids means "every location the API returns" (locations_by_id);
+    otherwise raises ValueError listing any id not in locations_by_id, instead
+    of silently backfilling nothing for a typo'd/nonexistent id.
+    """
+    if not location_ids:
+        return sorted(locations_by_id)
+    unknown = sorted(loc_id for loc_id in location_ids if loc_id not in locations_by_id)
+    if unknown:
+        raise ValueError(
+            f"location_id(s) not recognized by the API: {unknown}. Check for typos, "
+            "or leave location_ids empty to backfill every location the API returns."
+        )
+    return location_ids
 
 
 def chunk_key(chunk_start: datetime, chunk_end: datetime, location_ids: list[int]) -> str:
