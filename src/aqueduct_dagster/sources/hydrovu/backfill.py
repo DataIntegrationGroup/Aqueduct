@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
@@ -40,7 +39,7 @@ import toml
 
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
 from aqueduct_dagster.loader.frost_loader import FrostLoader, ObservationRecord
-from aqueduct_dagster.shared.backfill import ChunkResult
+from aqueduct_dagster.shared.backfill import ChunkResult, sanitize_run_key
 from aqueduct_dagster.shared.gcs import read_parquet_rows_for_load_id
 from aqueduct_dagster.shared.pipeline import build_source_pipeline
 from aqueduct_dagster.sources.hydrovu.adapter import HydroVuAdapter
@@ -119,35 +118,17 @@ def hydrovu_backfill_readings(
                 }
 
 
-_UNSAFE_PIPELINE_NAME_CHARS = re.compile(r"[^A-Za-z0-9_-]")
-
-
-def _sanitize_run_key(run_key: str) -> str:
-    """
-    run_key becomes part of a local filesystem directory name (dlt's pipeline
-    working dir lives at ~/.dlt/pipelines/<pipeline_name>), so anything that
-    isn't alphanumeric/-/_ is replaced with _ — an operator-typed run_key
-    shouldn't be able to produce a broken or surprising path.
-    """
-    return _UNSAFE_PIPELINE_NAME_CHARS.sub("_", run_key)
-
-
 def build_backfill_pipeline(run_key: str) -> dlt.Pipeline:
     """
-    Isolated dlt pipeline: one pipeline_name PER run_key (not one shared
-    constant), same raw_pvacd dataset as production.
-
-    A distinct pipeline_name per run_key means two different backfill
-    operations can never share dlt's local pending-load state at all — a
-    pending package left by one (uncleanly terminated) run_key's run can no
-    longer be silently finished and returned by an unrelated run_key's
-    pipeline.run() call later, since they no longer share the same dlt
-    working directory in the first place. drop_pending_packages() (see
-    run_backfill_chunk) still guards the narrower case of retrying the exact
-    same run_key/chunk.
+    Isolated dlt pipeline: one pipeline_name per run_key, same raw_pvacd
+    dataset as production. A distinct pipeline_name per run_key means two
+    backfill runs can never share dlt's local pending-load state — a pending
+    package left by one uncleanly-terminated run_key can't be silently
+    finished by another's pipeline.run() call. drop_pending_packages() (see
+    run_backfill_chunk) still guards retrying the exact same run_key/chunk.
     """
     return build_source_pipeline(
-        f"{BACKFILL_PIPELINE_NAME}_{_sanitize_run_key(run_key)}", GCS_DATASET
+        f"{BACKFILL_PIPELINE_NAME}_{sanitize_run_key(run_key)}", GCS_DATASET
     )
 
 
@@ -178,6 +159,23 @@ def _load_hydrovu_config() -> dict[str, Any]:
     """
     config_path = os.path.join(os.getcwd(), ".dlt", "config.toml")
     return toml.load(config_path)["sources"]["hydrovu"]
+
+
+def default_backfill_location_ids() -> list[int]:
+    """
+    Same allowlist the daily pipeline reads from .dlt/config.toml
+    ([sources.hydrovu].location_ids). Called once, eagerly, at
+    defs/jobs/backfill.py import time, since Dagster's Launchpad only shows
+    a plain, already-computed default — not a lazily-resolved one.
+
+    No location_ids key configured is not an error (returns [], meaning
+    "every location" — see resolve_location_ids): some sources may
+    deliberately not curate an allowlist. But .dlt/config.toml itself being
+    unreadable/malformed does raise — that's a broken environment, and
+    failing Dagster's definitions load loudly beats silently defaulting to
+    "backfill everything."
+    """
+    return list(_load_hydrovu_config().get("location_ids", []))
 
 
 def prepare_backfill() -> tuple[httpx.Client, list[dict], dict[int, dict]]:

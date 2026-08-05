@@ -20,8 +20,8 @@ from aqueduct_dagster.sources.hydrovu.backfill import (
     GCS_DATASET,
     _load_hydrovu_config,
     _locations_by_id,
-    _sanitize_run_key,
     build_backfill_pipeline,
+    default_backfill_location_ids,
     hydrovu_backfill_readings,
     prepare_backfill,
     run_backfill_chunk,
@@ -198,6 +198,38 @@ def test_load_hydrovu_config_reads_sources_hydrovu_section(mock_toml_load):
     assert cfg["gcp_secret"] == "hydrovu_pvacd"
 
 
+@patch("aqueduct_dagster.sources.hydrovu.backfill._load_hydrovu_config")
+def test_default_backfill_location_ids_reads_the_configured_allowlist(mock_cfg):
+    mock_cfg.return_value = {"location_ids": [111, 222]}
+    assert default_backfill_location_ids() == [111, 222]
+
+
+@patch("aqueduct_dagster.sources.hydrovu.backfill._load_hydrovu_config")
+def test_default_backfill_location_ids_is_empty_when_key_not_configured(mock_cfg):
+    """
+    A [sources.hydrovu] section with no location_ids key at all is not an
+    error — some sources may deliberately not curate an allowlist — so this
+    returns [] (meaning "every location", see resolve_location_ids), not a
+    KeyError.
+    """
+    mock_cfg.return_value = {"gcp_secret": "hydrovu_pvacd"}  # no location_ids key
+    assert default_backfill_location_ids() == []
+
+
+@patch("aqueduct_dagster.sources.hydrovu.backfill._load_hydrovu_config")
+def test_default_backfill_location_ids_raises_on_missing_config(mock_cfg):
+    """
+    Raises when .dlt/config.toml itself can't be read at all — a broken
+    environment, not an intentional "backfill everything" choice — instead
+    of silently falling back to [] and widening a reviewed allowlist into
+    "backfill everything" at Dagster's definitions-load time (see
+    HydroVuBackfillRefetchConfig).
+    """
+    mock_cfg.side_effect = FileNotFoundError("no .dlt/config.toml")
+    with pytest.raises(FileNotFoundError):
+        default_backfill_location_ids()
+
+
 @patch("aqueduct_dagster.sources.hydrovu.backfill._fetch_locations")
 @patch("aqueduct_dagster.sources.hydrovu.backfill.build_hydrovu_client")
 @patch("aqueduct_dagster.sources.hydrovu.backfill._load_hydrovu_config")
@@ -239,15 +271,9 @@ def test_prepare_backfill_closes_client_if_fetch_locations_fails(
     client.close.assert_called_once()
 
 
-# ── build_backfill_pipeline / _sanitize_run_key ─────────────────────────────────
-
-
-def test_sanitize_run_key_leaves_safe_characters_untouched():
-    assert _sanitize_run_key("hydrovu-jan2026_repair") == "hydrovu-jan2026_repair"
-
-
-def test_sanitize_run_key_replaces_unsafe_characters():
-    assert _sanitize_run_key("hydrovu jan/2026 repair!") == "hydrovu_jan_2026_repair_"
+# ── build_backfill_pipeline ──────────────────────────────────────────────────────
+# sanitize_run_key() itself is tested in tests/shared/test_backfill.py — it moved
+# there since it's generic, source-agnostic logic (see shared/backfill.py).
 
 
 @patch("aqueduct_dagster.sources.hydrovu.backfill.build_source_pipeline")

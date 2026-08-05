@@ -2,13 +2,17 @@
 tests/shared/test_backfill.py
 
 Unit tests for shared/backfill.py: month_chunks(), BackfillCheckpointStore,
-and sum_chunk_results(). All GCS I/O is mocked — no live GCS required.
+sum_chunk_results(), and the run-config helpers (parse_backfill_date,
+validate_date_order, attach_run_timestamp, resolve_location_ids) reused by
+defs/jobs/backfill.py's BackfillRefetchConfig/op. All GCS I/O is mocked — no
+live GCS required.
 """
 
 from __future__ import annotations
 
 import io
 import json
+import re
 from datetime import UTC, date, datetime
 from unittest.mock import MagicMock
 
@@ -17,9 +21,14 @@ import pytest
 from aqueduct_dagster.shared.backfill import (
     BackfillCheckpointStore,
     ChunkResult,
+    attach_run_timestamp,
     chunk_key,
     month_chunks,
+    parse_backfill_date,
+    resolve_location_ids,
+    sanitize_run_key,
     sum_chunk_results,
+    validate_date_order,
 )
 
 # ── month_chunks ──────────────────────────────────────────────────────────────
@@ -72,6 +81,71 @@ class TestMonthChunks:
             month_chunks(date(2026, 1, 1), date(2026, 1, 1))
         with pytest.raises(ValueError):
             month_chunks(date(2026, 2, 1), date(2026, 1, 1))
+
+
+# ── parse_backfill_date / validate_date_order ───────────────────────────────────
+
+
+def test_parse_backfill_date_parses_valid_date():
+    assert parse_backfill_date("2026-01-15", "start_date") == date(2026, 1, 15)
+
+
+@pytest.mark.parametrize("value", ["01/15/2026", "2026-13-01", "not-a-date", ""])
+def test_parse_backfill_date_rejects_malformed_input(value):
+    with pytest.raises(ValueError, match="start_date must be a 'YYYY-MM-DD' date"):
+        parse_backfill_date(value, "start_date")
+
+
+def test_validate_date_order_passes_when_start_before_end():
+    validate_date_order("2026-01-01", "2026-02-01")  # should not raise
+
+
+@pytest.mark.parametrize(
+    ("start", "end"), [("2026-02-01", "2026-01-01"), ("2026-01-01", "2026-01-01")]
+)
+def test_validate_date_order_rejects_start_not_before_end(start, end):
+    with pytest.raises(ValueError, match="must be before"):
+        validate_date_order(start, end)
+
+
+# ── attach_run_timestamp ─────────────────────────────────────────────────────────
+
+
+def test_attach_run_timestamp_appends_utc_timestamp():
+    result = attach_run_timestamp("jan2026-repair")
+    assert re.match(r"^jan2026-repair_\d{8}T\d{6}Z$", result)
+
+
+def test_attach_run_timestamp_leaves_already_timestamped_key_unchanged():
+    timestamped = "jan2026-repair_20260101T000000Z"
+    assert attach_run_timestamp(timestamped) == timestamped
+
+
+# ── sanitize_run_key ──────────────────────────────────────────────────────────────
+
+
+def test_sanitize_run_key_leaves_safe_characters_untouched():
+    assert sanitize_run_key("hydrovu-jan2026_repair") == "hydrovu-jan2026_repair"
+
+
+def test_sanitize_run_key_replaces_unsafe_characters():
+    assert sanitize_run_key("hydrovu jan/2026 repair!") == "hydrovu_jan_2026_repair_"
+
+
+# ── resolve_location_ids ──────────────────────────────────────────────────────────
+
+
+def test_resolve_location_ids_empty_returns_all_sorted():
+    assert resolve_location_ids([], {222: {}, 111: {}}) == [111, 222]
+
+
+def test_resolve_location_ids_explicit_list_is_returned_unchanged():
+    assert resolve_location_ids([222, 111], {111: {}, 222: {}, 333: {}}) == [222, 111]
+
+
+def test_resolve_location_ids_raises_on_unknown_id():
+    with pytest.raises(ValueError, match=r"not recognized.*\[999\]"):
+        resolve_location_ids([111, 999], {111: {}})
 
 
 # ── chunk_key ──────────────────────────────────────────────────────────────────
