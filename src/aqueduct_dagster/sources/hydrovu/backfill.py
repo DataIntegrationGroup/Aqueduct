@@ -38,6 +38,7 @@ import gcsfs
 import httpx
 import toml
 
+from aqueduct_dagster.canonical.base_adapter import log_if_adapter_failed
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
 from aqueduct_dagster.loader.frost_loader import FrostLoader, ObservationRecord
 from aqueduct_dagster.shared.backfill import ChunkResult
@@ -299,7 +300,9 @@ def run_backfill_chunk(
     )
 
     records = _group_by_location(rows, locations_by_id)
-    bundles: list[CanonicalBundle] = list(HydroVuAdapter(records).run())
+    adapter = HydroVuAdapter(records)
+    bundles: list[CanonicalBundle] = list(adapter.run())
+    log_if_adapter_failed(adapter, logger, context=f"Backfill chunk [{chunk_start}, {chunk_end})")
 
     observations_posted = 0
     observations_deleted = 0
@@ -322,4 +325,5 @@ def run_backfill_chunk(
         bundles_loaded=len(bundles),
         observations_posted=observations_posted,
         observations_deleted=observations_deleted,
+        adapter_failures=adapter.failure_count,
     )

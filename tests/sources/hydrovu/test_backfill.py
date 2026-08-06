@@ -390,6 +390,56 @@ def test_run_backfill_chunk_drops_pending_packages_before_run(mock_build_pipelin
 
 @patch("aqueduct_dagster.sources.hydrovu.backfill.read_parquet_rows_for_load_id")
 @patch("aqueduct_dagster.sources.hydrovu.backfill.build_backfill_pipeline")
+def test_run_backfill_chunk_reports_adapter_failures_without_dropping_good_locations(
+    mock_build_pipeline, mock_read_rows
+):
+    """
+    One location's reading has a malformed timestamp (None) — HydroVuAdapter
+    raises adapting it, BaseAdapter.run() catches and records it. The other,
+    healthy location must still produce a bundle and get loaded; ChunkResult
+    must report the failure count rather than silently swallowing it.
+    """
+    mock_pipeline = MagicMock()
+    mock_pipeline.run.return_value = MagicMock(loads_ids=["100.0"])
+    mock_build_pipeline.return_value = mock_pipeline
+    mock_read_rows.return_value = [
+        {
+            "location_id": 111,
+            "parameter_id": "4",
+            "unit_id": "35",
+            "timestamp": 1_000_000,
+            "value": 10.0,
+        },
+        {
+            "location_id": 222,
+            "parameter_id": "4",
+            "unit_id": "35",
+            "timestamp": None,  # malformed — datetime.fromtimestamp() raises on this
+            "value": 5.0,
+        },
+    ]
+
+    loader = _StubFrostLoader()
+    result = run_backfill_chunk(
+        client=_DUMMY_CLIENT,
+        locations=_LOCATIONS,
+        locations_by_id=_locations_by_id(_LOCATIONS),
+        location_ids=[111, 222],
+        chunk_start=CHUNK_START,
+        chunk_end=CHUNK_END,
+        loader=loader,  # type: ignore[arg-type]
+        bucket="my-bucket",
+        fs=MagicMock(),
+        run_key="test-run",
+    )
+
+    assert result.bundles_loaded == 1
+    assert result.adapter_failures == 1
+    assert len(loader.load_window_calls) == 1
+
+
+@patch("aqueduct_dagster.sources.hydrovu.backfill.read_parquet_rows_for_load_id")
+@patch("aqueduct_dagster.sources.hydrovu.backfill.build_backfill_pipeline")
 def test_run_backfill_chunk_logs_the_dlt_pipeline_name(mock_build_pipeline, mock_read_rows, caplog):
     """
     The dlt pipeline_name isn't shown anywhere in the Dagster Runs UI (that

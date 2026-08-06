@@ -141,7 +141,11 @@ def _make_backfill_refetch_op(
         chunks_skipped = 0
         chunk_results: list[ChunkResult] = []
         with forward_python_logs_to_dagster(
-            context, f"aqueduct_dagster.sources.{name}", "aqueduct_dagster.shared", "dlt"
+            context,
+            f"aqueduct_dagster.sources.{name}",
+            "aqueduct_dagster.shared",
+            "aqueduct_dagster.canonical",
+            "dlt",
         ):
             client, locations, locations_by_id = prepare_fn()
             try:
@@ -172,13 +176,14 @@ def _make_backfill_refetch_op(
                     chunk_results.append(result)
                     context.log.info(
                         "chunk [%s, %s) complete: rows_ingested=%d bundles_loaded=%d "
-                        "observations_posted=%d observations_deleted=%d",
+                        "observations_posted=%d observations_deleted=%d adapter_failures=%d",
                         chunk_start,
                         chunk_end,
                         result.rows_ingested,
                         result.bundles_loaded,
                         result.observations_posted,
                         result.observations_deleted,
+                        result.adapter_failures,
                     )
             finally:
                 client.close()
@@ -193,6 +198,7 @@ def _make_backfill_refetch_op(
                 "bundles_loaded": MetadataValue.int(totals.bundles_loaded),
                 "observations_posted": MetadataValue.int(totals.observations_posted),
                 "observations_deleted": MetadataValue.int(totals.observations_deleted),
+                "adapter_failures": MetadataValue.int(totals.adapter_failures),
             }
         )
 

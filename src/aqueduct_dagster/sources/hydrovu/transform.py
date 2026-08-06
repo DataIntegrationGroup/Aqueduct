@@ -33,7 +33,9 @@ import gcsfs
 import pyarrow.parquet as pq
 from dagster import AssetExecutionContext, MetadataValue, asset
 
+from aqueduct_dagster.canonical.base_adapter import log_if_adapter_failed
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
+from aqueduct_dagster.defs.dagster_logging import forward_python_logs_to_dagster
 from aqueduct_dagster.shared.gcs import (
     _gcs_bucket_url,
     _gcs_filesystem,
@@ -124,6 +126,28 @@ def _group_by_location(rows: list[dict], locations: dict[int, dict]) -> list[dic
     return list(groups.values())
 
 
+def _transform_metadata(
+    *,
+    dtw_rows_read: int,
+    locations_grouped: int,
+    bundles_produced: int,
+    adapter_failures: int,
+    since_load_id: float | None,
+    max_load_id: float | None,
+) -> dict[str, MetadataValue]:
+    """Shared shape for canonical_bundles_hydrovu's output metadata — used by
+    both the no-new-rows early return and the normal path, so the two can't
+    drift out of sync on key names."""
+    return {
+        "dtw_rows_read": MetadataValue.int(dtw_rows_read),
+        "locations_grouped": MetadataValue.int(locations_grouped),
+        "bundles_produced": MetadataValue.int(bundles_produced),
+        "adapter_failures": MetadataValue.int(adapter_failures),
+        "watermark_before": MetadataValue.text(str(since_load_id)),
+        "watermark_after": MetadataValue.text(str(max_load_id)),
+    }
+
+
 @asset(
     name="canonical_bundles_hydrovu",
     group_name="hydrovu",
@@ -165,12 +189,14 @@ def canonical_bundles_hydrovu(
     if not rows:
         context.log.info("No new DTW rows — returning empty result (watermark unchanged)")
         context.add_output_metadata(
-            {
-                "dtw_rows_read": MetadataValue.int(0),
-                "bundles_produced": MetadataValue.int(0),
-                "watermark_before": MetadataValue.text(str(since_load_id)),
-                "watermark_after": MetadataValue.text(str(max_load_id)),
-            }
+            _transform_metadata(
+                dtw_rows_read=0,
+                locations_grouped=0,
+                bundles_produced=0,
+                adapter_failures=0,
+                since_load_id=since_load_id,
+                max_load_id=max_load_id,
+            )
         )
         return HydroVuTransformResult(bundles=[], max_load_id=max_load_id)
 
@@ -179,16 +205,21 @@ def canonical_bundles_hydrovu(
     context.log.info("Grouped %d new DTW rows into %d location records", len(rows), len(records))
 
     adapter = HydroVuAdapter(records)
-    bundles = list(adapter.run())
+    with forward_python_logs_to_dagster(
+        context, "aqueduct_dagster.sources.hydrovu", "aqueduct_dagster.canonical"
+    ):
+        bundles = list(adapter.run())
     context.log.info("Produced %d CanonicalBundles", len(bundles))
+    log_if_adapter_failed(adapter, context.log)
 
     context.add_output_metadata(
-        {
-            "dtw_rows_read": MetadataValue.int(len(rows)),
-            "locations_grouped": MetadataValue.int(len(records)),
-            "bundles_produced": MetadataValue.int(len(bundles)),
-            "watermark_before": MetadataValue.text(str(since_load_id)),
-            "watermark_after": MetadataValue.text(str(max_load_id)),
-        }
+        _transform_metadata(
+            dtw_rows_read=len(rows),
+            locations_grouped=len(records),
+            bundles_produced=len(bundles),
+            adapter_failures=adapter.failure_count,
+            since_load_id=since_load_id,
+            max_load_id=max_load_id,
+        )
     )
     return HydroVuTransformResult(bundles=bundles, max_load_id=max_load_id)
