@@ -307,15 +307,27 @@ def test_save_raises_after_all_retries_exhausted():
 def test_sum_chunk_results_adds_fields_across_chunks():
     results = [
         ChunkResult(
-            rows_ingested=10, bundles_loaded=2, observations_posted=10, observations_deleted=0
+            rows_ingested=10,
+            bundles_loaded=2,
+            observations_posted=10,
+            observations_deleted=0,
+            adapter_failures=1,
         ),
         ChunkResult(
-            rows_ingested=5, bundles_loaded=1, observations_posted=5, observations_deleted=3
+            rows_ingested=5,
+            bundles_loaded=1,
+            observations_posted=5,
+            observations_deleted=3,
+            adapter_failures=2,
         ),
     ]
     totals = sum_chunk_results(results)
     assert totals == ChunkResult(
-        rows_ingested=15, bundles_loaded=3, observations_posted=15, observations_deleted=3
+        rows_ingested=15,
+        bundles_loaded=3,
+        observations_posted=15,
+        observations_deleted=3,
+        adapter_failures=3,
     )
 
 

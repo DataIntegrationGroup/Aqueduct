@@ -55,7 +55,11 @@ def _prepare_fn(locations_by_id: dict[int, dict] | None = None) -> MagicMock:
 
 def _stub_chunk_result(**overrides: int) -> SimpleNamespace:
     defaults = dict(
-        rows_ingested=1, bundles_loaded=1, observations_posted=1, observations_deleted=0
+        rows_ingested=1,
+        bundles_loaded=1,
+        observations_posted=1,
+        observations_deleted=0,
+        adapter_failures=0,
     )
     return SimpleNamespace(**{**defaults, **overrides})
 
@@ -256,9 +260,10 @@ def test_real_run_forwards_python_logs_with_source_specific_prefix(
     only reaches the Dagster run log if forward_python_logs_to_dagster wraps
     the call — this was originally missing, leaving a silent multi-minute gap
     in real backfill runs. Also covers BackfillCheckpointStore's own logger
-    ("aqueduct_dagster.shared.backfill"), which needs its own
-    "aqueduct_dagster.shared" prefix since it isn't a descendant of
-    "aqueduct_dagster.sources.{name}" in the logging hierarchy.
+    ("aqueduct_dagster.shared.backfill") and BaseAdapter's
+    ("aqueduct_dagster.canonical.base_adapter"), neither of which is a
+    descendant of "aqueduct_dagster.sources.{name}" in the logging hierarchy,
+    so each needs its own prefix.
     """
     mock_bucket_url.return_value = "gs://bucket"
     mock_checkpoint_cls.return_value.is_complete.return_value = False
@@ -272,7 +277,12 @@ def test_real_run_forwards_python_logs_with_source_specific_prefix(
     assert result.success
     mock_log_forward.assert_called_once()
     _context, *prefixes = mock_log_forward.call_args[0]
-    assert prefixes == ["aqueduct_dagster.sources.test", "aqueduct_dagster.shared", "dlt"]
+    assert prefixes == [
+        "aqueduct_dagster.sources.test",
+        "aqueduct_dagster.shared",
+        "aqueduct_dagster.canonical",
+        "dlt",
+    ]
 
 
 @patch("aqueduct_dagster.defs.jobs.backfill.build_frost_loader")
