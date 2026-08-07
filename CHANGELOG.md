@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.2.0...Aqueduct-v0.3.0) (2026-08-07)
+
+
+### Features
+
+* backfill add per source refetch job factory(ST2DAT-202) ([#34](https://github.com/DataIntegrationGroup/Aqueduct/issues/34)) ([90b771b](https://github.com/DataIntegrationGroup/Aqueduct/commit/90b771b8eeb4e07607892e3f5deb2edf4adc4938))
+* backfill add typed run config with dry-run default(ST2DAT-207) ([#36](https://github.com/DataIntegrationGroup/Aqueduct/issues/36)) ([5c4594d](https://github.com/DataIntegrationGroup/Aqueduct/commit/5c4594d086f087be5f61e24b42ed546355cb8718))
+* **cabq:** cabq canonical model adapter ([#37](https://github.com/DataIntegrationGroup/Aqueduct/issues/37)) ([9197906](https://github.com/DataIntegrationGroup/Aqueduct/commit/91979062c0d21a3168a20cac0ce43aa6b97a66d3))
+* **cabq:** dlt pipeline for cabq raw ingestion ([#35](https://github.com/DataIntegrationGroup/Aqueduct/issues/35)) ([2c65673](https://github.com/DataIntegrationGroup/Aqueduct/commit/2c656735497725ea0cbaaebd8ca2c816d7ef25dc))
+
+
+### Documentation
+
+* **cabq:** document cabq source schema ([#31](https://github.com/DataIntegrationGroup/Aqueduct/issues/31)) ([bf9f441](https://github.com/DataIntegrationGroup/Aqueduct/commit/bf9f44122c1b9035997b331fdd52e2d7ef2da3c9))
+
 ## [0.2.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.1.0...Aqueduct-v0.2.0) (2026-07-21)
 
 
