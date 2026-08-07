@@ -88,12 +88,19 @@ def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | Non
                 "/query?where=OBJECTID%3E0&outFields=sys_loc_code,loc_name,latitude,longitude&returnDistinctValues=true&f=pjson"
             )
 
-        resp = retry_transient(
-            _fetch_location_info,
-            on_retry=lambda exec, attempt, delay: logger.warning(
-                "Location: error (%s) on attempt %d - retrying in %.0fs", exec, attempt, delay
-            ),
-        )
+        try:
+            resp = retry_transient(
+                _fetch_location_info,
+                on_retry=lambda exc, attempt, seconds: logger.warning(
+                    "Location: error (%s) on attempt %d - retrying in %.0fs", exc, attempt, seconds
+                ),
+            )
+        except _TRANSIENT_ERRORS as err:
+            logger.warning(
+                "Transient error fetching locations after %d attempts",
+                _MAX_RETRIES,
+            )
+            return None, f"transient network error after {_MAX_RETRIES} attempts: {err}"
         if resp.status_code == 429:
             rate_limit_retries += 1
             if rate_limit_retries > _MAX_RATE_LIMIT_RETRIES:
@@ -147,21 +154,21 @@ def _fetch_readings_for_location(
         try:
             resp = retry_transient(
                 _fetch_readings,
-                on_retry=lambda exec, attempt, delay: logger.warning(
+                on_retry=lambda exc, attempt, seconds: logger.warning(
                     "Location %s: error (%s) on attempt %d - retrying in %.0fs",
                     loc_id,
-                    exec,
+                    exc,
                     attempt,
-                    delay,
+                    seconds,
                 ),
             )
-        except _TRANSIENT_ERRORS as exec:
+        except _TRANSIENT_ERRORS as err:
             logger.warning(
                 "Location %s: transient error after %d attempts — skipping",
                 loc_id,
                 _MAX_RETRIES,
             )
-            return None, f"transient network error after {_MAX_RETRIES} attempts: {exec}"
+            return None, f"transient network error after {_MAX_RETRIES} attempts: {err}"
         if resp.status_code == 404:
             logger.warning("Location %s: 404 — no data endpoint", loc_id)
             return None, None

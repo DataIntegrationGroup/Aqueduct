@@ -56,13 +56,13 @@ class CabqTransformResult:
 
 
 def _group_rows_by_location(rows: list[dict]) -> list[dict]:
-    groups: dict[int, dict] = {}
+    groups: dict[str, dict] = {}
     for row in rows:
         loc_id = row["location_id"]
         if loc_id not in groups:
             groups[loc_id] = {
                 "location_id": loc_id,
-                "location_name": row["loc_name"],
+                "location_name": row["location_name"],
                 "latitude": row["latitude"],
                 "longitude": row["longitude"],
                 "readings": [],
