@@ -15,6 +15,7 @@ from __future__ import annotations
 import abc
 import logging
 from collections.abc import Iterator
+from typing import Any
 
 from aqueduct_dagster.canonical.canonical_constants import make_datastream_key, make_location_key
 from aqueduct_dagster.canonical.canonical_model import (
@@ -30,6 +31,11 @@ class BaseAdapter(abc.ABC):
     def __init__(self, agency: str) -> None:
         # agency code used to build external_keys — must be consistent across runs
         self.agency = agency.upper()
+        # Counts records run() failed to adapt — surfaced by callers as
+        # run/output metadata. Full per-failure detail (record + error) is
+        # already in the logger.error() call below; no need to also retain
+        # it in memory here.
+        self.failure_count = 0
 
     # ── Three methods every adapter must implement ────────────────────────────
 
@@ -77,6 +83,7 @@ class BaseAdapter(abc.ABC):
                 )
             except Exception as exc:
                 logger.error("adapter=%s error=%s record=%r", self.__class__.__name__, exc, record)
+                self.failure_count += 1
 
     # ── Helpers available to all adapters ─────────────────────────────────────
 
@@ -85,3 +92,21 @@ class BaseAdapter(abc.ABC):
 
     def make_datastream_key(self, source_id: str, suffix: str) -> str:
         return make_datastream_key(self.agency, source_id, suffix)
+
+
+def log_if_adapter_failed(adapter: BaseAdapter, log: Any, context: str = "") -> None:
+    """
+    Warns once via `log` (stdlib logger or Dagster context.log — either works,
+    only .warning() is required) if `adapter.run()` recorded any failures.
+    Call after `run()` is exhausted. `context`, if given, is prefixed to the
+    message (e.g. a chunk window description) — shared by every source's
+    transform/backfill code so the message and count logic can't drift apart.
+    """
+    if not adapter.failure_count:
+        return
+    prefix = f"{context}: " if context else ""
+    log.warning(
+        "%s%d record(s) failed to adapt and were skipped — see adapter_failures metadata",
+        prefix,
+        adapter.failure_count,
+    )
