@@ -63,6 +63,7 @@ class ChunkResult:
     bundles_loaded: int
     observations_posted: int
     observations_deleted: int
+    adapter_failures: int = 0
 
 
 def sum_chunk_results(results: list[ChunkResult]) -> ChunkResult:
@@ -72,6 +73,7 @@ def sum_chunk_results(results: list[ChunkResult]) -> ChunkResult:
         bundles_loaded=sum(r.bundles_loaded for r in results),
         observations_posted=sum(r.observations_posted for r in results),
         observations_deleted=sum(r.observations_deleted for r in results),
+        adapter_failures=sum(r.adapter_failures for r in results),
     )
 
 
