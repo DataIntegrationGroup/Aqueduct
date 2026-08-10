@@ -94,6 +94,13 @@ calls:**
 11. FROST data itself is lost or corrupted, but the raw GCS parquet remains
     intact — no API calls are required; the existing archive is simply
     replayed back into FROST.
+12. An individual record fails to adapt during transform (see
+    canonical/base_adapter.py's per-record failure handling) — its raw data
+    was ingested successfully and is safe in GCS, but never made it into
+    FROST. Recovery today: fix the underlying adapter bug, then launch a
+    targeted Mode A backfill for just that record's location + date window
+    (safe to re-run, no duplicates). A future Mode B could do this without
+    any API call at all.
 
 
 ## 4. Backfill mechanism

@@ -27,7 +27,9 @@ from dataclasses import dataclass
 
 from dagster import AssetExecutionContext, MetadataValue, asset
 
+from aqueduct_dagster.canonical.base_adapter import log_if_adapter_failed
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
+from aqueduct_dagster.defs.dagster_logging import forward_python_logs_to_dagster
 from aqueduct_dagster.shared.gcs import (
     _gcs_bucket_url,
     _gcs_filesystem,
@@ -35,7 +37,7 @@ from aqueduct_dagster.shared.gcs import (
     read_transform_watermark,
     transform_watermark_path,
 )
-from aqueduct_dagster.sources.cabq.adapter import CabqAdapter  # noqa: F401
+from aqueduct_dagster.sources.cabq.adapter import CabqAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +104,7 @@ def canonical_bundles_cabq(context: AssetExecutionContext) -> CabqTransformResul
             {
                 "rows_read": MetadataValue.int(0),
                 "bundles_produced": MetadataValue.int(0),
+                "adapter_failures": MetadataValue.int(0),
                 "watermark_before": MetadataValue.text(str(since_load_id)),
                 "watermark_after": MetadataValue.text(str(max_load_id)),
             }
@@ -109,13 +112,19 @@ def canonical_bundles_cabq(context: AssetExecutionContext) -> CabqTransformResul
         return CabqTransformResult(bundles=[], max_load_id=max_load_id)
     records = _group_rows_by_location(rows)
     context.log.info("Grouped %d new rows into %d location records", len(rows), len(records))
-    bundles = list(CabqAdapter(records).run())
+    adapter = CabqAdapter(records)
+    with forward_python_logs_to_dagster(
+        context, "aqueduct_dagster.sources.cabq", "aqueduct_dagster.canonical"
+    ):
+        bundles = list(adapter.run())
     context.log.info("Produced %d CanonicalBundles", len(bundles))
+    log_if_adapter_failed(adapter, context.log)
     context.add_output_metadata(
         {
             "rows_read": MetadataValue.int(len(rows)),
             "locations_grouped": MetadataValue.int(len(records)),
             "bundles_produced": MetadataValue.int(len(bundles)),
+            "adapter_failures": MetadataValue.int(adapter.failure_count),
             "watermark_before": MetadataValue.text(str(since_load_id)),
             "watermark_after": MetadataValue.text(str(max_load_id)),
         }
