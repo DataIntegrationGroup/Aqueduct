@@ -2,10 +2,11 @@
 tests/shared/test_backfill.py
 
 Unit tests for shared/backfill.py: month_chunks(), BackfillCheckpointStore,
-sum_chunk_results(), and the run-config helpers (parse_backfill_date,
-validate_date_order, attach_run_timestamp, resolve_location_ids) reused by
-defs/jobs/backfill.py's BackfillRefetchConfig/op. All GCS I/O is mocked — no
-live GCS required.
+sum_chunk_results(), the run-config helpers (parse_backfill_date,
+validate_date_order, attach_run_timestamp, resolve_location_ids), and the
+per-chunk ingest/load helpers (load_source_config, build_backfill_pipeline,
+run_backfill_ingest, load_bundles_windowed) every source's run_backfill_chunk()
+reuses. All GCS/dlt/FROST I/O is mocked — no live services required.
 """
 
 from __future__ import annotations
@@ -14,18 +15,24 @@ import io
 import json
 import re
 from datetime import UTC, date, datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from aqueduct_dagster.canonical.canonical_model import CanonicalBundle, CanonicalObservation
+from aqueduct_dagster.loader.frost_loader import LoadResult
 from aqueduct_dagster.shared.backfill import (
     BackfillCheckpointStore,
     ChunkResult,
     attach_run_timestamp,
+    build_backfill_pipeline,
     chunk_key,
+    load_bundles_windowed,
+    load_source_config,
     month_chunks,
     parse_backfill_date,
     resolve_location_ids,
+    run_backfill_ingest,
     sanitize_run_key,
     sum_chunk_results,
     validate_date_order,
@@ -299,6 +306,148 @@ def test_save_raises_after_all_retries_exhausted():
         store.mark_complete(*CHUNK_1)
 
     assert mock_fs.open.call_count == 3  # _SAVE_RETRIES attempts
+
+
+# ── load_source_config ────────────────────────────────────────────────────────
+
+
+@patch("aqueduct_dagster.shared.backfill.load_config")
+def test_load_source_config_reads_named_section(mock_load_config):
+    mock_load_config.return_value = {"sources": {"hydrovu": {"gcp_secret": "x"}}}
+    assert load_source_config("hydrovu") == {"gcp_secret": "x"}
+
+
+# ── build_backfill_pipeline ────────────────────────────────────────────────────
+
+
+@patch("aqueduct_dagster.shared.backfill.build_source_pipeline")
+def test_build_backfill_pipeline_includes_run_key_in_pipeline_name(mock_build_source_pipeline):
+    build_backfill_pipeline("hydrovu_backfill", "raw_pvacd", "jan-repair")
+    args, _kwargs = mock_build_source_pipeline.call_args
+    assert args == ("hydrovu_backfill_jan-repair", "raw_pvacd")
+
+
+@patch("aqueduct_dagster.shared.backfill.build_source_pipeline")
+def test_build_backfill_pipeline_sanitizes_run_key(mock_build_source_pipeline):
+    """Two different run_keys must never collide into the same pipeline_name."""
+    build_backfill_pipeline("hydrovu_backfill", "raw_pvacd", "jan repair/v2")
+    args, _kwargs = mock_build_source_pipeline.call_args
+    assert args[0] == "hydrovu_backfill_jan_repair_v2"
+
+
+# ── run_backfill_ingest ────────────────────────────────────────────────────────
+
+INGEST_CHUNK_START = datetime(2026, 1, 1, tzinfo=UTC)
+INGEST_CHUNK_END = datetime(2026, 2, 1, tzinfo=UTC)
+
+
+@patch("aqueduct_dagster.shared.backfill.build_backfill_pipeline")
+def test_run_backfill_ingest_drops_pending_packages_before_run(mock_build_pipeline):
+    """
+    A package left pending by an earlier, uncleanly-terminated run must be
+    dropped BEFORE pipeline.run() is called — otherwise dlt would silently
+    finish loading that stale package instead of this chunk's real data.
+    """
+    call_order: list[str] = []
+    mock_pipeline = MagicMock()
+    mock_pipeline.drop_pending_packages.side_effect = lambda: call_order.append("drop")
+    mock_pipeline.run.side_effect = lambda *a, **k: (
+        call_order.append("run") or MagicMock(loads_ids=["100.0"])
+    )
+    mock_build_pipeline.return_value = mock_pipeline
+
+    run_backfill_ingest(
+        "prefix", "dataset", "run-key", object(), INGEST_CHUNK_START, INGEST_CHUNK_END
+    )
+
+    assert call_order == ["drop", "run"]
+
+
+@patch("aqueduct_dagster.shared.backfill.build_backfill_pipeline")
+def test_run_backfill_ingest_logs_the_dlt_pipeline_name(mock_build_pipeline, caplog):
+    mock_pipeline = MagicMock()
+    mock_pipeline.pipeline_name = "prefix_run-key"
+    mock_pipeline.run.return_value = MagicMock(loads_ids=["100.0"])
+    mock_build_pipeline.return_value = mock_pipeline
+
+    with caplog.at_level("INFO", logger="aqueduct_dagster.shared.backfill"):
+        run_backfill_ingest(
+            "prefix", "dataset", "run-key", object(), INGEST_CHUNK_START, INGEST_CHUNK_END
+        )
+
+    assert "prefix_run-key" in caplog.text
+
+
+@patch("aqueduct_dagster.shared.backfill.build_backfill_pipeline")
+def test_run_backfill_ingest_returns_none_on_empty_loads_ids(mock_build_pipeline):
+    mock_pipeline = MagicMock()
+    mock_pipeline.run.return_value = MagicMock(loads_ids=[])
+    mock_build_pipeline.return_value = mock_pipeline
+
+    result = run_backfill_ingest(
+        "prefix", "dataset", "run-key", object(), INGEST_CHUNK_START, INGEST_CHUNK_END
+    )
+
+    assert result is None
+
+
+@patch("aqueduct_dagster.shared.backfill.build_backfill_pipeline")
+def test_run_backfill_ingest_returns_load_id_as_float(mock_build_pipeline):
+    mock_pipeline = MagicMock()
+    mock_pipeline.run.return_value = MagicMock(loads_ids=["1781192390.555875"])
+    mock_build_pipeline.return_value = mock_pipeline
+
+    result = run_backfill_ingest(
+        "prefix", "dataset", "run-key", object(), INGEST_CHUNK_START, INGEST_CHUNK_END
+    )
+
+    assert result == 1781192390.555875
+
+
+# ── load_bundles_windowed ──────────────────────────────────────────────────────
+
+
+class _StubFrostLoader:
+    def __init__(self) -> None:
+        self.ensure_calls: list = []
+        self.load_window_calls: list = []
+        self._next_ds_id = 0
+
+    def ensure_datastream(self, spec) -> str:
+        self.ensure_calls.append(spec)
+        self._next_ds_id += 1
+        return f"ds-{self._next_ds_id}"
+
+    def load_window(self, datastream_key, datastream_id, records, window_start, window_end):
+        self.load_window_calls.append((datastream_key, datastream_id, list(records)))
+        result = LoadResult(datastream_key=datastream_key)
+        result.posted = len(records)
+        result.deleted = 1
+        return result
+
+
+def test_load_bundles_windowed_sums_posted_and_deleted_across_bundles():
+    from types import SimpleNamespace
+
+    ds_a = SimpleNamespace(external_key="ds-a")
+    ds_b = SimpleNamespace(external_key="ds-b")
+    obs = CanonicalObservation(
+        phenomenon_time=INGEST_CHUNK_START, result=1.0, datastream_external_key="ds-a"
+    )
+    bundle_a = CanonicalBundle(datastreams=[ds_a], observations={"ds-a": [obs]})
+    bundle_b = CanonicalBundle(datastreams=[ds_b], observations={"ds-b": [obs, obs]})
+    loader = _StubFrostLoader()
+
+    posted, deleted = load_bundles_windowed(
+        loader,
+        [bundle_a, bundle_b],
+        INGEST_CHUNK_START,
+        INGEST_CHUNK_END,  # type: ignore[arg-type]
+    )
+
+    assert posted == 3  # 1 record + 2 records
+    assert deleted == 2  # 1 per datastream
+    assert len(loader.ensure_calls) == 2
 
 
 # ── sum_chunk_results ────────────────────────────────────────────────────────
