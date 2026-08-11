@@ -39,6 +39,12 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/aqueduct_dagster"]
 
+# Ship .dlt/config.toml inside the package.
+# The `.dlt` directory name is preserved so dlt's own config resolution
+# finds it via DLT_PROJECT_DIR; see src/aqueduct_dagster/shared/config.py.
+[tool.hatch.build.targets.wheel.force-include]
+".dlt/config.toml" = "aqueduct_dagster/.dlt/config.toml"
+
 [tool.dagster]
 module_name = "aqueduct_dagster.defs.definitions"
 

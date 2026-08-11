@@ -47,6 +47,22 @@ export SQL_DB_VERSION="POSTGRES_17"
 
 # --- Secret Manager ---------------------------------------------------------
 export SECRET_FROST_DB_PW="frost-db-password"
+# HydroVu OAuth client id/secret, read at ingest time via ADC. Matches
+# [sources.hydrovu] gcp_secret in .dlt/config.toml.
+export SECRET_HYDROVU="hydrovu_pvacd"
+
+# --- GCS buckets ------------------------------------------------------------
+# Where Dagster+ writes raw parquet. BUCKET_PROD is the deployment target;
+# BUCKET_POC is the existing POC bucket, kept so ADC can be verified against real
+# data before the production bucket carries any.
+# TODO: "aqueduct-production" is not available, so we need to come up with a new name for the production bucket
+export BUCKET_PROD="aqueduct-production"
+export BUCKET_POC="aqueduct-poc-bravo-pvacd"
+
+# --- Dagster+ GCP service account -----------------------------------------------
+# The identity Dagster+ Serverless authenticates as.
+export DAGSTER_SA_NAME="aqueduct-dlt-writer"
+export DAGSTER_SA="${DAGSTER_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 # --- FROST on Cloud Run -----------------------------------------------------
 export FROST_SERVICE="frost-sensorthings"

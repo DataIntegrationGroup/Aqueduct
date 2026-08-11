@@ -13,7 +13,9 @@ from collections.abc import Callable
 
 import gcsfs
 import pyarrow.parquet as pq
-import toml
+
+from aqueduct_dagster.shared.config import load_config
+from aqueduct_dagster.shared.gcp_auth import ensure_adc
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +29,11 @@ def _gcs_bucket_url() -> str:
     env_url = os.environ.get("GCS_BUCKET_URL")
     if env_url:
         return env_url
-    config_path = os.path.join(os.getcwd(), ".dlt", "config.toml")
-    return toml.load(config_path)["destination"]["filesystem"]["bucket_url"]
+    return load_config()["destination"]["filesystem"]["bucket_url"]
 
 
 def _gcs_filesystem(project: str = "") -> gcsfs.GCSFileSystem:
+    ensure_adc()
     if project:
         return gcsfs.GCSFileSystem(project=project, token="google_default")
     return gcsfs.GCSFileSystem(token="google_default")
