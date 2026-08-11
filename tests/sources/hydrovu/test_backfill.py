@@ -317,10 +317,10 @@ def test_run_backfill_chunk_reads_by_exact_load_id_and_loads_bundles(
     )
 
     # run_backfill_ingest called with this source's pipeline prefix/dataset/run_key
-    ingest_args, _ = mock_run_ingest.call_args
-    assert ingest_args[0] == BACKFILL_PIPELINE_NAME
-    assert ingest_args[1] == GCS_DATASET
-    assert ingest_args[2] == "test-run"
+    ingest_kwargs = mock_run_ingest.call_args.kwargs
+    assert ingest_kwargs["pipeline_name_prefix"] == BACKFILL_PIPELINE_NAME
+    assert ingest_kwargs["dataset"] == GCS_DATASET
+    assert ingest_kwargs["run_key"] == "test-run"
 
     # read_parquet_rows_for_load_id called with the exact load_id run_backfill_ingest returned
     args, kwargs = mock_read_rows.call_args

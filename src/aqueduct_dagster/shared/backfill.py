@@ -48,7 +48,7 @@ import dlt
 import gcsfs
 
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
-from aqueduct_dagster.loader.frost_loader import FrostLoader, ObservationRecord
+from aqueduct_dagster.loader.frost_loader import FrostLoader, observation_records_for
 from aqueduct_dagster.shared.config import load_config
 from aqueduct_dagster.shared.gcs import atomic_write_json_with_retry
 from aqueduct_dagster.shared.pipeline import build_source_pipeline
@@ -163,7 +163,9 @@ def load_source_config(source_name: str) -> dict[str, Any]:
     return load_config()["sources"][source_name]
 
 
-def build_backfill_pipeline(pipeline_name_prefix: str, dataset: str, run_key: str) -> dlt.Pipeline:
+def build_backfill_pipeline(
+    *, pipeline_name_prefix: str, dataset: str, run_key: str
+) -> dlt.Pipeline:
     """
     Isolated dlt pipeline: one pipeline_name per run_key, so two backfill runs
     can never share dlt's local pending-load state.
@@ -172,6 +174,7 @@ def build_backfill_pipeline(pipeline_name_prefix: str, dataset: str, run_key: st
 
 
 def run_backfill_ingest(
+    *,
     pipeline_name_prefix: str,
     dataset: str,
     run_key: str,
@@ -185,8 +188,17 @@ def run_backfill_ingest(
     this chunk's real data), runs `resource`, and returns the load_id — or
     None if nothing new was ingested (caller should return a zero ChunkResult
     rather than index an empty list).
+
+    Assumes `resource` has no persisted incremental state of its own (see
+    hydrovu_backfill_readings, which deliberately never touches
+    dlt.current.resource_state()) — drop_pending_packages() runs
+    unconditionally, so a resource relying on a real cursor would have that
+    state silently discarded on every chunk. Write a dedicated cursor-free
+    resource for backfill rather than reusing a production one.
     """
-    pipeline = build_backfill_pipeline(pipeline_name_prefix, dataset, run_key)
+    pipeline = build_backfill_pipeline(
+        pipeline_name_prefix=pipeline_name_prefix, dataset=dataset, run_key=run_key
+    )
     logger.info(
         "Backfill chunk [%s, %s): using dlt pipeline_name=%s",
         chunk_start,
@@ -217,11 +229,7 @@ def load_bundles_windowed(
     for bundle in bundles:
         for datastream in bundle.datastreams:
             ds_id = loader.ensure_datastream(datastream)
-            raw_obs = bundle.observations.get(datastream.external_key, [])
-            obs_records = [
-                ObservationRecord(phenomenon_time=o.phenomenon_time, result=o.result)
-                for o in raw_obs
-            ]
+            obs_records = observation_records_for(bundle, datastream)
             result = loader.load_window(
                 datastream.external_key, ds_id, obs_records, window_start, window_end
             )
@@ -285,7 +293,10 @@ class BackfillCheckpointStore:
         run_key: str,
     ) -> None:
         self._fs = fs
-        self._path = f"{bucket}/{dataset}/_backfill_checkpoints/{run_key}.json"
+        # Sanitized the same way as build_backfill_pipeline's pipeline_name, so a
+        # run_key with e.g. a slash or space can't split the checkpoint file and
+        # the dlt pipeline name onto two different identifiers for the same run.
+        self._path = f"{bucket}/{dataset}/_backfill_checkpoints/{sanitize_run_key(run_key)}.json"
         self._completed: set[str] | None = None
 
     def _load(self) -> set[str]:

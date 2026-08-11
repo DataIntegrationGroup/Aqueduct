@@ -16,12 +16,14 @@ by the generic backfill job factory in defs/jobs/backfill.py, which owns the
 run config, chunk loop, and checkpointing.
 
 Reused, unchanged: _group_by_location (transform.py), HydroVuAdapter
-(adapter.py), FrostLoader.load_window (loader/frost_loader.py). Only the
-ingest side (hydrovu_backfill_readings, and reading .dlt/config.toml directly
-since this isn't invoked via @dlt.source injection) is HydroVu-specific —
+(adapter.py). Load (FrostLoader.load_window per datastream) happens inside
+shared.backfill.load_bundles_windowed, not here. Only the ingest side
+(hydrovu_backfill_readings) and the location_ids/client-setup glue
+(default_backfill_location_ids, prepare_backfill) are HydroVu-specific —
 mirroring dlt_pipeline.py's existing per-source ingest code, per
 BACKFILL_STRATEGY.md §4.2: "requires one new function per source... cannot be
-made fully generic."
+made fully generic." Config-reading itself (load_source_config) is shared,
+since it's a plain [sources.<name>] lookup with no HydroVu-specific content.
 """
 
 from __future__ import annotations
@@ -197,8 +199,8 @@ def run_backfill_chunk(
       2. Transform — reads back exactly this run's rows (by exact load_id
          match, not "since some watermark"), groups by location, and runs
          HydroVuAdapter — the same adapter production uses, unchanged.
-      3. Load — FrostLoader.load_window() per datastream: delete existing
-         observations in [chunk_start, chunk_end), then repost.
+      3. Load — shared.backfill.load_bundles_windowed() per datastream:
+         delete existing observations in [chunk_start, chunk_end), then repost.
 
     Raises on any failure in any stage — the caller (defs/jobs/backfill.py)
     only checkpoints a chunk after this returns without raising, so a
@@ -218,18 +220,18 @@ def run_backfill_chunk(
     end_ts = int(chunk_end.timestamp())
 
     load_id = run_backfill_ingest(
-        BACKFILL_PIPELINE_NAME,
-        GCS_DATASET,
-        run_key,
-        hydrovu_backfill_readings(
+        pipeline_name_prefix=BACKFILL_PIPELINE_NAME,
+        dataset=GCS_DATASET,
+        run_key=run_key,
+        resource=hydrovu_backfill_readings(
             client=client,
             locations=locations,
             location_ids=location_ids,
             start_ts=start_ts,
             end_ts=end_ts,
         ),
-        chunk_start,
-        chunk_end,
+        chunk_start=chunk_start,
+        chunk_end=chunk_end,
     )
     if load_id is None:
         return ChunkResult(

@@ -193,6 +193,18 @@ CHUNK_1 = (datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 2, 1, tzinfo=UTC), [
 CHUNK_2 = (datetime(2026, 2, 1, tzinfo=UTC), datetime(2026, 3, 1, tzinfo=UTC), [111])
 
 
+def test_run_key_is_sanitized_in_checkpoint_path():
+    """
+    Regression test: the checkpoint path must use the same sanitized run_key
+    as build_backfill_pipeline's dlt pipeline_name, so a run_key with unsafe
+    characters can't split the two identifiers for the same run apart.
+    """
+    store = BackfillCheckpointStore(
+        MagicMock(), "my-bucket", "raw_pvacd", run_key="team/jan-2026 fix"
+    )
+    assert store._path == "my-bucket/raw_pvacd/_backfill_checkpoints/team_jan-2026_fix.json"
+
+
 def test_is_complete_false_when_no_checkpoint_file():
     store, _ = _make_store(gcs_content=None)
     assert store.is_complete(*CHUNK_1) is False
@@ -322,7 +334,9 @@ def test_load_source_config_reads_named_section(mock_load_config):
 
 @patch("aqueduct_dagster.shared.backfill.build_source_pipeline")
 def test_build_backfill_pipeline_includes_run_key_in_pipeline_name(mock_build_source_pipeline):
-    build_backfill_pipeline("hydrovu_backfill", "raw_pvacd", "jan-repair")
+    build_backfill_pipeline(
+        pipeline_name_prefix="hydrovu_backfill", dataset="raw_pvacd", run_key="jan-repair"
+    )
     args, _kwargs = mock_build_source_pipeline.call_args
     assert args == ("hydrovu_backfill_jan-repair", "raw_pvacd")
 
@@ -330,7 +344,9 @@ def test_build_backfill_pipeline_includes_run_key_in_pipeline_name(mock_build_so
 @patch("aqueduct_dagster.shared.backfill.build_source_pipeline")
 def test_build_backfill_pipeline_sanitizes_run_key(mock_build_source_pipeline):
     """Two different run_keys must never collide into the same pipeline_name."""
-    build_backfill_pipeline("hydrovu_backfill", "raw_pvacd", "jan repair/v2")
+    build_backfill_pipeline(
+        pipeline_name_prefix="hydrovu_backfill", dataset="raw_pvacd", run_key="jan repair/v2"
+    )
     args, _kwargs = mock_build_source_pipeline.call_args
     assert args[0] == "hydrovu_backfill_jan_repair_v2"
 
@@ -339,6 +355,19 @@ def test_build_backfill_pipeline_sanitizes_run_key(mock_build_source_pipeline):
 
 INGEST_CHUNK_START = datetime(2026, 1, 1, tzinfo=UTC)
 INGEST_CHUNK_END = datetime(2026, 2, 1, tzinfo=UTC)
+
+
+def _run_ingest(resource=None, **overrides):
+    kwargs = {
+        "pipeline_name_prefix": "prefix",
+        "dataset": "dataset",
+        "run_key": "run-key",
+        "resource": resource if resource is not None else object(),
+        "chunk_start": INGEST_CHUNK_START,
+        "chunk_end": INGEST_CHUNK_END,
+        **overrides,
+    }
+    return run_backfill_ingest(**kwargs)
 
 
 @patch("aqueduct_dagster.shared.backfill.build_backfill_pipeline")
@@ -356,11 +385,27 @@ def test_run_backfill_ingest_drops_pending_packages_before_run(mock_build_pipeli
     )
     mock_build_pipeline.return_value = mock_pipeline
 
-    run_backfill_ingest(
-        "prefix", "dataset", "run-key", object(), INGEST_CHUNK_START, INGEST_CHUNK_END
-    )
+    _run_ingest()
 
     assert call_order == ["drop", "run"]
+
+
+@patch("aqueduct_dagster.shared.backfill.build_backfill_pipeline")
+def test_run_backfill_ingest_forwards_prefix_dataset_and_run_key(mock_build_pipeline):
+    """
+    Regression test: run_backfill_ingest must forward its own
+    pipeline_name_prefix/dataset/run_key straight through to
+    build_backfill_pipeline, not swap or drop any of them.
+    """
+    mock_pipeline = MagicMock()
+    mock_pipeline.run.return_value = MagicMock(loads_ids=["100.0"])
+    mock_build_pipeline.return_value = mock_pipeline
+
+    _run_ingest(pipeline_name_prefix="hydrovu_backfill", dataset="raw_pvacd", run_key="jan-repair")
+
+    mock_build_pipeline.assert_called_once_with(
+        pipeline_name_prefix="hydrovu_backfill", dataset="raw_pvacd", run_key="jan-repair"
+    )
 
 
 @patch("aqueduct_dagster.shared.backfill.build_backfill_pipeline")
@@ -371,9 +416,7 @@ def test_run_backfill_ingest_logs_the_dlt_pipeline_name(mock_build_pipeline, cap
     mock_build_pipeline.return_value = mock_pipeline
 
     with caplog.at_level("INFO", logger="aqueduct_dagster.shared.backfill"):
-        run_backfill_ingest(
-            "prefix", "dataset", "run-key", object(), INGEST_CHUNK_START, INGEST_CHUNK_END
-        )
+        _run_ingest()
 
     assert "prefix_run-key" in caplog.text
 
@@ -384,11 +427,7 @@ def test_run_backfill_ingest_returns_none_on_empty_loads_ids(mock_build_pipeline
     mock_pipeline.run.return_value = MagicMock(loads_ids=[])
     mock_build_pipeline.return_value = mock_pipeline
 
-    result = run_backfill_ingest(
-        "prefix", "dataset", "run-key", object(), INGEST_CHUNK_START, INGEST_CHUNK_END
-    )
-
-    assert result is None
+    assert _run_ingest() is None
 
 
 @patch("aqueduct_dagster.shared.backfill.build_backfill_pipeline")
@@ -397,11 +436,7 @@ def test_run_backfill_ingest_returns_load_id_as_float(mock_build_pipeline):
     mock_pipeline.run.return_value = MagicMock(loads_ids=["1781192390.555875"])
     mock_build_pipeline.return_value = mock_pipeline
 
-    result = run_backfill_ingest(
-        "prefix", "dataset", "run-key", object(), INGEST_CHUNK_START, INGEST_CHUNK_END
-    )
-
-    assert result == 1781192390.555875
+    assert _run_ingest() == 1781192390.555875
 
 
 # ── load_bundles_windowed ──────────────────────────────────────────────────────

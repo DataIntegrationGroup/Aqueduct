@@ -19,9 +19,9 @@ from typing import Any
 
 from dagster import AssetExecutionContext, AssetIn, MetadataValue, OpExecutionContext, asset
 
-from aqueduct_dagster.canonical.canonical_model import CanonicalBundle, CanonicalObservation
+from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
 from aqueduct_dagster.loader.frost_auth import attach_id_token_auth, service_root_url
-from aqueduct_dagster.loader.frost_loader import FrostStaClientLoader, ObservationRecord
+from aqueduct_dagster.loader.frost_loader import FrostStaClientLoader, observation_records_for
 from aqueduct_dagster.loader.watermark_store import FrostWatermarkStore
 from aqueduct_dagster.shared.gcs import (
     _gcs_bucket_url,
@@ -95,15 +95,7 @@ def _frost_load(
     for bundle in bundles:
         for datastream in bundle.datastreams:
             ds_id = loader.ensure_datastream(datastream)
-
-            raw_obs: list[CanonicalObservation] = bundle.observations.get(
-                datastream.external_key, []
-            )
-            records = [
-                ObservationRecord(phenomenon_time=o.phenomenon_time, result=o.result)
-                for o in raw_obs
-            ]
-
+            records = observation_records_for(bundle, datastream)
             result = loader.load_observations(datastream.external_key, ds_id, records)
             total_posted += result.posted
             total_skipped += result.skipped
