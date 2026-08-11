@@ -57,8 +57,7 @@ export SECRET_HYDROVU="hydrovu_pvacd"
 # Where Dagster+ writes raw parquet. BUCKET_PROD is the deployment target;
 # BUCKET_POC is the existing POC bucket, kept so ADC can be verified against real
 # data before the production bucket carries any.
-# TODO: "aqueduct-production" is not available, so we need to come up with a new name for the production bucket
-export BUCKET_PROD="aqueduct-production"
+export BUCKET_PROD="nmwdi-aqueduct-production"
 export BUCKET_POC="aqueduct-poc-bravo-pvacd"
 
 # --- Dagster+ GCP service account -----------------------------------------------

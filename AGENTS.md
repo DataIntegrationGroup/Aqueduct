@@ -101,7 +101,7 @@ These are the things that bite in data pipelines specifically. Treat them as har
 - **Secrets never touch git.** `.env` and `.dlt/secrets.toml` are gitignored;
   keep it that way. Real auth uses ADC / Secret Manager. If you find a secret in
   tracked code, stop and flag it.
-- **Don't develop against the production bucket.** `gs://aqueduct-production`
+- **Don't develop against the production bucket.** `gs://nmwdi-aqueduct-production`
   is shared. For any local run, point `GCS_BUCKET_URL` at your own test bucket.
 - **Idempotency is mandatory.** Re-running any asset must be safe. dlt uses
   `primary_key` + incremental cursors; FROST loads are filtered by a watermark

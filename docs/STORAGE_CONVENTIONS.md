@@ -8,7 +8,7 @@ grows. When you add a source, a zone, or a partitioning scheme, update the
 [Changelog](#changelog) at the bottom.
 
 - **Status:** raw zone only, date-partitioned, 2 agencies (PVACD via HydroVu live; CABQ scaffolded)
-- **Last updated:** 2026-07-20
+- **Last updated:** 2026-08-11
 
 ---
 
@@ -16,7 +16,7 @@ grows. When you add a source, a zone, or a partitioning scheme, update the
 
 | Thing | Rule | Example |
 |---|---|---|
-| Bucket | lowercase, hyphen-delimited, `aqueduct-<env>` | `aqueduct-production` |
+| Bucket | lowercase, hyphen-delimited, `nmwdi-aqueduct-<env>` | `nmwdi-aqueduct-production` |
 | Zone prefix | `raw_` today; reserve `staging_` / `curated_` for later | `raw_` |
 | Dataset (top folder) | `raw_<agency>`, lowercase `snake_case` | `raw_pvacd` |
 | Table (sub-folder) | `<source>_<entity>`, lowercase `snake_case` | `hydrovu_readings` |
@@ -38,7 +38,7 @@ The standard layout — date-partitioned, built by dlt from `.dlt/config.toml`
 and the pipeline factories:
 
 ```
-gs://aqueduct-production/                # the raw-zone bucket (one per environment)
+gs://nmwdi-aqueduct-production/          # the raw-zone bucket (one per environment)
 ├── raw_pvacd/                           # agency PVACD — can hold several source tables
 │   ├── hydrovu_locations/               # HydroVu source: reference table (write_disposition="replace")
 │   │   └── year=2024/month=06/day=18/
@@ -67,7 +67,7 @@ gs://aqueduct-production/                # the raw-zone bucket (one per environm
 
 dlt builds these paths from two settings:
 
-- `bucket_url = "gs://aqueduct-production"` and the date-partitioned
+- `bucket_url = "gs://nmwdi-aqueduct-production"` and the date-partitioned
   `layout` (see [Date partitioning](#date-partitioning)) in `.dlt/config.toml`
 - `dataset_name=` in each `build_pipeline()` (`raw_pvacd`, `raw_cabq`), which dlt
   prepends as the top-level folder.
@@ -89,9 +89,14 @@ across tools:
   extra verification rules.)
 - Start and end with a letter or number; 3–63 characters; **globally unique
   across all of GCS**.
-- Pattern: **`aqueduct-<env>`** — e.g. `aqueduct-production`. Use a separate
-  `aqueduct-dev` / `aqueduct-stage` bucket for non-prod work rather than a test
-  prefix inside production.
+- Pattern: **`nmwdi-aqueduct-<env>`** — e.g. `nmwdi-aqueduct-production`. Use a
+  separate `nmwdi-aqueduct-dev` / `nmwdi-aqueduct-stage` bucket for non-prod work
+  rather than a test prefix inside production.
+  - `nmwdi-` — organization prefix. This exists because of the global-uniqueness
+    rule above, not as house style: the unprefixed `aqueduct-production` is already
+    held by someone outside this organization, so it can never be created here.
+    Project-scoped names are not enough for buckets — prefix new ones from the
+    start rather than discovering the collision at provisioning time.
   - `env` — deployment context: `production`, `stage`, `dev`.
   - Agency scope is **not** in the bucket name — it lives in the dataset prefix
     (`raw_pvacd`, `raw_cabq`), so one production bucket holds every agency's data.
@@ -251,3 +256,4 @@ so no transform code change is needed.
 | 2026-06-24 | Applied date-partitioned layout to `.dlt/config.toml` (dlt tokens `{YYYY}/{MM}/{DD}`). Updated transform globs to `**/*.parquet` for recursive subdirectory traversal. Corrected layout token format throughout (was `{year}/{month}/{day}`). |
 | 2026-07-20 | Added `hydrovu_backfill_readings` (Mode A backfill refetch, ST2DAT-202) — a separate table under `raw_pvacd`, not `hydrovu_readings`, so the normal scheduled transform never reads it. Added the `_backfill_checkpoints/{run_key}.json` control-file convention for per-chunk resume. |
 | 2026-07-27 | Isolated the backfill job's FROST watermark from production's — added `raw_pvacd_backfill/_frost_watermarks.json`, a distinct file from `raw_pvacd/_frost_watermarks.json`, so a backfill run can no longer race with or silently advance the daily scheduled pipeline's own watermark. |
+| 2026-08-11 | Adopted the `nmwdi-` bucket prefix: the pattern is now `nmwdi-aqueduct-<env>` and the production bucket is `gs://nmwdi-aqueduct-production`. The unprefixed `aqueduct-production` referenced in earlier entries was never created — the name is held by another organization, and GCS bucket names are globally unique. `bucket_url` in `.dlt/config.toml` still points at `gs://aqueduct-poc-bravo-pvacd`; moving it is a separate ticket. |
