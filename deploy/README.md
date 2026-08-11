@@ -1,19 +1,17 @@
 # deploy/ — private FROST/SensorThings + PostGIS provisioning
 
-Scripts to stand up a **private** FROST-Server v1.1 endpoint backed by PostGIS in
-GCP, not reachable from the public internet until V1.
+Scripts to stand up a FROST-Server v1.1 endpoint backed by PostGIS in GCP,
+reachable only by authenticated callers.
 
-- **FROST** → Cloud Run, `ingress=internal` (in-VPC only), image pinned to
-  `fraunhoferiosb/frost-server:2.6` (matches the repo's `docker-compose.yml`).
-  Reaches Cloud SQL over **Direct VPC egress** (no Serverless VPC connector).
+- **FROST** → Cloud Run, `ingress=all` + `--no-allow-unauthenticated` (IAM-gated),
+  image pinned to `fraunhoferiosb/frost-server:2.6` (matches the repo's
+  `docker-compose.yml`). Reaches Cloud SQL over **Direct VPC egress** (no
+  Serverless VPC connector).
 - **PostGIS** → a new dedicated **Cloud SQL for PostgreSQL** instance, private IP
   only, on the **`default`** VPC in **us-west3**
 - **Project:** `waterdatainitiative-271000` · **Region:** `us-west3` ·
   **VPC/subnet:** `default` / `default` (auto-mode).
 
-The Dagster+ loader is **not** wired to this endpoint here — Dagster+ Serverless
-runs outside the VPC and can't reach an internal-ingress service. Connecting it
-(LB + IP allowlist, or auth) is a separate, later story.
 
 ## Files
 
@@ -22,7 +20,7 @@ runs outside the VPC and can't reach an internal-ingress service. Connecting it
 | `00_config.sh` | Shared variables (no secrets). Sourced by the others. |
 | `10_sql.sh` | Create the dedicated Cloud SQL instance + DB + user; store the password in Secret Manager. |
 | `20_frost.sh` | Deploy FROST on Cloud Run, wired to that instance's private IP via Direct VPC egress. |
-| `30_dagster_gcp_auth.sh` | Bucket + service account + IAM so Dagster+ can authenticate to GCS and Secret Manager via ADC. |
+| `30_dagster_gcp_auth.sh` | Bucket + service account + IAM so Dagster+ can authenticate to GCS, Secret Manager, and FROST via ADC. |
 | `31_verify_dagster_auth.py` | Verify a minted key end to end, locally, before pasting it into Dagster+. |
 
 ## Prerequisites (admin-owned — "PM provisions")
@@ -58,12 +56,15 @@ needed (it already exists).
 # 3. FROST on Cloud Run
 ./deploy/20_frost.sh
 
-# 4. Dagster+ → GCP authentication (independent of 1-3; can run at any time)
+# 4. Dagster+ authentication. The bucket/SA/secret parts are independent of 1–3,
+#    but the run.invoker grant needs FROST to exist — so run this AFTER step 3
+#    (it warns and skips that one binding otherwise, and is safe to re-run).
 ./deploy/30_dagster_gcp_auth.sh              # bucket + SA + IAM, safe to re-run
 ./deploy/30_dagster_gcp_auth.sh --emit-key   # ...and mint a key to paste into Dagster+
 
 # 5. Verify the key before pasting it into Dagster+
 export GCP_SERVICE_ACCOUNT_KEY_B64=<blob from step 4>
+export FROST_SERVICE_ROOT_URL=https://<frost-run-url>/FROST-Server
 unset GOOGLE_APPLICATION_CREDENTIALS
 uv run python deploy/31_verify_dagster_auth.py
 ```
@@ -77,31 +78,38 @@ revision. To rotate the password deliberately: add a new secret version, run
 
 ## Verify (satisfies the acceptance criterion)
 
-`ingress=internal` means you **cannot** curl from a laptop — that's the point.
-Verify from **inside the `default` VPC** (us-west3 subnet):
+**Expect 403 for both of these.** Only `aqueduct-dlt-writer` holds `run.invoker`; the
+policy deliberately contains no human members, so your own token is refused exactly
+like an anonymous one. Two 403s here is the gate working, not a misconfiguration:
 
 ```bash
-# One-off e2-micro VM in the default subnet (Private Google Access on):
-gcloud compute instances create frost-verify \
-  --project=waterdatainitiative-271000 --zone=us-west3-a \
-  --machine-type=e2-micro --network=default --subnet=default \
-  --no-address
+FROST=https://<frost-run-url>/FROST-Server
 
-# From the VM — expect the SensorThings service document (Things, Locations,
-# Datastreams, Observations, ...):
-gcloud compute ssh frost-verify --project=waterdatainitiative-271000 --zone=us-west3-a \
---command='curl -sS -m 15 -w "\nHTTP %{http_code}\n" https://<frost-run-url>/FROST-Server/v1.1'
-
-gcloud compute ssh frost-verify --project=waterdatainitiative-271000 --zone=us-west3-a \
---command='curl -sS -m 15 -w "\nHTTP %{http_code}\n" https://<frost-run-url>/FROST-Server/v1.1/Things'
-
-# Tear down:
-gcloud compute instances delete frost-verify --zone=us-west3-a --quiet
+curl -si "$FROST/v1.1" | head -1                                                  # anonymous
+curl -si -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  "$FROST/v1.1" | head -1                                                         # you
 ```
 
-A 200 with the entity-set list confirms "a private SensorThings v1.1 endpoint
-responds to queries" — while proving it is not reachable from the public internet
-(a `curl` from a laptop to the run.app URL should be refused).
+**Expect 200 from the service account** — the identity that actually holds the role,
+and the one Dagster+ uses. Needs `roles/iam.serviceAccountTokenCreator` on the SA:
+
+```bash
+SA=aqueduct-dlt-writer@waterdatainitiative-271000.iam.gserviceaccount.com
+TOKEN="$(gcloud auth print-identity-token --impersonate-service-account="$SA" \
+  --audiences=https://<frost-run-url> --include-email)"
+
+curl -si -H "Authorization: Bearer $TOKEN" "$FROST/v1.1" | head -1
+curl -s  -H "Authorization: Bearer $TOKEN" "$FROST/v1.1"          # service document
+curl -s  -H "Authorization: Bearer $TOKEN" "$FROST/v1.1/Things"
+```
+
+Two things to get right here, both of which produce a 403 that looks like a missing
+IAM binding:
+
+- **`--include-email` is required.** Impersonated ID tokens omit the service account
+  email by default and Cloud Run rejects them without it.
+- **`--audiences` is the service origin**, not the `/FROST-Server/v1.1` path. The
+  loader derives this the same way (`_audience()` in `loader/frost_auth.py`).
 
 ## `30_dagster_gcp_auth.sh` — Dagster+ → GCP authentication
 
@@ -121,7 +129,10 @@ What the script does, all idempotent:
    not `objectCreator`: dlt creates objects, the transform assets list and read them,
    and the watermark JSON is overwritten in place.
 4. Grants `roles/secretmanager.secretAccessor` on `hydrovu_pvacd`.
-5. With `--emit-key` only: mints a key and prints it base64-encoded to stdout, never
+5. Grants `roles/run.invoker` on the `frost-sensorthings` Cloud Run service, so the
+   same identity can call the IAM-gated FROST endpoint. Warns and skips if FROST is
+   not deployed yet, so the script still runs before `20_frost.sh`.
+6. With `--emit-key` only: mints a key and prints it base64-encoded to stdout, never
    to a file. Gated behind the flag so routine IAM reconciliation re-runs cannot
    silently accumulate keys against GCP's 10-per-account cap.
 
@@ -149,7 +160,10 @@ for p in \
   iam.serviceAccounts.create \
   iam.serviceAccountKeys.create \
   secretmanager.secrets.getIamPolicy \
-  secretmanager.secrets.setIamPolicy
+  secretmanager.secrets.setIamPolicy \
+  run.services.update \
+  run.services.getIamPolicy \
+  run.services.setIamPolicy
 do
   resp="$(curl -s -X POST \
     -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
@@ -171,6 +185,7 @@ Only `MISSING` matters. Mapping gaps to roles:
 | `iam.serviceAccounts.create` | `roles/iam.serviceAccountAdmin` | first run only |
 | `iam.serviceAccountKeys.create` | `roles/iam.serviceAccountKeyAdmin` | `--emit-key` |
 | `secretmanager.secrets.*IamPolicy` | `roles/secretmanager.admin` | `secretAccessor` grant |
+| `run.services.*` | `roles/run.admin` | ingress change + `run.invoker` grant |
 
 Project-level `testIamPermissions` does not see grants made directly on a bucket, so
 a `MISSING` for `storage.buckets.*` may still be granted at bucket scope:
@@ -182,12 +197,16 @@ curl -s -H "Authorization: Bearer ${TOKEN}" \
 
 ### Then configure Dagster+
 
-Deployment → **Environment variables** → add, attached to code location
+Deployment → **Environment variables** → add both, each attached to code location
 `aqueduct_dagster_defs_definitions`:
 
 | Name | Value | Scope | Secret? |
 |---|---|---|---|
 | `GCP_SERVICE_ACCOUNT_KEY_B64` | the base64 blob from `--emit-key` | Full **and** Branch deployments | yes |
+| `FROST_SERVICE_ROOT_URL` | `https://<frost-run-url>/FROST-Server` | **Full deployment only** | no |
+
+`FROST_SERVICE_ROOT_URL` is deliberately withheld from branch deployments — see
+"How Dagster+ connects to FROST" above.
 
 A variable must be attached to at least one code location to take effect. Reload the
 code location afterwards.
@@ -199,6 +218,8 @@ code location afterwards.
 ```bash
 gcloud storage buckets get-iam-policy gs://aqueduct-production --format=json
 gcloud secrets get-iam-policy hydrovu_pvacd --project=waterdatainitiative-271000
+gcloud run services get-iam-policy frost-sensorthings \
+  --project=waterdatainitiative-271000 --region=us-west3
 ```
 
 **2. Does the identity work?** Impersonation, so no key is minted. Needs
@@ -220,22 +241,38 @@ gcloud secrets versions access latest --secret=hydrovu_pvacd \
 ```bash
 unset GOOGLE_APPLICATION_CREDENTIALS
 export GCP_SERVICE_ACCOUNT_KEY_B64=<blob from --emit-key>
+export FROST_SERVICE_ROOT_URL=https://<frost-run-url>/FROST-Server
 uv run python deploy/31_verify_dagster_auth.py
 ```
 
-This checks three layers independently: ADC bootstrap, GCS write/read/delete, and
-Secret Manager access. `VERBOSE=1` adds tracebacks. For a full end-to-end run instead,
-`uv run dagster dev` with the same variable set and materialize `raw_hydrovu_readings`.
+This checks four layers independently: ADC bootstrap, GCS write/read/delete, Secret
+Manager access, and an ID-token GET against FROST. `VERBOSE=1` adds
+tracebacks. For a full end-to-end run instead, `uv run dagster dev` with the same two
+variables set and materialize `hydrovu_pipeline`.
 
-## When Dagster+ connects (later story)
+## How Dagster+ connects to FROST
 
-- Move ingress to `internal-and-cloud-load-balancing` + Cloud Armor allowlisting
-  Dagster+ Serverless's static egress IPs, **or** add auth (Cloud Run IAM/OIDC or
-  FROST BasicAuth — the latter needs a loader change).
-- Make the FROST URL configurable per-deployment. Today
-  `src/aqueduct_dagster/defs/assets/load.py` reads `service_root_url` from the
-  committed `.dlt/config.toml` (hardcoded to localhost); add an env-var override
-  so the prod deployment can point at this endpoint.
+`loader/frost_auth.py` resolves the FROST URL and decides whether to authenticate:
+
+| Resolved host | Behaviour |
+|---|---|
+| `localhost` / `127.0.0.1` / `::1` | No auth — a developer's `docker compose` FROST |
+| anything else | Mint a Google ID token from ADC and send it as a Bearer header |
+
+Deriving the decision from the host rather than a separate flag means the URL and the
+auth mode cannot drift apart. `FROST_SERVICE_ROOT_URL` overrides the
+`.dlt/config.toml` default, which stays pointed at localhost so local development
+needs no configuration at all.
+
+Because the token comes from ADC, the service account key that already reaches GCS and
+Secret Manager reaches FROST too — the only extra provisioning is the `run.invoker`
+binding in `30_dagster_gcp_auth.sh`.
+
+**Branch deployments do not get `FROST_SERVICE_ROOT_URL`.** Development against FROST
+happens locally via `docker compose`, so a Dagster+ branch deployment falls back to the
+localhost default and its `frost_load_*` assets fail on connection — deliberately, so
+PR runs cannot write into the production SensorThings store. Verify branch deployments
+against the ingest and transform assets.
 
 ## Troubleshooting
 
@@ -243,5 +280,11 @@ Secret Manager access. `VERBOSE=1` adds tracebacks. For a full end-to-end run in
 |---|---|
 | `Reauthentication failed` on any `gcloud` call | Session expired — `gcloud auth login` |
 | 409 `bucket name is not available` on create | GCS bucket names are one global namespace — the name belongs to another project or organization. Pick a different name. |
+| 403 on FROST with **no** token | Correct — the gate is working. |
+| 403 on FROST with **your own** token | Also correct. The policy grants `run.invoker` only to the service account; no human is a member. Test by impersonating the SA. |
+| 403 on FROST with an **impersonated SA** token | Missing `run.invoker`, or `--include-email` omitted, or `--audiences` included a path. |
+| **200** on FROST with no token | Gate not live. Check for an `allUsers` binding on the service, or wait 30–60s for IAM propagation after a deploy. |
+| `FrostAuthError: Cannot mint an ID token` | Using user ADC. ID tokens require a service account key. |
 | `DefaultCredentialsError` in the verify script | Key is malformed or revoked — re-mint with `--emit-key`. |
 | Verify script layer 1 passes, 2 or 3 fails | Key is valid but an IAM binding is missing — re-run `30_dagster_gcp_auth.sh`. |
+| 404 from FROST on a path that should exist | Note a 404 means the request *authenticated* — Cloud Run accepted the token and routed it. Check `FROST_SERVICE_ROOT_URL` for typos. |

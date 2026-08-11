@@ -6,6 +6,7 @@ Verifies that a Dagster+ service account key actually works, by running the exac
 code path Dagster+ Serverless runs — locally, without deploying anything.
 
     export GCP_SERVICE_ACCOUNT_KEY_B64=<blob from ./deploy/30_dagster_gcp_auth.sh --emit-key>
+    export FROST_SERVICE_ROOT_URL=https://<frost-run-url>/FROST-Server
     unset GOOGLE_APPLICATION_CREDENTIALS
     uv run python deploy/31_verify_dagster_auth.py
 
@@ -30,6 +31,11 @@ import traceback
 import uuid
 
 # Import through the package so this tests the same modules the assets import.
+from aqueduct_dagster.loader.frost_auth import (
+    ENV_FROST_URL,
+    attach_id_token_auth,
+    service_root_url,
+)
 from aqueduct_dagster.shared.config import load_config
 from aqueduct_dagster.shared.gcp_auth import ENV_ADC_PATH, ENV_KEY_B64, ensure_adc
 from aqueduct_dagster.shared.gcs import _gcs_bucket_url, _gcs_filesystem
@@ -111,6 +117,34 @@ def check_secret_manager() -> str:
     return secret_id
 
 
+def check_frost() -> str:
+    """Mint an ID token and GET the service document."""
+    import frost_sta_client as fsc
+
+    url = service_root_url()
+    if not os.environ.get(ENV_FROST_URL):
+        print(f"   note: {ENV_FROST_URL} unset — using the .dlt/config.toml default")
+
+    service = fsc.SensorThingsService(url)
+    authenticated = attach_id_token_auth(service, url)
+    if not authenticated:
+        raise RuntimeError(
+            f"{url} is a local address, so no token was attached and this check "
+            f"proves nothing about production. Set {ENV_FROST_URL} to the deployed "
+            f"FROST URL to verify the Cloud Run path."
+        )
+
+    # execute() raises on a non-2xx itself, so a 403 from a missing run.invoker
+    # binding surfaces here as an HTTPError rather than a silent empty result.
+    response = service.execute("GET", url, timeout=30)
+    entities = [e.get("name") for e in response.json().get("value", [])]
+    if "Things" not in entities:
+        raise RuntimeError(f"unexpected service document at {url}: {entities}")
+
+    print(f"   {url} returned {response.status_code} with {len(entities)} entity sets")
+    return url
+
+
 def main() -> int:
     print("Verifying the Dagster+ service account key against real GCP.")
     print("This is the same path Dagster+ Serverless runs.")
@@ -125,6 +159,7 @@ def main() -> int:
 
     check.run("2. GCS  — write / read / delete a probe object", check_gcs)
     check.run("3. Secret Manager — access the HydroVu secret", check_secret_manager)
+    check.run("4. FROST — ID token against Cloud Run", check_frost)
 
     print()
     if check.failures:

@@ -32,7 +32,8 @@ for arg in "$@"; do
   esac
 done
 
-require_apis storage.googleapis.com iam.googleapis.com secretmanager.googleapis.com
+require_apis storage.googleapis.com iam.googleapis.com secretmanager.googleapis.com \
+  run.googleapis.com
 
 # Check if a service account approach is possible before doing any work
 if [[ "${EMIT_KEY}" == true ]]; then
@@ -122,6 +123,24 @@ gcloud secrets add-iam-policy-binding "${SECRET_HYDROVU}" \
   --role="roles/secretmanager.secretAccessor" >/dev/null
 echo "   bound."
 
+# --- FROST invoker ----------------------------------------------------------
+# FROST runs --no-allow-unauthenticated (see 20_frost.sh), so the loader reaches it
+# with a Google-signed ID token minted from this same service account. run.invoker is
+# what makes Cloud Run accept that token. Skipped with a WARN rather than failing, so
+# this script stays runnable before 20_frost.sh has ever been applied.
+echo "== Grant run.invoker on ${FROST_SERVICE} =="
+if gcloud run services describe "${FROST_SERVICE}" --project="${PROJECT_ID}" \
+    --region="${REGION}" --format='value(status.url)' >/dev/null 2>&1; then
+  gcloud run services add-iam-policy-binding "${FROST_SERVICE}" \
+    --project="${PROJECT_ID}" --region="${REGION}" \
+    --member="serviceAccount:${DAGSTER_SA}" \
+    --role="roles/run.invoker" >/dev/null
+  echo "   bound."
+else
+  echo "   WARN: Cloud Run service ${FROST_SERVICE} not found in ${REGION} —" >&2
+  echo "         skipping. Run ./deploy/20_frost.sh, then re-run this script." >&2
+fi
+
 # --- Key --------------------------------------------------------------------
 if [[ "${EMIT_KEY}" == true ]]; then
   echo
@@ -158,14 +177,19 @@ delete the stale key:
 EOF
 fi
 
+FROST_URL="$(gcloud run services describe "${FROST_SERVICE}" --project="${PROJECT_ID}" \
+  --region="${REGION}" --format='value(status.url)' 2>/dev/null || true)"
+
 cat <<EOF
 
 Done. Service account : ${DAGSTER_SA}
       Buckets         : gs://${BUCKET_PROD} (prod), gs://${BUCKET_POC} (poc/verify)
       Secret          : ${SECRET_HYDROVU}
+      FROST           : ${FROST_URL:-<not deployed>}
 
 Dagster+ → Deployment → Environment variables (code location aqueduct_dagster_defs_definitions):
   GCP_SERVICE_ACCOUNT_KEY_B64  = <the blob from --emit-key>   scope: Full + Branch deployments
+  FROST_SERVICE_ROOT_URL       = ${FROST_URL:-<run 20_frost.sh first>}/FROST-Server   scope: Full deployment only
 
 Verify without minting a key (needs roles/iam.serviceAccountTokenCreator on the SA):
   gcloud storage ls gs://${BUCKET_POC} --impersonate-service-account=${DAGSTER_SA}
@@ -174,7 +198,14 @@ Verify without minting a key (needs roles/iam.serviceAccountTokenCreator on the 
   gcloud storage rm gs://${BUCKET_POC}/_adc_probe.txt \\
     --impersonate-service-account=${DAGSTER_SA}
 
+  # --include-email is REQUIRED: without it the impersonated token omits the SA
+  # identity and Cloud Run rejects it with a 403 that looks like a missing binding.
+  TOKEN="\$(gcloud auth print-identity-token --impersonate-service-account=${DAGSTER_SA} \\
+    --audiences=${FROST_URL:-<frost-url>} --include-email)"
+  curl -si -H "Authorization: Bearer \${TOKEN}" ${FROST_URL:-<frost-url>}/FROST-Server/v1.1 | head -1
+
 Confirm the bindings landed:
   gcloud storage buckets get-iam-policy gs://${BUCKET_PROD} --format=json
   gcloud secrets get-iam-policy ${SECRET_HYDROVU} --project=${PROJECT_ID}
+  gcloud run services get-iam-policy ${FROST_SERVICE} --project=${PROJECT_ID} --region=${REGION}
 EOF

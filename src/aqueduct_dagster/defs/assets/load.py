@@ -15,13 +15,12 @@ No source-specific logic here — the canonical model is the contract.
 """
 
 import logging
-import os
 from typing import Any
 
-import toml
 from dagster import AssetExecutionContext, AssetIn, MetadataValue, asset
 
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle, CanonicalObservation
+from aqueduct_dagster.loader.frost_auth import attach_id_token_auth, service_root_url
 from aqueduct_dagster.loader.frost_loader import FrostStaClientLoader, ObservationRecord
 from aqueduct_dagster.loader.watermark_store import FrostWatermarkStore
 from aqueduct_dagster.shared.gcs import (
@@ -62,13 +61,10 @@ def _frost_load(
     """
     import frost_sta_client as fsc
 
-    config_path = os.path.join(os.getcwd(), ".dlt", "config.toml")
-    frost_url = toml.load(config_path)["destination"]["frost"]["service_root_url"]
-    # frost_sta_client constructs entity URLs by appending directly to this base,
-    # so it must include /v1.1 — append it if not already present.
-    if not frost_url.rstrip("/").endswith("/v1.1"):
-        frost_url = frost_url.rstrip("/") + "/v1.1"
+    frost_url = service_root_url()
     service = fsc.SensorThingsService(frost_url)
+    # No-op against a local docker FROST; attaches a Cloud Run ID token otherwise.
+    attach_id_token_auth(service, frost_url)
     _apply_frost_timeout(service)
     bucket = _gcs_bucket_url().replace("gs://", "")
     watermarks = FrostWatermarkStore(context, _gcs_filesystem(), bucket, dataset=dataset)

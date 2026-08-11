@@ -7,8 +7,10 @@
 # Contains NO secrets. The Cloud SQL password lives in Secret Manager
 # (${SECRET_FROST_DB_PW}); nothing in this file is sensitive.
 #
-# Security model: FROST runs on Cloud Run with ingress=internal, so it is
-# reachable only from inside the VPC — private until V1. See deploy/README.md.
+# Security model: FROST runs on Cloud Run with ingress=all but
+# --no-allow-unauthenticated, so it is reachable only by callers holding
+# roles/run.invoker — currently just ${DAGSTER_SA}. Its database stays private-IP
+# only. See deploy/README.md for why isolation is IAM-layer and not network-layer.
 
 # --- Project / region -------------------------------------------------------
 export PROJECT_ID="waterdatainitiative-271000"
