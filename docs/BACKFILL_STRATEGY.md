@@ -94,6 +94,13 @@ calls:**
 11. FROST data itself is lost or corrupted, but the raw GCS parquet remains
     intact — no API calls are required; the existing archive is simply
     replayed back into FROST.
+12. An individual record fails to adapt during transform (see
+    canonical/base_adapter.py's per-record failure handling) — its raw data
+    was ingested successfully and is safe in GCS, but never made it into
+    FROST. Recovery today: fix the underlying adapter bug, then launch a
+    targeted Mode A backfill for just that record's location + date window
+    (safe to re-run, no duplicates). A future Mode B could do this without
+    any API call at all.
 
 
 ## 4. Backfill mechanism
@@ -283,11 +290,22 @@ can ever be temporarily missing if a crash occurs mid-chunk.
 
 Every backfill job's run configuration defaults to `dry_run: true` —
 launching it logs what *would* happen (entities, date range, resolved chunk
-plan, expected row and observation counts) without writing anything.
-Executing the job for real requires explicitly setting `dry_run: false`,
-which is itself part of the Dagster run's logged configuration — consistent
-with this repository's existing rule that a production backfill is a
-reviewed, deliberate action, never a default.
+plan, expected row and observation counts) without writing anything to GCS
+or FROST. Executing the job for real requires explicitly setting
+`dry_run: false`, which is itself part of the Dagster run's logged
+configuration — consistent with this repository's existing rule that a
+production backfill is a reviewed, deliberate action, never a default.
+
+Resolving that plan still requires reading the source's live location/entity
+list — to expand an empty `location_ids` into "every location the source
+has" (see below) and to reject a typo'd or nonexistent id before it silently
+backfills nothing for that id — so `dry_run: true` is a zero-*write* run, not
+a zero-*call* one: it does perform one live, read-only API call against the
+source (e.g. HydroVu's `/locations/list`) before logging the plan.
+
+The entity/location list itself defaults to empty, which means "every
+location the source's API returns" — leave it empty to backfill everything,
+or list specific ids to scope the run to just those.
 
 ---
 
@@ -317,8 +335,12 @@ launched manually, on demand:
 3. Open the **Launchpad** and provide the run configuration — entity list,
    start and end dates, and (for Mode A) an isolated pipeline name — as YAML
    or JSON directly in the browser. No command-line access is required.
+   Leave the entity list empty to target every location the source's API
+   returns, or list specific ids to scope the run.
 4. Launch with the default `dry_run: true` and review the logged summary of
-   what the run would do.
+   what the run would do. This makes one live, read-only call against the
+   source's API to resolve the entity list and validate any ids you listed —
+   it does not write to GCS or FROST.
 5. Re-launch the same configuration with `dry_run: false` to execute.
 6. Monitor the run in the **Runs** tab. If it fails partway through a
    multi-chunk backfill, re-launching the same job with the same

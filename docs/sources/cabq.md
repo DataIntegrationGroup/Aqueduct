@@ -3,7 +3,7 @@
 **Source key:** `cabq`
 **Agency code:** `CABQ`
 **Response format:** `json` / `geojson`
-**Source timezone:** `UTC` (Field `measurement_date` is UNIX epoch seconds - no timezone conversion needed)
+**Source timezone:** `UTC` (Field `measurement_date` is UNIX epoch milliseconds - no timezone conversion needed)
 **Update frequency:** `irregular`
 
 ---

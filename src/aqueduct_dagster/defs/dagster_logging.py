@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
-from dagster import AssetExecutionContext
+from dagster import AssetExecutionContext, OpExecutionContext
 
 if TYPE_CHECKING:
     from dagster import DagsterLogManager
@@ -35,7 +35,7 @@ class _DagsterLogHandler(logging.Handler):
 
 @contextmanager
 def forward_python_logs_to_dagster(
-    context: AssetExecutionContext,
+    context: AssetExecutionContext | OpExecutionContext,
     *logger_prefixes: str,
     level: int = logging.INFO,
 ) -> Iterator[None]:

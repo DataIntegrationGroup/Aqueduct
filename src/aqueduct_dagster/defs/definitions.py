@@ -12,6 +12,8 @@ Jobs and schedules are generated automatically — no other changes needed in
 this file. defs/assets/load.py reads from the same registry.
 """
 
+from typing import Any
+
 from dagster import (
     Definitions,
     ScheduleDefinition,
@@ -21,6 +23,7 @@ from dagster import (
 
 from aqueduct_dagster import sources as sources_pkg
 from aqueduct_dagster.defs import assets as shared_assets_pkg
+from aqueduct_dagster.defs.jobs.backfill import hydrovu_backfill_refetch
 from aqueduct_dagster.shared.source_registry import SOURCE_REGISTRY
 
 # ── Load all assets ───────────────────────────────────────────────────────────
@@ -34,7 +37,7 @@ all_assets = [
 
 # ── Jobs and schedules — generated from config ────────────────────────────────
 
-_jobs = []
+_jobs: list[Any] = []
 _schedules = []
 
 for _cfg in SOURCE_REGISTRY:
@@ -52,6 +55,13 @@ for _cfg in SOURCE_REGISTRY:
             cron_schedule=_cfg["cron"],
         )
     )
+
+# ── Backfill jobs (Mode A refetch) ─────────────────────────────────────────────
+# Launched manually via run configuration — no schedule attached, see
+# docs/BACKFILL_STRATEGY.md §5.2. Only HydroVu is wired so far
+# (defs/jobs/backfill.py); a future source adds one more factory call there.
+
+_jobs.append(hydrovu_backfill_refetch)
 
 # ── Definitions ───────────────────────────────────────────────────────────────
 

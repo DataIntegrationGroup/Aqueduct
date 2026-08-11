@@ -19,11 +19,14 @@ Two resources returned from hydrovu_source():
     embedded; join to hydrovu_locations on location_id at transform time.
     Written to: gs://<bucket>/raw_pvacd/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/
 
-A TokenManager is created once in hydrovu_source() and wrapped in an
-authenticated httpx.Client (base_url + BearerAuth) shared by both resources,
-so a single token and a single client cover the full run.
+A TokenManager is created (via build_hydrovu_client(), below) once per run and
+wrapped in an authenticated httpx.Client (base_url + BearerAuth) shared by both
+resources, so a single token and a single client cover the full run.
 
 This module is NOT a Dagster asset — it is called by sources/hydrovu/ingest.py
+(normal daily pipeline) and sources/hydrovu/backfill.py (Mode A refetch), which
+both reuse build_hydrovu_client()/_fetch_locations()/_fetch_location_data() from
+here rather than duplicating the OAuth/pagination logic.
 
 dlt destination = filesystem (GCS)
   → GCS is the final destination for the raw data ingested by this pipeline.
@@ -119,10 +122,19 @@ _MAX_RATE_LIMIT_RETRIES = 3
 
 
 def _fetch_location_data(
-    client: httpx.Client, location_id: int, start_time: int
+    client: httpx.Client, location_id: int, start_time: int, end_time: int | None = None
 ) -> tuple[dict | None, str | None]:
     """
     Fetches all readings for one location, walking cursor-based pages.
+
+    end_time: if given, readings with timestamp >= end_time are dropped from
+      the result, and pagination stops as soon as a page contains one — pages
+      are chronological, so a later page would only contain data further
+      beyond the window. The real API has no server-side end-time parameter
+      (only startTime); this is a client-side cutoff. Used by backfill's
+      windowed chunk fetch (sources/hydrovu/backfill.py). Production's normal
+      ingest (hydrovu_readings, below) always calls with end_time=None —
+      unbounded, fetch-to-present, unchanged from before this parameter existed.
 
     Returns:
       (data, None)   — success
@@ -208,6 +220,15 @@ def _fetch_location_data(
 
         page_data = resp.json()
 
+        reached_end = False
+        if end_time is not None:
+            for param in page_data.get("parameters", []):
+                readings = param.get("readings", [])
+                kept = [r for r in readings if r["timestamp"] < end_time]
+                if len(kept) < len(readings):
+                    reached_end = True
+                param["readings"] = kept
+
         if all_data is None:
             all_data = page_data
         else:
@@ -219,6 +240,12 @@ def _fetch_location_data(
                 else:
                     all_data.setdefault("parameters", []).append(param)
 
+        if reached_end:
+            logger.info(
+                "Location %s: reached end_time=%s — stopping pagination", location_id, end_time
+            )
+            break
+
         next_cursor = resp.headers.get("X-ISI-Next-Page", "")
         if not next_cursor:
             break
@@ -227,6 +254,47 @@ def _fetch_location_data(
     total = sum(len(p.get("readings", [])) for p in (all_data or {}).get("parameters", []))
     logger.info("Location %s: fetched %d readings across %d pages", location_id, total, page_num)
     return all_data, None
+
+
+def _resolve_hydrovu_credentials(
+    client_id: str, client_secret: str, gcp_secret: str
+) -> tuple[str, str]:
+    """
+    Returns (client_id, client_secret), fetching from GCP Secret Manager when
+    client_id is not already supplied (the normal case in production — tests
+    and local overrides can pass both explicitly instead).
+    """
+    if client_id:
+        return client_id, client_secret
+
+    project_number = load_config()["destination"]["filesystem"]["gcp_project_number"]
+
+    # Secret Manager authenticates via ADC just like GCS does, so the same
+    # bootstrap has to run before the client is constructed. Idempotent.
+    ensure_adc()
+    sm_client = secretmanager.SecretManagerServiceClient()
+    name = sm_client.secret_version_path(project_number, gcp_secret, "latest")
+    response = sm_client.access_secret_version(name=name)
+    payload = json.loads(response.payload.data.decode("UTF-8"))
+    return payload["id"], payload["secret"]
+
+
+def build_hydrovu_client(
+    client_id: str,
+    client_secret: str,
+    gcp_secret: str,
+    api_base_url: str,
+    token_url: str,
+) -> httpx.Client:
+    """
+    Resolves credentials (Secret Manager if client_id is empty) and returns an
+    authenticated httpx.Client for the HydroVu API. Shared by hydrovu_source()
+    (normal ingest) and hydrovu_backfill_source() (backfill.py) so the
+    OAuth/Secret-Manager logic is written once.
+    """
+    client_id, client_secret = _resolve_hydrovu_credentials(client_id, client_secret, gcp_secret)
+    tm = TokenManager(token_url, client_id, client_secret)
+    return build_authenticated_client(api_base_url, tm, timeout=_LOCATION_TIMEOUT)
 
 
 @dlt.source(name="hydrovu")
@@ -242,9 +310,9 @@ def hydrovu_source(
 ) -> Any:
     """
     Reads config from dlt.config under [hydrovu].
-    Creates a single TokenManager and authenticated httpx.Client shared by both
-    resources, so the token is fetched once and both requests and auth-retries
-    go through one client for the full run.
+    Creates a single authenticated httpx.Client shared by both resources, so
+    the token is fetched once and both requests and auth-retries go through
+    one client for the full run.
     Fetches the location list once and passes it to both resources to avoid
     a redundant second API call.
 
@@ -256,25 +324,12 @@ def hydrovu_source(
       keys: rows_yielded, locations_fetched, locations_skipped, locations_no_data,
             locations_errored, failed_location_ids
     """
-    if not client_id:
-        project_number = load_config()["destination"]["filesystem"]["gcp_project_number"]
-
-        # Secret Manager authenticates via ADC just like GCS does, so the same
-        # bootstrap has to run before the client is constructed. Idempotent.
-        ensure_adc()
-        sm_client = secretmanager.SecretManagerServiceClient()
-        name = sm_client.secret_version_path(project_number, gcp_secret, "latest")
-        response = sm_client.access_secret_version(name=name)
-        payload = json.loads(response.payload.data.decode("UTF-8"))
-
-        client_id = payload["id"]
-        client_secret = payload["secret"]
-
+    # Credentials are resolved inside build_hydrovu_client() → _resolve_hydrovu_credentials(),
+    # so this source does not fetch them itself.
     start_ts = int(
         datetime.strptime(initial_start_date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
     )
-    tm = TokenManager(token_url, client_id, client_secret)
-    client = build_authenticated_client(api_base_url, tm, timeout=_LOCATION_TIMEOUT)
+    client = build_hydrovu_client(client_id, client_secret, gcp_secret, api_base_url, token_url)
     try:
         locations = _fetch_locations(client)
     except Exception:

@@ -8,7 +8,7 @@ grows. When you add a source, a zone, or a partitioning scheme, update the
 [Changelog](#changelog) at the bottom.
 
 - **Status:** raw zone only, date-partitioned, 2 agencies (PVACD via HydroVu live; CABQ scaffolded)
-- **Last updated:** 2026-06-24
+- **Last updated:** 2026-07-20
 
 ---
 
@@ -46,11 +46,19 @@ gs://aqueduct-production/                # the raw-zone bucket (one per environm
 │   ├── hydrovu_readings/                # HydroVu source: fact table (append, incremental)
 │   │   └── year=2024/month=06/day=18/
 │   │       └── <load_id>.<file_id>.parquet   # e.g. 1781192390.555875.0.parquet
+│   ├── hydrovu_backfill_readings/       # HydroVu Mode A backfill: separate table, own dlt
+│   │   └── year=2024/month=06/day=18/   #   pipeline_name — never read by the normal scheduled
+│   │       └── <load_id>.<file_id>.parquet   #   transform, so it can't interfere with production
 │   ├── metermanager_readings/           # ← example: a 2nd PVACD source (not built yet)
 │   │   └── year=2024/month=06/day=18/
 │   │       └── <load_id>.<file_id>.parquet
 │   ├── _hydrovu_transform_watermark.json    # app sidecar: highest load_id transformed
+│   ├── _backfill_checkpoints/           # one file per backfill run_key — completed chunks
+│   │   └── hydrovu-jan2026-repair.json  #   e.g. {"completed_chunks": ["<start>_<end>", ...]}
 │   └── _dlt_*                           # dlt control tables (state, loads, version)
+├── raw_pvacd_backfill/                  # NOT a real dlt dataset — just the isolated FROST
+│   └── _frost_watermarks.json           #   watermark file backfill jobs read/write, kept
+│                                         #   fully separate from raw_pvacd/_frost_watermarks.json
 └── raw_cabq/                            # agency CABQ (scaffolded)
     └── cabq_readings/
         └── year=2024/month=06/day=18/
@@ -241,3 +249,5 @@ so no transform code change is needed.
 |---|---|
 | 2026-06-22 | Initial version. Covers the `aqueduct-production` raw-zone bucket, agency datasets (`raw_pvacd`, `raw_cabq`), `<source>_<entity>` tables, date-partitioned (`year=/month=/day=`) dlt layout, and the sidecar-file convention. |
 | 2026-06-24 | Applied date-partitioned layout to `.dlt/config.toml` (dlt tokens `{YYYY}/{MM}/{DD}`). Updated transform globs to `**/*.parquet` for recursive subdirectory traversal. Corrected layout token format throughout (was `{year}/{month}/{day}`). |
+| 2026-07-20 | Added `hydrovu_backfill_readings` (Mode A backfill refetch, ST2DAT-202) — a separate table under `raw_pvacd`, not `hydrovu_readings`, so the normal scheduled transform never reads it. Added the `_backfill_checkpoints/{run_key}.json` control-file convention for per-chunk resume. |
+| 2026-07-27 | Isolated the backfill job's FROST watermark from production's — added `raw_pvacd_backfill/_frost_watermarks.json`, a distinct file from `raw_pvacd/_frost_watermarks.json`, so a backfill run can no longer race with or silently advance the daily scheduled pipeline's own watermark. |

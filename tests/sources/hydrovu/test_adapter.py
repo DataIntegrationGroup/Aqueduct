@@ -232,3 +232,40 @@ class TestRun:
 
     def test_empty_records_yields_no_bundles(self):
         assert list(HydroVuAdapter([]).run()) == []
+
+    def test_fully_successful_batch_has_no_failures(self):
+        """Regression check: existing all-good behavior is unchanged."""
+        records = [
+            _record(location_id=1, location_description="111"),
+            _record(location_id=2, location_description="222"),
+        ]
+        adapter = HydroVuAdapter(records)
+        list(adapter.run())
+        assert adapter.failure_count == 0
+
+    def test_bad_record_is_skipped_and_counted_as_failure(self):
+        """Missing location_id raises KeyError inside to_thing() — caught by
+        BaseAdapter.run(), which must count it rather than only log it."""
+        bad_record = _record()
+        del bad_record["location_id"]
+
+        adapter = HydroVuAdapter([bad_record])
+        bundles = list(adapter.run())
+
+        assert bundles == []
+        assert adapter.failure_count == 1
+
+    def test_mixed_batch_good_records_still_produce_bundles(self):
+        bad_record = _record()
+        del bad_record["location_id"]
+        records = [
+            _record(location_id=1, location_description="111"),
+            bad_record,
+            _record(location_id=2, location_description="222"),
+        ]
+
+        adapter = HydroVuAdapter(records)
+        bundles = list(adapter.run())
+
+        assert len(bundles) == 2
+        assert adapter.failure_count == 1
