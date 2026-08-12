@@ -141,6 +141,7 @@ def _fetch_readings_for_location(
     """
     rate_limit_retries = 0
     result: dict[Any, Any] = {}
+    print(loc_start)
     while True:
 
         def _fetch_readings() -> httpx.Response:
@@ -149,7 +150,7 @@ def _fetch_readings_for_location(
                 "/query?where=sys_loc_code%3D'"
                 + loc_id
                 + "'+AND+measurement_date%3E%3D'"
-                + datetime.fromtimestamp(loc_start, tz=UTC).strftime("%Y-%m-%d")
+                + datetime.fromtimestamp(loc_start / 1000).strftime("%Y-%m-%d")
                 + "'&outfields=measurement_date,water_depth&f=pjson"
             )
 
