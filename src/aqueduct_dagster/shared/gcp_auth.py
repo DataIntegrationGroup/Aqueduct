@@ -112,9 +112,10 @@ def _write_key_file(decoded: bytes) -> str:
     """
     Writes the key to a private temp file and returns its path.
 
-    Created 0600 via mkstemp (which opens with O_CREAT|O_EXCL and mode 0600) so the
-    key is never briefly world-readable. Lives in the system temp dir, outside the
-    repo, so it cannot be picked up by a stray `git add`.
+    The file is exactly 0600, always. mkstemp opens with O_CREAT|O_EXCL and mode
+    0600, so the key is never briefly world-readable; the explicit chmod below pins
+    the mode rather than leaving it to the ambient umask. Lives in the system temp
+    dir, outside the repo, so it cannot be picked up by a stray `git add`.
     """
     fd, path = tempfile.mkstemp(prefix="aqueduct-adc-", suffix=".json")
     try:
@@ -123,6 +124,8 @@ def _write_key_file(decoded: bytes) -> str:
     except BaseException:
         os.unlink(path)
         raise
+
+    os.chmod(path, 0o600)
 
     # Best-effort cleanup. Dagster+ tears the container down after a run anyway,
     # but a long-lived `dagster dev` process should not leave keys behind on exit.

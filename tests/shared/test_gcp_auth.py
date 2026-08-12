@@ -109,6 +109,27 @@ class TestSuccessfulBootstrap:
         mode = stat.S_IMODE(os.stat(os.environ[ENV_ADC_PATH]).st_mode)
         assert mode == 0o600, f"expected 0600, got {oct(mode)}"
 
+    def test_key_file_is_0600_under_restrictive_umask(self, monkeypatch):
+        """
+        The mode must not depend on the developer's umask. mkstemp asks for 0600, but
+        umask clears bits from that — under 0o277 it yields 0400, which would break
+        test_key_file_is_private above for anyone running with an unusual umask.
+        Guards the explicit chmod in _write_key_file.
+
+        os.umask is process-global and monkeypatch cannot restore it, so the reset has
+        to be in a finally — leaking it would corrupt every later test in the session.
+        """
+        previous_umask = os.umask(0o277)
+        try:
+            monkeypatch.setenv(ENV_KEY_B64, _b64(_key()))
+
+            ensure_adc()
+
+            mode = stat.S_IMODE(os.stat(os.environ[ENV_ADC_PATH]).st_mode)
+            assert mode == 0o600, f"expected 0600, got {oct(mode)}"
+        finally:
+            os.umask(previous_umask)
+
     def test_tolerates_wrapped_base64(self, monkeypatch):
         """`base64` without -w0 wraps at 76 columns; copy-paste adds newlines too."""
         blob = _b64(_key())
