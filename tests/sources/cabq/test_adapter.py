@@ -14,7 +14,7 @@ _record = {
     "location_name": "LALF GROUNDWATER INJECTION WELL 4",
     "latitude": -106.599332407,
     "longitude": 35.170730266,
-    "readings": [{"timestamp": 1391079600, "value": 4927.15}],
+    "readings": [{"timestamp": 1391079600, "value": 162.396}],
 }
 
 
@@ -29,7 +29,7 @@ def test_to_observations_returns_canonical_obs():
     assert observations[0].datastream_external_key == "cabq-IW4-dtw"
     assert observations[0].phenomenon_time.timestamp() == 1391079600
     assert observations[0].phenomenon_time.tzinfo == UTC
-    assert observations[0].result == 4927.15
+    assert observations[0].result == 162.396
 
 
 def test_build_datastreams_returns_one_stream():

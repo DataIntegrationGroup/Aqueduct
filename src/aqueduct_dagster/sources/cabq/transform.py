@@ -70,7 +70,7 @@ def _group_rows_by_location(rows: list[dict]) -> list[dict]:
                 "readings": [],
             }
         groups[loc_id]["readings"].append(
-            {"timestamp": row["timestamp"] / 1000, "value": float(row["value"])}
+            {"timestamp": row["timestamp"] / 1000, "value": row["value"]}
         )
     return list(groups.values())
 
