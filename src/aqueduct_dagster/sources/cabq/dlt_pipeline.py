@@ -135,7 +135,7 @@ def _fetch_readings_for_location(
     get reading information for location from CABQ
     format of location:
     {
-        measurement_date: num, *timestamp of when measurement was taken in unix epoch seconds
+        measurement_date: num, *timestamp of when measurement was taken in unix epoch milliseconds
         water_depth: num, *water level in ft msl
     }
     """
@@ -149,7 +149,7 @@ def _fetch_readings_for_location(
                 "/query?where=sys_loc_code%3D'"
                 + loc_id
                 + "'+AND+measurement_date%3E%3D'"
-                + datetime.fromtimestamp(loc_start).strftime("%Y-%m-%d")
+                + datetime.fromtimestamp(loc_start, tz=UTC).strftime("%Y-%m-%d")
                 + "'&outfields=measurement_date,water_depth&f=pjson"
             )
 
