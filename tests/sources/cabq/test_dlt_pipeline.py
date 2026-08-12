@@ -72,41 +72,41 @@ READINGS_RESPONSE = {"features": [{"attributes": READINGS_PROCESSED[0]}]}
 class TestFetchReadings:
     def test_returns_list_on_success(self):
         client, _ = _client_with_responses([httpx.Response(200, json=READINGS_RESPONSE)])
-        result, err = _fetch_readings_for_location(client, loc_id="IW4", loc_start=1391079600000)
+        result, err = _fetch_readings_for_location(client, loc_id="IW4", loc_start=1391079600)
         assert result == READINGS_PROCESSED
 
     def test_returns_none_on_404(self):
         client, _ = _client_with_responses([httpx.Response(404)])
-        data, err = _fetch_readings_for_location(client, loc_id="IW4", loc_start=1391079600000)
+        data, err = _fetch_readings_for_location(client, loc_id="IW4", loc_start=1391079600)
         assert data is None
         assert err is None
 
     def test_returns_error_reason_on_500(self):
         client, _ = _client_with_responses([httpx.Response(500)])
-        data, err = _fetch_readings_for_location(client, loc_id="IW4", loc_start=1391079600000)
+        data, err = _fetch_readings_for_location(client, loc_id="IW4", loc_start=1391079600)
         assert data is None
         assert err is not None
         assert "500" in err
 
     def test_returns_error_reason_on_503(self):
         client, _ = _client_with_responses([httpx.Response(503)])
-        data, err = _fetch_readings_for_location(client, loc_id="IW4", loc_start=1391079600000)
+        data, err = _fetch_readings_for_location(client, loc_id="IW4", loc_start=1391079600)
         assert data is None
         assert err is not None
         assert "503" in err
 
     def test_hits_correct_endpoint(self):
         client, calls = _client_with_responses([httpx.Response(200, json=READINGS_RESPONSE)])
-        _fetch_readings_for_location(client, loc_id="IW4", loc_start=1391079600000)
+        _fetch_readings_for_location(client, loc_id="IW4", loc_start=1391079600)
         assert (
             calls[0].url
-            == "https://api/query?where=sys_loc_code%3D'IW4'&outfields=measurement_date,water_depth&f=pjson"
+            == "https://api/query?where=sys_loc_code%3D'IW4'+AND+measurement_date%3E%3D'2014-01-30'&outfields=measurement_date,water_depth&f=pjson"
         )
 
     def test_raises_on_unexpected_4xx(self):
         client, _ = _client_with_responses([httpx.Response(403)])
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            _fetch_readings_for_location(client, loc_id="IW4", loc_start=1391079600000)
+            _fetch_readings_for_location(client, loc_id="IW4", loc_start=1391079600)
         assert exc_info.value.response.status_code == 403
 
 

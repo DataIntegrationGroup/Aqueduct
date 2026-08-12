@@ -148,6 +148,8 @@ def _fetch_readings_for_location(
             return client.get(
                 "/query?where=sys_loc_code%3D'"
                 + loc_id
+                + "'+AND+measurement_date%3E%3D'"
+                + datetime.fromtimestamp(loc_start).strftime("%Y-%m-%d")
                 + "'&outfields=measurement_date,water_depth&f=pjson"
             )
 
