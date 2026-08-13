@@ -135,8 +135,8 @@ def _fetch_readings_for_location(
     get reading information for location from CABQ
     format of location:
     {
-        measurement_date: num, *timestamp of when measurement was taken in unix epoch seconds
-        water_level: num, *water level in ft msl
+        measurement_date: num, *timestamp of when measurement was taken in unix epoch milliseconds
+        water_depth: num, *water level in ft msl
     }
     """
     rate_limit_retries = 0
@@ -148,7 +148,9 @@ def _fetch_readings_for_location(
             return client.get(
                 "/query?where=sys_loc_code%3D'"
                 + loc_id
-                + "'&outfields=measurement_date,water_level&f=pjson"
+                + "'+AND+measurement_date%3E%3D'"
+                + datetime.fromtimestamp(loc_start / 1000).strftime("%Y-%m-%d")
+                + "'&outfields=measurement_date,water_depth&f=pjson"
             )
 
         try:
@@ -209,7 +211,9 @@ def cabq_source(
     start_ts = int(
         datetime.strptime(initial_start_date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
     )
-    client = build_unauthenticated_client(api_base_url, timeout=httpx.Timeout())
+    client = build_unauthenticated_client(
+        api_base_url, timeout=httpx.Timeout(connect=30.0, read=60.0, write=30.0, pool=30.0)
+    )
     return cabq_readings(client=client, start_ts=start_ts, _stats=_stats)
 
 
@@ -243,7 +247,7 @@ def cabq_readings(
       location_name — human-readable name of the location
       latitude     — latitude in decimal degrees
       longitude    — longitude in decimal degrees
-      timestamp    — Unix epoch seconds
+      timestamp    — Unix epoch milliseconds
       value        — float measurement
       # add other fields as needed
     """
@@ -301,7 +305,7 @@ def cabq_readings(
                     "latitude": location["latitude"],
                     "longitude": location["longitude"],
                     "timestamp": timestamp,
-                    "value": measurement["water_level"],
+                    "value": measurement["water_depth"],
                 }
             cursors[str(loc_id)] = max_timestamp
         logger.info(

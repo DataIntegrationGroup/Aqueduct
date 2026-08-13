@@ -130,7 +130,7 @@ One per (Thing, ObservedProperty, Sensor) combination.
 | Canonical Field  | Type        | Status   | Source Field       | Notes                                                                     |
 |------------------|-------------|----------|--------------------|---------------------------------------------------------------------------|
 | `phenomenonTime` | datetime    | Required | `measurement_date` | Unix epoch seconds                                                        |
-| `result`         | float       | Required | `water_level`      | Raw value, units provided in `depth_unit` field, may be constant `ft msl` |
+| `result`         | float       | Required | `water_depth`      | Raw value, units provided in `depth_unit` field, may be constant `ft msl` |
 | `resultTime`     | datetime    | Optional | (not in API)       | Not applicable                                                            |
 | `resultQuality`  | str \| None | Optional | (not in API)       | Not applicable                                                            |
 | `validTime`      | period      | Optional | (not in API)       | Not applicable                                                            |

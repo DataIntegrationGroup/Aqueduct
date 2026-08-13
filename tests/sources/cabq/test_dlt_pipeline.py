@@ -64,7 +64,7 @@ class TestFetchLocations:
 
 # -- _fetch_readings_for_location --
 
-READINGS_PROCESSED = [{"measurement_date": 1391079600000, "water_level": "4927.15"}]
+READINGS_PROCESSED = [{"measurement_date": 1391079600000, "water_depth": 162.396}]
 
 READINGS_RESPONSE = {"features": [{"attributes": READINGS_PROCESSED[0]}]}
 
@@ -100,7 +100,7 @@ class TestFetchReadings:
         _fetch_readings_for_location(client, loc_id="IW4", loc_start=1391079600000)
         assert (
             calls[0].url
-            == "https://api/query?where=sys_loc_code%3D'IW4'&outfields=measurement_date,water_level&f=pjson"
+            == "https://api/query?where=sys_loc_code%3D'IW4'+AND+measurement_date%3E%3D'2014-01-30'&outfields=measurement_date,water_depth&f=pjson"
         )
 
     def test_raises_on_unexpected_4xx(self):
@@ -119,7 +119,7 @@ CABQ_RESULTS = {
     "latitude": -106.599332407,
     "longitude": 35.170730266,
     "timestamp": 1391079600000,
-    "value": "4927.15",
+    "value": 162.396,
 }
 
 DUMMY_CLIENT = MagicMock(spec=httpx.Client)
