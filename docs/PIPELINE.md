@@ -182,6 +182,13 @@ explicit `location_ids` allowlist. FROST's target URL is under
 — see [STORAGE_CONVENTIONS.md](STORAGE_CONVENTIONS.md) for the layout
 convention itself.
 
+Two destinations can be redirected per-run by environment variable, which takes
+precedence over the committed file: `GCS_BUCKET_URL` and `FROST_SERVICE_ROOT_URL`.
+That is how the Dagster+ production deployment points at the deployed FROST while the
+committed default stays on the local `docker compose` server — see `.env.example` and
+[deploy/README.md](../deploy/README.md). A non-localhost FROST URL is called with a
+Google ID token; localhost is called unauthenticated.
+
 ## Tests
 
 Mirrors `src/` layout, unit-only (no live GCS/FROST/API calls — see

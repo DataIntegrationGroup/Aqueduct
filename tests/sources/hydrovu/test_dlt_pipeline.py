@@ -314,9 +314,12 @@ class TestResolveHydroVuCredentials:
         assert result == ("cid", "csecret")
 
     @patch("aqueduct_dagster.sources.hydrovu.dlt_pipeline.secretmanager.SecretManagerServiceClient")
-    @patch("aqueduct_dagster.sources.hydrovu.dlt_pipeline.toml.load")
-    def test_fetches_from_secret_manager_when_client_id_empty(self, mock_toml_load, mock_sm_cls):
-        mock_toml_load.return_value = {
+    @patch("aqueduct_dagster.sources.hydrovu.dlt_pipeline.ensure_adc")
+    @patch("aqueduct_dagster.sources.hydrovu.dlt_pipeline.load_config")
+    def test_fetches_from_secret_manager_when_client_id_empty(
+        self, mock_load_config, mock_ensure_adc, mock_sm_cls
+    ):
+        mock_load_config.return_value = {
             "destination": {"filesystem": {"gcp_project_number": "12345"}}
         }
         mock_sm = mock_sm_cls.return_value
@@ -333,6 +336,9 @@ class TestResolveHydroVuCredentials:
 
         assert result == ("sm-id", "sm-secret")
         mock_sm.secret_version_path.assert_called_once_with("12345", "hydrovu_pvacd", "latest")
+        # Secret Manager resolves credentials through ADC, so the bootstrap has to
+        # run before the client is constructed — not after, and not never.
+        mock_ensure_adc.assert_called_once()
 
 
 class TestBuildHydroVuClient:

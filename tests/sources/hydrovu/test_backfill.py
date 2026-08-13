@@ -183,9 +183,9 @@ def test_locations_by_id_shape():
 # ── _load_hydrovu_config / prepare_backfill ─────────────────────────────────────
 
 
-@patch("aqueduct_dagster.sources.hydrovu.backfill.toml.load")
-def test_load_hydrovu_config_reads_sources_hydrovu_section(mock_toml_load):
-    mock_toml_load.return_value = {
+@patch("aqueduct_dagster.sources.hydrovu.backfill.load_config")
+def test_load_hydrovu_config_reads_sources_hydrovu_section(mock_load_config):
+    mock_load_config.return_value = {
         "sources": {
             "hydrovu": {
                 "gcp_secret": "hydrovu_pvacd",

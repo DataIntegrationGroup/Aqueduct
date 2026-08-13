@@ -10,6 +10,8 @@ silently leave a wrong dataset_name buried inside a function body.
 import dlt
 from dlt.destinations import filesystem
 
+from aqueduct_dagster.shared.config import settings_dir
+from aqueduct_dagster.shared.gcp_auth import ensure_adc
 from aqueduct_dagster.shared.gcs import _gcs_bucket_url
 
 
@@ -22,7 +24,14 @@ def build_source_pipeline(pipeline_name: str, dataset_name: str) -> dlt.Pipeline
 
     Both args are required so a new source module can't omit either by accident.
     Always call pipeline.run(..., loader_file_format="parquet") at the call site.
+
+    The two setup calls have to happen before dlt resolves anything: settings_dir()
+    exports DLT_PROJECT_DIR so dlt finds config.toml when the cwd isn't the repo
+    root, and ensure_adc() supplies the credentials its GCS destination will need.
+    Both are idempotent.
     """
+    settings_dir()
+    ensure_adc()
     return dlt.pipeline(
         pipeline_name=pipeline_name,
         destination=filesystem(bucket_url=_gcs_bucket_url()),

@@ -15,13 +15,12 @@ No source-specific logic here — the canonical model is the contract.
 """
 
 import logging
-import os
 from typing import Any
 
-import toml
 from dagster import AssetExecutionContext, AssetIn, MetadataValue, OpExecutionContext, asset
 
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle, CanonicalObservation
+from aqueduct_dagster.loader.frost_auth import attach_id_token_auth, service_root_url
 from aqueduct_dagster.loader.frost_loader import FrostStaClientLoader, ObservationRecord
 from aqueduct_dagster.loader.watermark_store import FrostWatermarkStore
 from aqueduct_dagster.shared.gcs import (
@@ -52,22 +51,24 @@ def build_frost_loader(
     context: AssetExecutionContext | OpExecutionContext, dataset: str
 ) -> FrostStaClientLoader:
     """
-    Builds a FrostStaClientLoader wired to the local FROST server and a
+    Builds a FrostStaClientLoader wired to the configured FROST server and a
     dataset-scoped FrostWatermarkStore.
 
     Shared by every source's frost_load_* asset (via _frost_load, below) and
     by the backfill job (defs/jobs/backfill.py) — both need the exact same
     FROST connection + watermark store construction, so this is written once.
+
+    Which server that is comes from service_root_url(): the local docker FROST by
+    default, or a deployed one when FROST_SERVICE_ROOT_URL is set. Because the
+    connection is built here, the backfill job authenticates exactly as the assets
+    do — there is no second code path to keep in sync.
     """
     import frost_sta_client as fsc
 
-    config_path = os.path.join(os.getcwd(), ".dlt", "config.toml")
-    frost_url = toml.load(config_path)["destination"]["frost"]["service_root_url"]
-    # frost_sta_client constructs entity URLs by appending directly to this base,
-    # so it must include /v1.1 — append it if not already present.
-    if not frost_url.rstrip("/").endswith("/v1.1"):
-        frost_url = frost_url.rstrip("/") + "/v1.1"
+    frost_url = service_root_url()
     service = fsc.SensorThingsService(frost_url)
+    # No-op against a local docker FROST; attaches a Cloud Run ID token otherwise.
+    attach_id_token_auth(service, frost_url)
     _apply_frost_timeout(service)
     bucket = _gcs_bucket_url().replace("gs://", "")
     watermarks = FrostWatermarkStore(context, _gcs_filesystem(), bucket, dataset=dataset)
@@ -149,7 +150,7 @@ def _make_frost_load_asset(name: str, dataset: str) -> Any:
     @asset(
         name=f"frost_load_{name}",
         group_name=name,
-        description=f"Loads {name.upper()} CanonicalBundles into the local FROST server.",
+        description=f"Loads {name.upper()} CanonicalBundles into the configured FROST server.",
         compute_kind="frost",
         ins={"transform_result": AssetIn(f"canonical_bundles_{name}")},
     )

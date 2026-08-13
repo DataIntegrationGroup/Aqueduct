@@ -27,7 +27,6 @@ made fully generic."
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
@@ -35,12 +34,12 @@ from typing import Any
 import dlt
 import gcsfs
 import httpx
-import toml
 
 from aqueduct_dagster.canonical.base_adapter import log_if_adapter_failed
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
 from aqueduct_dagster.loader.frost_loader import FrostLoader, ObservationRecord
 from aqueduct_dagster.shared.backfill import ChunkResult, sanitize_run_key
+from aqueduct_dagster.shared.config import load_config
 from aqueduct_dagster.shared.gcs import read_parquet_rows_for_load_id
 from aqueduct_dagster.shared.pipeline import build_source_pipeline
 from aqueduct_dagster.sources.hydrovu.adapter import HydroVuAdapter
@@ -157,9 +156,13 @@ def _load_hydrovu_config() -> dict[str, Any]:
     Reads [sources.hydrovu] from .dlt/config.toml directly. This module isn't
     invoked via @dlt.source, so it doesn't get dlt.config.value injection like
     hydrovu_source() does — this reads the same section by hand.
+
+    Goes through shared/config.py rather than joining onto os.getcwd(): this runs at
+    import time (see default_backfill_location_ids below), and under Dagster+
+    Serverless the working directory is not the repo root, so a cwd-relative read
+    would fail the whole code location before Dagster could load it.
     """
-    config_path = os.path.join(os.getcwd(), ".dlt", "config.toml")
-    return toml.load(config_path)["sources"]["hydrovu"]
+    return load_config()["sources"]["hydrovu"]
 
 
 def default_backfill_location_ids() -> list[int]:

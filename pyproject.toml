@@ -11,6 +11,7 @@ dependencies = [
     "dlt[filesystem,gs]>=1.4.0",
     "frost-sta-client>=1.1.0",
     "gcsfs>=2024.6.0",
+    "google-auth>=2.30.0",
     "google-cloud-secret-manager>=2.29.0",
     "google-cloud-storage>=2.17.0",
     "httpx>=0.27.0",
@@ -38,6 +39,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/aqueduct_dagster"]
+
+# Ship .dlt/config.toml inside the package.
+# The `.dlt` directory name is preserved so dlt's own config resolution
+# finds it via DLT_PROJECT_DIR; see src/aqueduct_dagster/shared/config.py.
+[tool.hatch.build.targets.wheel.force-include]
+".dlt/config.toml" = "aqueduct_dagster/.dlt/config.toml"
 
 [tool.dagster]
 module_name = "aqueduct_dagster.defs.definitions"
