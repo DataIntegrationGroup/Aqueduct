@@ -141,7 +141,6 @@ def _fetch_readings_for_location(
     """
     rate_limit_retries = 0
     result: dict[Any, Any] = {}
-    print(loc_start)
     while True:
 
         def _fetch_readings() -> httpx.Response:
