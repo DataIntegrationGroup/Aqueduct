@@ -8,7 +8,7 @@ grows. When you add a source, a zone, or a partitioning scheme, update the
 [Changelog](#changelog) at the bottom.
 
 - **Status:** raw zone only, date-partitioned, 2 agencies (PVACD via HydroVu live; CABQ scaffolded)
-- **Last updated:** 2026-08-11
+- **Last updated:** 2026-08-13
 
 ---
 
@@ -67,8 +67,9 @@ gs://nmwdi-aqueduct-production/          # the raw-zone bucket (one per environm
 
 dlt builds these paths from two settings:
 
-- `bucket_url = "gs://nmwdi-aqueduct-production"` and the date-partitioned
-  `layout` (see [Date partitioning](#date-partitioning)) in `.dlt/config.toml`
+- `bucket_url` and the date-partitioned `layout` (see
+  [Date partitioning](#date-partitioning)) in `.dlt/config.toml`. 
+  `bucket_url` can be overridden by setting a `GCS_BUCKET_URL` env var
 - `dataset_name=` in each `build_pipeline()` (`raw_pvacd`, `raw_cabq`), which dlt
   prepends as the top-level folder.
 
@@ -257,3 +258,4 @@ so no transform code change is needed.
 | 2026-07-20 | Added `hydrovu_backfill_readings` (Mode A backfill refetch, ST2DAT-202) — a separate table under `raw_pvacd`, not `hydrovu_readings`, so the normal scheduled transform never reads it. Added the `_backfill_checkpoints/{run_key}.json` control-file convention for per-chunk resume. |
 | 2026-07-27 | Isolated the backfill job's FROST watermark from production's — added `raw_pvacd_backfill/_frost_watermarks.json`, a distinct file from `raw_pvacd/_frost_watermarks.json`, so a backfill run can no longer race with or silently advance the daily scheduled pipeline's own watermark. |
 | 2026-08-11 | Adopted the `nmwdi-` bucket prefix: the pattern is now `nmwdi-aqueduct-<env>` and the production bucket is `gs://nmwdi-aqueduct-production`. The unprefixed `aqueduct-production` referenced in earlier entries was never created — the name is held by another organization, and GCS bucket names are globally unique. `bucket_url` in `.dlt/config.toml` still points at `gs://aqueduct-poc-bravo-pvacd`; moving it is a separate ticket. |
+| 2026-08-13 | Production moved onto `gs://nmwdi-aqueduct-production` via `GCS_BUCKET_URL` on the Dagster+ full deployment; the committed `bucket_url` stays on `gs://aqueduct-poc-bravo-pvacd` so local runs cannot default to production. Production started **empty** — no data was copied — so dlt cursors restarted from `initial_start_date` and raw parquet from before this date exists only in the POC bucket. |

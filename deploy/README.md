@@ -197,16 +197,18 @@ curl -s -H "Authorization: Bearer ${TOKEN}" \
 
 ### Then configure Dagster+
 
-Deployment → **Environment variables** → add both, each attached to code location
+Deployment → **Environment variables** → add these, each attached to code location
 `aqueduct_dagster_defs_definitions`:
 
 | Name | Value | Scope | Secret? |
 |---|---|---|---|
 | `GCP_SERVICE_ACCOUNT_KEY_B64` | the base64 blob from `--emit-key` | Full **and** Branch deployments | yes |
 | `FROST_SERVICE_ROOT_URL` | `https://<frost-run-url>/FROST-Server` | **Full deployment only** | no |
+| `GCS_BUCKET_URL` | `gs://nmwdi-aqueduct-production` | **Full deployment only** | no |
 
-`FROST_SERVICE_ROOT_URL` is deliberately withheld from branch deployments — see
-"How Dagster+ connects to FROST" above.
+`FROST_SERVICE_ROOT_URL` and `GCS_BUCKET_URL` are deliberately withheld from branch
+deployments: PR runs fall back to the committed `.dlt/config.toml`, so they cannot write
+into production storage or the production SensorThings store.
 
 A variable must be attached to at least one code location to take effect. Reload the
 code location afterwards.
