@@ -69,6 +69,8 @@ def _group_rows_by_location(rows: list[dict]) -> list[dict]:
                 "longitude": row["longitude"],
                 "readings": [],
             }
+            if groups[loc_id]["location_name"] is None:
+                groups[loc_id]["location_name"] = loc_id
         groups[loc_id]["readings"].append(
             {"timestamp": row["timestamp"] / 1000, "value": row["value"]}
         )
