@@ -28,6 +28,11 @@ Three responsibilities, all with no knowledge of any one source's API or adapter
                            backfill job (dates, run_key, entity list) — kept
                            Dagster- and source-free so Mode B (replay) can
                            reuse it too.
+
+  load_source_config/build_backfill_pipeline/run_backfill_ingest/
+  load_bundles_windowed
+                           the per-chunk ingest/load mechanics every source's
+                           run_backfill_chunk() otherwise duplicated.
 """
 
 from __future__ import annotations
@@ -37,10 +42,16 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from typing import Any
 
+import dlt
 import gcsfs
 
+from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
+from aqueduct_dagster.loader.frost_loader import FrostLoader, observation_records_for
+from aqueduct_dagster.shared.config import load_config
 from aqueduct_dagster.shared.gcs import atomic_write_json_with_retry
+from aqueduct_dagster.shared.pipeline import build_source_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +158,86 @@ def sanitize_run_key(run_key: str) -> str:
     return _UNSAFE_PIPELINE_NAME_CHARS.sub("_", run_key)
 
 
+def load_source_config(source_name: str) -> dict[str, Any]:
+    """Reads [sources.<source_name>] from .dlt/config.toml."""
+    return load_config()["sources"][source_name]
+
+
+def build_backfill_pipeline(
+    *, pipeline_name_prefix: str, dataset: str, run_key: str
+) -> dlt.Pipeline:
+    """
+    Isolated dlt pipeline: one pipeline_name per run_key, so two backfill runs
+    can never share dlt's local pending-load state.
+    """
+    return build_source_pipeline(f"{pipeline_name_prefix}_{sanitize_run_key(run_key)}", dataset)
+
+
+def run_backfill_ingest(
+    *,
+    pipeline_name_prefix: str,
+    dataset: str,
+    run_key: str,
+    resource: Any,
+    chunk_start: datetime,
+    chunk_end: datetime,
+) -> float | None:
+    """
+    Builds the isolated pipeline, drops any pending package (so a package
+    left by an earlier crashed attempt is never silently resumed instead of
+    this chunk's real data), runs `resource`, and returns the load_id — or
+    None if nothing new was ingested (caller should return a zero ChunkResult
+    rather than index an empty list).
+
+    Assumes `resource` has no persisted incremental state of its own (see
+    hydrovu_backfill_readings, which deliberately never touches
+    dlt.current.resource_state()) — drop_pending_packages() runs
+    unconditionally, so a resource relying on a real cursor would have that
+    state silently discarded on every chunk. Write a dedicated cursor-free
+    resource for backfill rather than reusing a production one.
+    """
+    pipeline = build_backfill_pipeline(
+        pipeline_name_prefix=pipeline_name_prefix, dataset=dataset, run_key=run_key
+    )
+    logger.info(
+        "Backfill chunk [%s, %s): using dlt pipeline_name=%s",
+        chunk_start,
+        chunk_end,
+        pipeline.pipeline_name,
+    )
+    pipeline.drop_pending_packages()
+    load_info = pipeline.run(resource, loader_file_format="parquet")
+    if not load_info.loads_ids:
+        logger.info("Backfill chunk [%s, %s): ingest yielded no new data", chunk_start, chunk_end)
+        return None
+    load_id = float(load_info.loads_ids[0])
+    logger.info(
+        "Backfill chunk [%s, %s): ingest complete, load_id=%s", chunk_start, chunk_end, load_id
+    )
+    return load_id
+
+
+def load_bundles_windowed(
+    loader: FrostLoader,
+    bundles: list[CanonicalBundle],
+    window_start: datetime,
+    window_end: datetime,
+) -> tuple[int, int]:
+    """Runs load_window() for every datastream across all bundles. Returns (posted, deleted)."""
+    posted = 0
+    deleted = 0
+    for bundle in bundles:
+        for datastream in bundle.datastreams:
+            ds_id = loader.ensure_datastream(datastream)
+            obs_records = observation_records_for(bundle, datastream)
+            result = loader.load_window(
+                datastream.external_key, ds_id, obs_records, window_start, window_end
+            )
+            posted += result.posted
+            deleted += result.deleted
+    return posted, deleted
+
+
 def resolve_location_ids(location_ids: list[int], locations_by_id: dict[int, dict]) -> list[int]:
     """
     Empty location_ids means "every location the API returns" (locations_by_id);
@@ -202,7 +293,10 @@ class BackfillCheckpointStore:
         run_key: str,
     ) -> None:
         self._fs = fs
-        self._path = f"{bucket}/{dataset}/_backfill_checkpoints/{run_key}.json"
+        # Sanitized the same way as build_backfill_pipeline's pipeline_name, so a
+        # run_key with e.g. a slash or space can't split the checkpoint file and
+        # the dlt pipeline name onto two different identifiers for the same run.
+        self._path = f"{bucket}/{dataset}/_backfill_checkpoints/{sanitize_run_key(run_key)}.json"
         self._completed: set[str] | None = None
 
     def _load(self) -> set[str]:

@@ -18,9 +18,7 @@ from aqueduct_dagster.sources.hydrovu.backfill import (
     BACKFILL_PIPELINE_NAME,
     BACKFILL_TABLE_NAME,
     GCS_DATASET,
-    _load_hydrovu_config,
     _locations_by_id,
-    build_backfill_pipeline,
     default_backfill_location_ids,
     hydrovu_backfill_readings,
     prepare_backfill,
@@ -180,31 +178,16 @@ def test_locations_by_id_shape():
     assert result[222]["name"] == "Well B"
 
 
-# ── _load_hydrovu_config / prepare_backfill ─────────────────────────────────────
+# ── prepare_backfill ─────────────────────────────────────────────────────────
 
 
-@patch("aqueduct_dagster.sources.hydrovu.backfill.load_config")
-def test_load_hydrovu_config_reads_sources_hydrovu_section(mock_load_config):
-    mock_load_config.return_value = {
-        "sources": {
-            "hydrovu": {
-                "gcp_secret": "hydrovu_pvacd",
-                "api_base_url": "https://api",
-                "token_url": "https://token",
-            }
-        }
-    }
-    cfg = _load_hydrovu_config()
-    assert cfg["gcp_secret"] == "hydrovu_pvacd"
-
-
-@patch("aqueduct_dagster.sources.hydrovu.backfill._load_hydrovu_config")
+@patch("aqueduct_dagster.sources.hydrovu.backfill.load_source_config")
 def test_default_backfill_location_ids_reads_the_configured_allowlist(mock_cfg):
     mock_cfg.return_value = {"location_ids": [111, 222]}
     assert default_backfill_location_ids() == [111, 222]
 
 
-@patch("aqueduct_dagster.sources.hydrovu.backfill._load_hydrovu_config")
+@patch("aqueduct_dagster.sources.hydrovu.backfill.load_source_config")
 def test_default_backfill_location_ids_is_empty_when_key_not_configured(mock_cfg):
     """
     A [sources.hydrovu] section with no location_ids key at all is not an
@@ -216,7 +199,7 @@ def test_default_backfill_location_ids_is_empty_when_key_not_configured(mock_cfg
     assert default_backfill_location_ids() == []
 
 
-@patch("aqueduct_dagster.sources.hydrovu.backfill._load_hydrovu_config")
+@patch("aqueduct_dagster.sources.hydrovu.backfill.load_source_config")
 def test_default_backfill_location_ids_raises_on_missing_config(mock_cfg):
     """
     Raises when .dlt/config.toml itself can't be read at all — a broken
@@ -232,7 +215,7 @@ def test_default_backfill_location_ids_raises_on_missing_config(mock_cfg):
 
 @patch("aqueduct_dagster.sources.hydrovu.backfill._fetch_locations")
 @patch("aqueduct_dagster.sources.hydrovu.backfill.build_hydrovu_client")
-@patch("aqueduct_dagster.sources.hydrovu.backfill._load_hydrovu_config")
+@patch("aqueduct_dagster.sources.hydrovu.backfill.load_source_config")
 def test_prepare_backfill_fetches_locations_once(mock_cfg, mock_build_client, mock_fetch_locations):
     mock_cfg.return_value = {
         "gcp_secret": "hydrovu_pvacd",
@@ -252,7 +235,7 @@ def test_prepare_backfill_fetches_locations_once(mock_cfg, mock_build_client, mo
 
 @patch("aqueduct_dagster.sources.hydrovu.backfill._fetch_locations")
 @patch("aqueduct_dagster.sources.hydrovu.backfill.build_hydrovu_client")
-@patch("aqueduct_dagster.sources.hydrovu.backfill._load_hydrovu_config")
+@patch("aqueduct_dagster.sources.hydrovu.backfill.load_source_config")
 def test_prepare_backfill_closes_client_if_fetch_locations_fails(
     mock_cfg, mock_build_client, mock_fetch_locations
 ):
@@ -271,32 +254,8 @@ def test_prepare_backfill_closes_client_if_fetch_locations_fails(
     client.close.assert_called_once()
 
 
-# ── build_backfill_pipeline ──────────────────────────────────────────────────────
-# sanitize_run_key() itself is tested in tests/shared/test_backfill.py — it moved
-# there since it's generic, source-agnostic logic (see shared/backfill.py).
-
-
-@patch("aqueduct_dagster.sources.hydrovu.backfill.build_source_pipeline")
-def test_build_backfill_pipeline_includes_run_key_in_pipeline_name(mock_build_source_pipeline):
-    build_backfill_pipeline("jan-repair")
-
-    args, _kwargs = mock_build_source_pipeline.call_args
-    assert args[0] == f"{BACKFILL_PIPELINE_NAME}_jan-repair"
-    assert args[1] == GCS_DATASET
-
-
-@patch("aqueduct_dagster.sources.hydrovu.backfill.build_source_pipeline")
-def test_build_backfill_pipeline_sanitizes_run_key(mock_build_source_pipeline):
-    """
-    Two different run_keys must never produce the same pipeline_name (that
-    would defeat the whole point of per-run_key isolation), and an
-    operator-typed run_key shouldn't be able to break the local path dlt
-    builds from it.
-    """
-    build_backfill_pipeline("jan repair/v2")
-
-    args, _kwargs = mock_build_source_pipeline.call_args
-    assert args[0] == f"{BACKFILL_PIPELINE_NAME}_jan_repair_v2"
+# build_backfill_pipeline/run_backfill_ingest are now shared, source-agnostic
+# logic — tested directly in tests/shared/test_backfill.py.
 
 
 # ── run_backfill_chunk ──────────────────────────────────────────────────────────
@@ -328,13 +287,11 @@ CHUNK_END = datetime(2026, 2, 1, tzinfo=UTC)
 
 
 @patch("aqueduct_dagster.sources.hydrovu.backfill.read_parquet_rows_for_load_id")
-@patch("aqueduct_dagster.sources.hydrovu.backfill.build_backfill_pipeline")
+@patch("aqueduct_dagster.sources.hydrovu.backfill.run_backfill_ingest")
 def test_run_backfill_chunk_reads_by_exact_load_id_and_loads_bundles(
-    mock_build_pipeline, mock_read_rows
+    mock_run_ingest, mock_read_rows
 ):
-    mock_pipeline = MagicMock()
-    mock_pipeline.run.return_value = MagicMock(loads_ids=["1781192390.555875"])
-    mock_build_pipeline.return_value = mock_pipeline
+    mock_run_ingest.return_value = 1781192390.555875
     mock_read_rows.return_value = [
         {
             "location_id": 111,
@@ -359,13 +316,17 @@ def test_run_backfill_chunk_reads_by_exact_load_id_and_loads_bundles(
         run_key="test-run",
     )
 
-    # read_parquet_rows_for_load_id called with the exact load_id from LoadInfo
+    # run_backfill_ingest called with this source's pipeline prefix/dataset/run_key
+    ingest_kwargs = mock_run_ingest.call_args.kwargs
+    assert ingest_kwargs["pipeline_name_prefix"] == BACKFILL_PIPELINE_NAME
+    assert ingest_kwargs["dataset"] == GCS_DATASET
+    assert ingest_kwargs["run_key"] == "test-run"
+
+    # read_parquet_rows_for_load_id called with the exact load_id run_backfill_ingest returned
     args, kwargs = mock_read_rows.call_args
     assert args[0] == "my-bucket"
     assert args[1] == f"{GCS_DATASET}/{BACKFILL_TABLE_NAME}/**/*.parquet"
     assert args[2] == 1781192390.555875
-
-    mock_pipeline.drop_pending_packages.assert_called_once()
 
     assert result.rows_ingested == 1
     assert result.bundles_loaded == 1
@@ -379,45 +340,9 @@ def test_run_backfill_chunk_reads_by_exact_load_id_and_loads_bundles(
 
 
 @patch("aqueduct_dagster.sources.hydrovu.backfill.read_parquet_rows_for_load_id")
-@patch("aqueduct_dagster.sources.hydrovu.backfill.build_backfill_pipeline")
-def test_run_backfill_chunk_drops_pending_packages_before_run(mock_build_pipeline, mock_read_rows):
-    """
-    Regression test: every chunk shares BACKFILL_PIPELINE_NAME, so a package
-    left pending by an earlier, uncleanly-terminated run must be dropped
-    BEFORE pipeline.run() is called — otherwise dlt would silently finish
-    loading that stale package instead of this chunk's real data (dlt's
-    run() exits early once it detects pending data, without ever calling
-    hydrovu_backfill_readings() at all).
-    """
-    call_order: list[str] = []
-    mock_pipeline = MagicMock()
-    mock_pipeline.drop_pending_packages.side_effect = lambda: call_order.append("drop")
-    mock_pipeline.run.side_effect = lambda *a, **k: (
-        call_order.append("run") or MagicMock(loads_ids=["100.0"])
-    )
-    mock_build_pipeline.return_value = mock_pipeline
-    mock_read_rows.return_value = []
-
-    run_backfill_chunk(
-        client=_DUMMY_CLIENT,
-        locations=_LOCATIONS,
-        locations_by_id=_locations_by_id(_LOCATIONS),
-        location_ids=[111],
-        chunk_start=CHUNK_START,
-        chunk_end=CHUNK_END,
-        loader=_StubFrostLoader(),  # type: ignore[arg-type]
-        bucket="my-bucket",
-        fs=MagicMock(),
-        run_key="test-run",
-    )
-
-    assert call_order == ["drop", "run"]
-
-
-@patch("aqueduct_dagster.sources.hydrovu.backfill.read_parquet_rows_for_load_id")
-@patch("aqueduct_dagster.sources.hydrovu.backfill.build_backfill_pipeline")
+@patch("aqueduct_dagster.sources.hydrovu.backfill.run_backfill_ingest")
 def test_run_backfill_chunk_reports_adapter_failures_without_dropping_good_locations(
-    mock_build_pipeline, mock_read_rows
+    mock_run_ingest, mock_read_rows
 ):
     """
     One location's reading has a malformed timestamp (None) — HydroVuAdapter
@@ -425,9 +350,7 @@ def test_run_backfill_chunk_reports_adapter_failures_without_dropping_good_locat
     healthy location must still produce a bundle and get loaded; ChunkResult
     must report the failure count rather than silently swallowing it.
     """
-    mock_pipeline = MagicMock()
-    mock_pipeline.run.return_value = MagicMock(loads_ids=["100.0"])
-    mock_build_pipeline.return_value = mock_pipeline
+    mock_run_ingest.return_value = 100.0
     mock_read_rows.return_value = [
         {
             "location_id": 111,
@@ -465,42 +388,9 @@ def test_run_backfill_chunk_reports_adapter_failures_without_dropping_good_locat
 
 
 @patch("aqueduct_dagster.sources.hydrovu.backfill.read_parquet_rows_for_load_id")
-@patch("aqueduct_dagster.sources.hydrovu.backfill.build_backfill_pipeline")
-def test_run_backfill_chunk_logs_the_dlt_pipeline_name(mock_build_pipeline, mock_read_rows, caplog):
-    """
-    The dlt pipeline_name isn't shown anywhere in the Dagster Runs UI (that
-    table only shows Dagster-level info), so it must be logged explicitly for
-    an operator to confirm which pipeline a chunk actually used.
-    """
-    mock_pipeline = MagicMock()
-    mock_pipeline.pipeline_name = "pvacd_hydrovu_backfill_refetch_test-run"
-    mock_pipeline.run.return_value = MagicMock(loads_ids=["100.0"])
-    mock_build_pipeline.return_value = mock_pipeline
-    mock_read_rows.return_value = []
-
-    with caplog.at_level("INFO", logger="aqueduct_dagster.sources.hydrovu.backfill"):
-        run_backfill_chunk(
-            client=_DUMMY_CLIENT,
-            locations=_LOCATIONS,
-            locations_by_id=_locations_by_id(_LOCATIONS),
-            location_ids=[111],
-            chunk_start=CHUNK_START,
-            chunk_end=CHUNK_END,
-            loader=_StubFrostLoader(),  # type: ignore[arg-type]
-            bucket="my-bucket",
-            fs=MagicMock(),
-            run_key="test-run",
-        )
-
-    assert "pvacd_hydrovu_backfill_refetch_test-run" in caplog.text
-
-
-@patch("aqueduct_dagster.sources.hydrovu.backfill.read_parquet_rows_for_load_id")
-@patch("aqueduct_dagster.sources.hydrovu.backfill.build_backfill_pipeline")
-def test_run_backfill_chunk_with_no_rows_loads_nothing(mock_build_pipeline, mock_read_rows):
-    mock_pipeline = MagicMock()
-    mock_pipeline.run.return_value = MagicMock(loads_ids=["100.0"])
-    mock_build_pipeline.return_value = mock_pipeline
+@patch("aqueduct_dagster.sources.hydrovu.backfill.run_backfill_ingest")
+def test_run_backfill_chunk_with_no_rows_loads_nothing(mock_run_ingest, mock_read_rows):
+    mock_run_ingest.return_value = 100.0
     mock_read_rows.return_value = []
 
     loader = _StubFrostLoader()
@@ -525,22 +415,16 @@ def test_run_backfill_chunk_with_no_rows_loads_nothing(mock_build_pipeline, mock
 
 
 @patch("aqueduct_dagster.sources.hydrovu.backfill.read_parquet_rows_for_load_id")
-@patch("aqueduct_dagster.sources.hydrovu.backfill.build_backfill_pipeline")
+@patch("aqueduct_dagster.sources.hydrovu.backfill.run_backfill_ingest")
 def test_run_backfill_chunk_handles_empty_loads_ids_without_crashing(
-    mock_build_pipeline, mock_read_rows
+    mock_run_ingest, mock_read_rows
 ):
     """
-    Regression test: dlt only creates a load package when there's new data or
-    schema/state to persist. On a reused pipeline (every chunk in a backfill
-    run shares the same pipeline_name), a chunk whose requested location(s)
-    yield zero rows — e.g. a wrong/nonexistent location_id, confirmed via a
-    real report — gets back an EMPTY loads_ids list, not a list with one
-    entry. Indexing into it unconditionally used to raise IndexError and kill
-    the whole chunk.
+    Regression test: run_backfill_ingest returns None when the chunk's
+    requested location(s) yield zero rows — e.g. a wrong/nonexistent
+    location_id — this must return a zero ChunkResult, not crash.
     """
-    mock_pipeline = MagicMock()
-    mock_pipeline.run.return_value = MagicMock(loads_ids=[])
-    mock_build_pipeline.return_value = mock_pipeline
+    mock_run_ingest.return_value = None
 
     loader = _StubFrostLoader()
     result = run_backfill_chunk(

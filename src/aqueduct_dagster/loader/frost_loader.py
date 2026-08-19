@@ -42,6 +42,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from aqueduct_dagster.canonical.canonical_model import (
+    CanonicalBundle,
     CanonicalDatastream,
     CanonicalLocation,
     CanonicalObservedProperty,
@@ -78,6 +79,19 @@ class LoadResult:
         self.skipped = 0
         self.deleted = 0  # only ever set by load_window() — load_observations() never deletes
         self.new_watermark: datetime | None = None
+
+
+def observation_records_for(
+    bundle: CanonicalBundle, datastream: CanonicalDatastream
+) -> list[ObservationRecord]:
+    """
+    Extracts this datastream's observations from bundle as ObservationRecords
+    — shared by both load paths (defs/assets/load.py's _frost_load and
+    shared/backfill.py's load_bundles_windowed) so the CanonicalObservation ->
+    ObservationRecord mapping can't drift between them.
+    """
+    raw_obs = bundle.observations.get(datastream.external_key, [])
+    return [ObservationRecord(phenomenon_time=o.phenomenon_time, result=o.result) for o in raw_obs]
 
 
 # --------------------------------------------------------------------------- #
