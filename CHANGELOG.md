@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.2.0...Aqueduct-v0.3.0) (2026-08-19)
+
+
+### Features
+
+* backfill add per source refetch job factory(ST2DAT-202) ([#34](https://github.com/DataIntegrationGroup/Aqueduct/issues/34)) ([90b771b](https://github.com/DataIntegrationGroup/Aqueduct/commit/90b771b8eeb4e07607892e3f5deb2edf4adc4938))
+* backfill add typed run config with dry-run default(ST2DAT-207) ([#36](https://github.com/DataIntegrationGroup/Aqueduct/issues/36)) ([5c4594d](https://github.com/DataIntegrationGroup/Aqueduct/commit/5c4594d086f087be5f61e24b42ed546355cb8718))
+* **cabq:** cabq canonical model adapter ([#37](https://github.com/DataIntegrationGroup/Aqueduct/issues/37)) ([9197906](https://github.com/DataIntegrationGroup/Aqueduct/commit/91979062c0d21a3168a20cac0ce43aa6b97a66d3))
+* **cabq:** dlt pipeline for cabq raw ingestion ([#35](https://github.com/DataIntegrationGroup/Aqueduct/issues/35)) ([2c65673](https://github.com/DataIntegrationGroup/Aqueduct/commit/2c656735497725ea0cbaaebd8ca2c816d7ef25dc))
+* **cabq:** wire CABQ end to end pipeline with FROST load ([#41](https://github.com/DataIntegrationGroup/Aqueduct/issues/41)) ([b7173f7](https://github.com/DataIntegrationGroup/Aqueduct/commit/b7173f74e42a960c80b2cc1dc09dcaab4ac7ea4a))
+* connect Dagster+ to GCS and the production FROST server (ST2DAT-178, ST2DAT-179) ([#40](https://github.com/DataIntegrationGroup/Aqueduct/issues/40)) ([f816566](https://github.com/DataIntegrationGroup/Aqueduct/commit/f81656646f95b6e011305e387073f3131f5e420f))
+
+
+### Bug Fixes
+
+* transform watermark ignores per-record adapter failures (ST2DAT-220) ([#38](https://github.com/DataIntegrationGroup/Aqueduct/issues/38)) ([d8486ee](https://github.com/DataIntegrationGroup/Aqueduct/commit/d8486ee1b8d2f275e5a43d5f9010345d05ac91e7))
+
+
+### Documentation
+
+* add production bucket to Dagster+ (ST2DAT-230) ([#42](https://github.com/DataIntegrationGroup/Aqueduct/issues/42)) ([4788dc8](https://github.com/DataIntegrationGroup/Aqueduct/commit/4788dc8c870eeff7e04ea2444ed80e6c2780c32f))
+* broad code review before continuing migration ([#22](https://github.com/DataIntegrationGroup/Aqueduct/issues/22)) ([0a012a6](https://github.com/DataIntegrationGroup/Aqueduct/commit/0a012a63df46b8ac4178206e38155e7c71df16f8))
+* **cabq:** document cabq source schema ([#31](https://github.com/DataIntegrationGroup/Aqueduct/issues/31)) ([bf9f441](https://github.com/DataIntegrationGroup/Aqueduct/commit/bf9f44122c1b9035997b331fdd52e2d7ef2da3c9))
+
 ## [0.2.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.1.0...Aqueduct-v0.2.0) (2026-07-21)
 
 
