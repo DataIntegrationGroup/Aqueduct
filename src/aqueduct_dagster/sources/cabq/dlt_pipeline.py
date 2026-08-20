@@ -149,7 +149,8 @@ def _fetch_readings_for_location(
                 "/query?where=sys_loc_code%3D'"
                 + loc_id
                 + "'+AND+measurement_date%3E%3D'"
-                + datetime.fromtimestamp(loc_start / 1000).strftime("%Y-%m-%d")
+                # take unix timestamp in seconds and produce date in format YYYY-MM-DD
+                + datetime.fromtimestamp(loc_start, tz=UTC).strftime("%Y-%m-%d")
                 + "'&outfields=measurement_date,water_depth&f=pjson"
             )
 
@@ -294,17 +295,18 @@ def cabq_readings(
             fetched += 1
             max_timestamp = loc_start
             for measurement in data:
-                timestamp = measurement["measurement_date"]
+                # measurement_date is unix timestamp milliseconds, need to convert to seconds
+                timestamp = int(measurement["measurement_date"] / 1000)
                 if timestamp > max_timestamp:
                     max_timestamp = timestamp
                 rows_yielded += 1
                 yield {
-                    "reading_id": f"{loc_id}_{timestamp}",
+                    "reading_id": f"{loc_id}_{measurement['measurement_date']}",
                     "location_id": loc_id,
                     "location_name": location["loc_name"],
                     "latitude": location["latitude"],
                     "longitude": location["longitude"],
-                    "timestamp": timestamp,
+                    "timestamp": measurement["measurement_date"],
                     "value": measurement["water_depth"],
                 }
             cursors[str(loc_id)] = max_timestamp
