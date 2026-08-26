@@ -129,7 +129,7 @@ def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | Non
 
 
 def _fetch_readings_for_location(
-    client: httpx.Client, loc_id: str, loc_start: int
+    client: httpx.Client, loc_id: str, start_time: int, end_time: int | None = None
 ) -> tuple[list[dict] | None, str | None]:
     """
     get reading information for location from CABQ
@@ -145,14 +145,27 @@ def _fetch_readings_for_location(
 
         def _fetch_readings() -> httpx.Response:
             # query for location code = given location id for measurement info
-            return client.get(
-                "/query?where=sys_loc_code%3D'"
-                + loc_id
-                + "'+AND+measurement_date%3E%3D'"
-                # take unix timestamp in seconds and produce date in format YYYY-MM-DD
-                + datetime.fromtimestamp(loc_start, tz=UTC).strftime("%Y-%m-%d")
-                + "'&outfields=measurement_date,water_depth&f=pjson"
-            )
+            if end_time is None:
+                return client.get(
+                    "/query?where=sys_loc_code%3D'"
+                    + loc_id
+                    + "'+AND+measurement_date%3E%3D'"
+                    # take unix timestamp in seconds and produce date in format YYYY-MM-DD
+                    + datetime.fromtimestamp(start_time, tz=UTC).strftime("%Y-%m-%d")
+                    + "'&outfields=measurement_date,water_depth&f=pjson"
+                )
+            else:
+                return client.get(
+                    "/query?where=sys_loc_code%3D'"
+                    + loc_id
+                    + "'+AND+measurement_date%3E%3D'"
+                    # take unix timestamp in seconds and produce date in format YYYY-MM-DD
+                    + datetime.fromtimestamp(start_time, tz=UTC).strftime("%Y-%m-%d")
+                    + "'+AND+measurement_date%3C%3D'"
+                    # take unix timestamp in seconds and produce date in format YYYY-MM-DD
+                    + datetime.fromtimestamp(end_time, tz=UTC).strftime("%Y-%m-%d")
+                    + "'&outfields=measurement_date,water_depth&f=pjson"
+                )
 
         try:
             resp = retry_transient(
@@ -203,6 +216,15 @@ def _fetch_readings_for_location(
     return _transform_result(result), None
 
 
+def build_cabq_client(
+    api_base_url: str,
+) -> httpx.Client:
+    client = build_unauthenticated_client(
+        api_base_url, timeout=httpx.Timeout(connect=30.0, read=60.0, write=30.0, pool=30.0)
+    )
+    return client
+
+
 @dlt.source(name="cabq")
 def cabq_source(
     api_base_url: str = dlt.config.value,
@@ -212,10 +234,7 @@ def cabq_source(
     start_ts = int(
         datetime.strptime(initial_start_date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
     )
-    client = build_unauthenticated_client(
-        api_base_url, timeout=httpx.Timeout(connect=30.0, read=60.0, write=30.0, pool=30.0)
-    )
-    return cabq_readings(client=client, start_ts=start_ts, _stats=_stats)
+    return cabq_readings(client=build_cabq_client(api_base_url), start_ts=start_ts, _stats=_stats)
 
 
 @dlt.resource(
