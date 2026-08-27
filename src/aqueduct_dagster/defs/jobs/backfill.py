@@ -46,10 +46,23 @@ from aqueduct_dagster.shared.backfill import (
 )
 from aqueduct_dagster.shared.gcs import _gcs_bucket_url, _gcs_filesystem
 from aqueduct_dagster.shared.source_registry import SOURCE_REGISTRY
+from aqueduct_dagster.sources.cabq.backfill import (
+    default_backfill_location_ids as cabq_default_backfill_location_ids,
+)
+from aqueduct_dagster.sources.cabq.backfill import (
+    prepare_backfill as cabq_prepare_backfill,
+)
+from aqueduct_dagster.sources.cabq.backfill import (
+    run_backfill_chunk as cabq_run_backfill_chunk,
+)
 from aqueduct_dagster.sources.hydrovu.backfill import (
-    default_backfill_location_ids,
-    prepare_backfill,
-    run_backfill_chunk,
+    default_backfill_location_ids as hydrovu_default_backfill_location_ids,
+)
+from aqueduct_dagster.sources.hydrovu.backfill import (
+    prepare_backfill as hydrovu_prepare_backfill,
+)
+from aqueduct_dagster.sources.hydrovu.backfill import (
+    run_backfill_chunk as hydrovu_run_backfill_chunk,
 )
 
 logger = logging.getLogger(__name__)
@@ -297,7 +310,7 @@ class HydroVuBackfillRefetchConfig(BackfillRefetchConfig):
     """
 
     location_ids: list[int] = Field(
-        default=default_backfill_location_ids(),
+        default=hydrovu_default_backfill_location_ids(),
         description="HydroVu location IDs to backfill. Defaults to the "
         "daily pipeline's own allowlist (.dlt/config.toml "
         "[sources.hydrovu].location_ids). Leave empty to backfill every "
@@ -309,7 +322,24 @@ _hydrovu_registry_cfg = next(cfg for cfg in SOURCE_REGISTRY if cfg["name"] == "h
 hydrovu_backfill_refetch = _make_backfill_refetch_job(
     _hydrovu_registry_cfg["name"],
     _hydrovu_registry_cfg["dataset"],
-    prepare_backfill,
-    run_backfill_chunk,
+    hydrovu_prepare_backfill,
+    hydrovu_run_backfill_chunk,
     HydroVuBackfillRefetchConfig,
+)
+
+
+class CabqBackfillRefetchConfig(BackfillRefetchConfig):
+    location_ids: list[int] = Field(
+        default=cabq_default_backfill_location_ids(),
+        description="CABQ location IDs to backfill. Leave empty to backfill every location the API returns instead.",
+    )
+
+
+_cabq_registry_cfg = next(cfg for cfg in SOURCE_REGISTRY if cfg["name"] == "cabq")
+cabq_backfill_refetch = _make_backfill_refetch_job(
+    _cabq_registry_cfg["name"],
+    _cabq_registry_cfg["dataset"],
+    cabq_prepare_backfill,
+    cabq_run_backfill_chunk,
+    CabqBackfillRefetchConfig,
 )

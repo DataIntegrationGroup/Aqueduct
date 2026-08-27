@@ -23,7 +23,7 @@ from dagster import (
 
 from aqueduct_dagster import sources as sources_pkg
 from aqueduct_dagster.defs import assets as shared_assets_pkg
-from aqueduct_dagster.defs.jobs.backfill import hydrovu_backfill_refetch
+from aqueduct_dagster.defs.jobs.backfill import cabq_backfill_refetch, hydrovu_backfill_refetch
 from aqueduct_dagster.shared.source_registry import SOURCE_REGISTRY
 
 # ── Load all assets ───────────────────────────────────────────────────────────
@@ -62,6 +62,7 @@ for _cfg in SOURCE_REGISTRY:
 # (defs/jobs/backfill.py); a future source adds one more factory call there.
 
 _jobs.append(hydrovu_backfill_refetch)
+_jobs.append(cabq_backfill_refetch)
 
 # ── Definitions ───────────────────────────────────────────────────────────────
 
