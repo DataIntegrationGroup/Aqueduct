@@ -50,7 +50,7 @@ def cabq_backfill_readings(
         if loc_id not in allowed:
             continue
 
-        data, err = _fetch_readings_for_location(client, loc_id, start_ts)
+        data, err = _fetch_readings_for_location(client, loc_id, start_ts, end_ts)
         if err is not None:
             window_start_iso = datetime.fromtimestamp(start_ts, tz=UTC).isoformat()
             window_end_iso = datetime.fromtimestamp(end_ts, tz=UTC).isoformat()
@@ -75,7 +75,7 @@ def cabq_backfill_readings(
 def _locations_by_id(locations: list[dict]) -> dict[str, dict]:
     return {
         loc["sys_loc_code"]: {
-            "name": loc["name"],
+            "name": loc["loc_name"],
             "latitude": loc["latitude"],
             "longitude": loc["longitude"],
         }
