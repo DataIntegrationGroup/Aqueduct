@@ -15,12 +15,19 @@ every test configures a realistic return value for it, not a bare MagicMock().
 from __future__ import annotations
 
 import re
+import typing
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
-from aqueduct_dagster.defs.jobs.backfill import BackfillRefetchConfig, _make_backfill_refetch_job
+from aqueduct_dagster.defs.jobs.backfill import (
+    BackfillRefetchConfig,
+    CabqBackfillRefetchConfig,
+    HydroVuBackfillRefetchConfig,
+    _make_backfill_refetch_job,
+)
 
 _RUN_CONFIG = {
     "ops": {
@@ -121,6 +128,58 @@ def test_already_timestamped_run_key_is_left_unchanged():
     timestamped = "my-label_20260101T000000Z"
     config = BackfillRefetchConfig(run_key=timestamped)
     assert config.run_key == timestamped
+
+
+# ── per-source location_ids typing ──────────────────────────────────────────────
+#
+# Two complementary checks:
+#
+# 1. Domain-specific (below, table-driven): each source's config must accept a
+#    *realistic* id for that source (e.g. CABQ's actual "IW4"-style site codes).
+#    This is the only thing that can catch "the wrong type was chosen for this
+#    source" — it takes a human to know what a real id looks like, so a new
+#    source needs one row added here.
+#
+# 2. Generic (further below, auto-discovered): every BackfillRefetchConfig
+#    subclass, whichever they are, must reject a location_id of any *other*
+#    subclass's element type. This needs no maintenance as sources are added —
+#    it exists to catch the shared type-separation mechanism itself regressing
+#    (e.g. a future refactor accidentally merging every source back onto one
+#    shared, non-generic location_ids type).
+
+_LOCATION_ID_CASES = [
+    pytest.param(HydroVuBackfillRefetchConfig, 111, id="hydrovu"),
+    pytest.param(CabqBackfillRefetchConfig, "IW4", id="cabq"),
+]
+
+
+@pytest.mark.parametrize("config_cls,realistic_id", _LOCATION_ID_CASES)
+def test_config_accepts_a_realistic_location_id(config_cls, realistic_id):
+    config = config_cls(location_ids=[realistic_id])
+    assert config.location_ids == [realistic_id]
+
+
+# One sample value per element type currently in use across all sources' configs
+# — not per source. A new source reusing int/str needs no new entry here; only a
+# genuinely new element type (e.g. float, UUID) would.
+_SAMPLE_VALUE_BY_TYPE = {int: 111, str: "IW4"}
+
+
+def _location_id_element_type(config_cls: type[BackfillRefetchConfig]) -> type:
+    (elem_type,) = typing.get_args(config_cls.model_fields["location_ids"].annotation)
+    return elem_type
+
+
+@pytest.mark.parametrize(
+    "config_cls",
+    BackfillRefetchConfig.__subclasses__(),
+    ids=lambda cls: cls.__name__,
+)
+def test_config_rejects_a_different_sources_location_id_type(config_cls):
+    own_type = _location_id_element_type(config_cls)
+    foreign_value = next(v for t, v in _SAMPLE_VALUE_BY_TYPE.items() if t is not own_type)
+    with pytest.raises(ValidationError):
+        config_cls(location_ids=[foreign_value])
 
 
 # ── dry_run ────────────────────────────────────────────────────────────────────

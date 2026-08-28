@@ -213,7 +213,19 @@ def _fetch_readings_for_location(
         resp.raise_for_status()
         result = resp.json()
         break
-    return _transform_result(result), None
+
+    rows = _transform_result(result)
+    if end_time is not None:
+        # The API's measurement_date query only accepts date literals (see
+        # _fetch_readings() above), so it's inclusive of the entire end date —
+        # a reading exactly at end_time's midnight instant would otherwise pass
+        # this query but violate the strict half-open [start, end) window
+        # load_window() (loader/frost_loader.py) enforces. Trim it client-side
+        # on the exact millisecond timestamp, mirroring hydrovu_dlt_pipeline's
+        # _fetch_location_data end_time handling. measurement_date is epoch
+        # milliseconds; end_time is epoch seconds (see cabq_backfill_readings).
+        rows = [row for row in rows if row["measurement_date"] < end_time * 1000]
+    return rows, None
 
 
 def build_cabq_client(

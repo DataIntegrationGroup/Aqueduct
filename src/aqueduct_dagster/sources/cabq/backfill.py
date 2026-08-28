@@ -72,7 +72,7 @@ def cabq_backfill_readings(
             }
 
 
-def _locations_by_id(locations: list[dict]) -> dict[int, dict]:
+def _locations_by_id(locations: list[dict]) -> dict[str, dict]:
     return {
         loc["sys_loc_code"]: {
             "name": loc["loc_name"],
@@ -83,11 +83,11 @@ def _locations_by_id(locations: list[dict]) -> dict[int, dict]:
     }
 
 
-def default_backfill_location_ids() -> list[int]:
+def default_backfill_location_ids() -> list[str]:
     return list(load_source_config("cabq").get("location_ids", []))
 
 
-def prepare_backfill() -> tuple[httpx.Client, list[dict], dict[int, dict]]:
+def prepare_backfill() -> tuple[httpx.Client, list[dict], dict[str, dict]]:
     cfg = load_source_config("cabq")
     client = build_cabq_client(cfg["api_base_url"])
     try:
@@ -104,7 +104,7 @@ def run_backfill_chunk(
     *,
     client: httpx.Client,
     locations: list[dict],
-    locations_by_id: dict[int, dict],
+    locations_by_id: dict[str, dict],
     location_ids: list[str],
     chunk_start: datetime,
     chunk_end: datetime,

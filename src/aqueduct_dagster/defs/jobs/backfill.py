@@ -26,7 +26,7 @@ that's the only thing a new source needs to customize.
 
 import logging
 from collections.abc import Callable
-from typing import cast
+from typing import Any, cast
 
 import httpx
 from dagster import Config, JobDefinition, MetadataValue, OpDefinition, OpExecutionContext, job, op
@@ -67,11 +67,11 @@ from aqueduct_dagster.sources.hydrovu.backfill import (
 
 logger = logging.getLogger(__name__)
 
-PrepareBackfillFn = Callable[[], tuple[httpx.Client, list[dict], dict[int, dict]]]
+PrepareBackfillFn = Callable[[], tuple[httpx.Client, list[dict], dict[Any, dict]]]
 RunBackfillChunkFn = Callable[..., ChunkResult]
 
 
-class BackfillRefetchConfig(Config):
+class BackfillRefetchConfig[LocationId](Config):
     """
     Run configuration for a <source>_backfill_refetch job, filled in via the
     Dagster Launchpad — see docs/BACKFILL_STRATEGY.md §5.2. Prefilled with
@@ -79,12 +79,13 @@ class BackfillRefetchConfig(Config):
     as-is (dry_run: true).
 
     Fields here are common to every source. Per-source subclasses (e.g.
-    HydroVuBackfillRefetchConfig below) only override location_ids' default;
-    everything else is inherited. Validation lives in shared/backfill.py as
-    plain, Dagster-free functions so Mode B (replay) can reuse it too.
+    HydroVuBackfillRefetchConfig below) parameterize LocationId with their own
+    concrete id type and override location_ids' default; everything else is
+    inherited. Validation lives in shared/backfill.py as plain, Dagster-free
+    functions so Mode B (replay) can reuse it too.
     """
 
-    location_ids: list[int] = Field(
+    location_ids: list[LocationId] = Field(
         default=[],
         description="Location/entity IDs to backfill. Leave empty (the "
         "default) to backfill every location the source's API returns — "
@@ -128,7 +129,12 @@ def _make_backfill_refetch_op(
     dataset: str,
     prepare_fn: PrepareBackfillFn,
     run_chunk_fn: RunBackfillChunkFn,
-    config_cls: type[BackfillRefetchConfig] = BackfillRefetchConfig,
+    # [int] is an arbitrary concrete choice for callers that omit config_cls
+    # (only tests/defs/jobs/test_backfill.py's generic factory-level tests do
+    # this) — every real source always passes its own concrete subclass
+    # explicitly (see HydroVuBackfillRefetchConfig/CabqBackfillRefetchConfig
+    # below), so the id type here is never actually exercised for real.
+    config_cls: type[BackfillRefetchConfig] = BackfillRefetchConfig[int],
 ) -> OpDefinition:
     """
     Builds the op behind <name>_backfill_refetch:
@@ -286,7 +292,12 @@ def _make_backfill_refetch_job(
     dataset: str,
     prepare_fn: PrepareBackfillFn,
     run_chunk_fn: RunBackfillChunkFn,
-    config_cls: type[BackfillRefetchConfig] = BackfillRefetchConfig,
+    # [int] is an arbitrary concrete choice for callers that omit config_cls
+    # (only tests/defs/jobs/test_backfill.py's generic factory-level tests do
+    # this) — every real source always passes its own concrete subclass
+    # explicitly (see HydroVuBackfillRefetchConfig/CabqBackfillRefetchConfig
+    # below), so the id type here is never actually exercised for real.
+    config_cls: type[BackfillRefetchConfig] = BackfillRefetchConfig[int],
 ) -> JobDefinition:
     op_fn = _make_backfill_refetch_op(name, dataset, prepare_fn, run_chunk_fn, config_cls)
 
@@ -301,7 +312,7 @@ def _make_backfill_refetch_job(
     return _job
 
 
-class HydroVuBackfillRefetchConfig(BackfillRefetchConfig):
+class HydroVuBackfillRefetchConfig(BackfillRefetchConfig[int]):
     """
     hydrovu_backfill_refetch's run configuration. Only overrides
     location_ids' default (HydroVu's own known-good allowlist, read at
@@ -328,8 +339,8 @@ hydrovu_backfill_refetch = _make_backfill_refetch_job(
 )
 
 
-class CabqBackfillRefetchConfig(BackfillRefetchConfig):
-    location_ids: list[int] = Field(
+class CabqBackfillRefetchConfig(BackfillRefetchConfig[str]):
+    location_ids: list[str] = Field(
         default=cabq_default_backfill_location_ids(),
         description="CABQ location IDs to backfill. Leave empty to backfill every location the API returns instead.",
     )
