@@ -1,29 +1,29 @@
 """
-sources/hydrovu/transform.py
+sources/pvacd_hydrovu/transform.py
 
-Dagster asset: canonical_bundles_hydrovu
+Dagster asset: canonical_bundles_pvacd_hydrovu
   - Reads only NEW hydrovu_readings parquet from GCS since the last successful run
   - Always reads the latest hydrovu_locations parquet (replace resource — one file)
   - Filters readings to DTW rows only (parameter_id="4")
   - Joins readings to locations on location_id to restore name/lat/lon metadata
   - Groups joined rows by location_id into one record per location
   - Runs HydroVuAdapter to produce CanonicalBundles (one per DTW location)
-  - Returns bundles downstream to frost_load_hydrovu
+  - Returns bundles downstream to frost_load_pvacd_hydrovu
 
 Incremental reads (readings only):
-  A watermark file (raw_pvacd/_hydrovu_transform_watermark.json) in GCS tracks
+  A watermark file (raw_pvacd_hydrovu/_pvacd_hydrovu_transform_watermark.json) in GCS tracks
   the highest dlt load_id processed so far. On each run only readings parquet files
   with a newer load_id are read. The watermark is updated after a successful run.
 
   load_id is the float Unix timestamp dlt embeds in every parquet filename:
-    raw_pvacd/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/{load_id}.{file_id}.parquet
-  e.g. raw_pvacd/hydrovu_readings/year=2024/month=06/day=18/1781192390.555875.0.parquet
+    raw_pvacd_hydrovu/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/{load_id}.{file_id}.parquet
+  e.g. raw_pvacd_hydrovu/hydrovu_readings/year=2024/month=06/day=18/1781192390.555875.0.parquet
 
 Locations parquet (hydrovu_locations/) uses write_disposition="replace" so it is
 always a single up-to-date file — read fresh on every run, no watermark needed.
 
-Upstream:  raw_hydrovu_readings
-Downstream: frost_load_hydrovu
+Upstream:  raw_pvacd_hydrovu_readings
+Downstream: frost_load_pvacd_hydrovu
 """
 
 import logging
@@ -43,7 +43,7 @@ from aqueduct_dagster.shared.gcs import (
     read_transform_watermark,
     transform_watermark_path,
 )
-from aqueduct_dagster.sources.hydrovu.adapter import HydroVuAdapter
+from aqueduct_dagster.sources.pvacd_hydrovu.adapter import HydroVuAdapter
 
 
 @dataclass
@@ -61,9 +61,9 @@ class HydroVuTransformResult:
 
 logger = logging.getLogger(__name__)
 
-GCS_DATASET = "raw_pvacd"
+GCS_DATASET = "raw_pvacd_hydrovu"
 DTW_PARAMETER_ID = "4"
-WATERMARK_PATH = transform_watermark_path(GCS_DATASET, "hydrovu")
+WATERMARK_PATH = transform_watermark_path(GCS_DATASET, "pvacd_hydrovu")
 
 
 def _read_locations_from_gcs(bucket_url: str, fs: gcsfs.GCSFileSystem) -> dict[int, dict]:
@@ -77,7 +77,7 @@ def _read_locations_from_gcs(bucket_url: str, fs: gcsfs.GCSFileSystem) -> dict[i
     if not files:
         raise FileNotFoundError(
             f"No locations parquet found at {pattern}. "
-            "Ensure raw_hydrovu_readings has run at least once."
+            "Ensure raw_pvacd_hydrovu_readings has run at least once."
         )
 
     locations: dict[int, dict] = {}
@@ -135,7 +135,7 @@ def _transform_metadata(
     since_load_id: float | None,
     max_load_id: float | None,
 ) -> dict[str, MetadataValue]:
-    """Shared shape for canonical_bundles_hydrovu's output metadata — used by
+    """Shared shape for canonical_bundles_pvacd_hydrovu's output metadata — used by
     both the no-new-rows early return and the normal path, so the two can't
     drift out of sync on key names."""
     return {
@@ -149,20 +149,20 @@ def _transform_metadata(
 
 
 @asset(
-    name="canonical_bundles_hydrovu",
-    group_name="hydrovu",
+    name="canonical_bundles_pvacd_hydrovu",
+    group_name="pvacd_hydrovu",
     description="CanonicalBundles produced by HydroVuAdapter from GCS raw parquet.",
     compute_kind="python",
-    deps=["raw_hydrovu_readings"],
+    deps=["raw_pvacd_hydrovu_readings"],
 )
-def canonical_bundles_hydrovu(
+def canonical_bundles_pvacd_hydrovu(
     context: AssetExecutionContext,
 ) -> HydroVuTransformResult:
     """
     Reads only new HydroVu parquet from GCS (since last run), filters to DTW
     readings, groups by location, and runs HydroVuAdapter to produce CanonicalBundles.
 
-    Does NOT write the watermark — that happens in frost_load_hydrovu after FROST
+    Does NOT write the watermark — that happens in frost_load_pvacd_hydrovu after FROST
     confirms success, so a FROST failure leaves the watermark unadvanced and the
     next run retries the same data.
     """
@@ -206,7 +206,7 @@ def canonical_bundles_hydrovu(
 
     adapter = HydroVuAdapter(records)
     with forward_python_logs_to_dagster(
-        context, "aqueduct_dagster.sources.hydrovu", "aqueduct_dagster.canonical"
+        context, "aqueduct_dagster.sources.pvacd_hydrovu", "aqueduct_dagster.canonical"
     ):
         bundles = list(adapter.run())
     context.log.info("Produced %d CanonicalBundles", len(bundles))

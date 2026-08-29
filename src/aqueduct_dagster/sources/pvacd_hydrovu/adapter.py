@@ -1,5 +1,5 @@
 """
-sources/hydrovu/adapter.py
+sources/pvacd_hydrovu/adapter.py
 
 Transforms grouped HydroVu parquet rows into CanonicalBundles for FROST.
 

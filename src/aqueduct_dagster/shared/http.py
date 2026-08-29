@@ -8,17 +8,17 @@ with exponential backoff on transient network errors, an OAuth2
 client-credentials token that refreshes itself, and a way to attach that
 token to every request without rebuilding headers/timeout/base-url by hand
 at each call site. Without shared helpers, all three get hand-rolled per
-source — see hydrovu/dlt_pipeline.py's git history before this module
+source — see pvacd_hydrovu/dlt_pipeline.py's git history before this module
 existed, which had the retry loop alone copy-pasted three times.
 
 retry_transient() re-raises the final exception once retries are exhausted.
 Call sites that want a non-raising fallback (e.g. returning an (None, reason)
 tuple instead of propagating) wrap the call in their own
-`except transient_errors:` — see hydrovu/dlt_pipeline.py for the pattern.
+`except transient_errors:` — see pvacd_hydrovu/dlt_pipeline.py for the pattern.
 
 TokenManager + BearerAuth + build_authenticated_client() together give a
 source an httpx.Client that: sends a Bearer token on every request, and
-transparently refreshes and retries once on a 401 — see hydrovu/dlt_pipeline.py
+transparently refreshes and retries once on a 401 — see pvacd_hydrovu/dlt_pipeline.py
 for the reference usage. Only the OAuth2 client-credentials flow is
 implemented; a source using a different auth scheme (API key, etc.) would
 need its own Auth subclass, but can still reuse retry_transient and

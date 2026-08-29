@@ -132,7 +132,7 @@ def _load_id_from_filename(path: str) -> float | None:
     """
     Extracts the dlt load_id from a parquet filename dlt itself writes.
     Expected format: .../year={YYYY}/month={MM}/day={DD}/{load_id}.{file_id}.parquet
-    e.g. raw_pvacd/hydrovu_readings/year=2024/month=06/day=18/1781192390.555875.0.parquet → 1781192390.555875
+    e.g. raw_pvacd_hydrovu/hydrovu_readings/year=2024/month=06/day=18/1781192390.555875.0.parquet → 1781192390.555875
     """
     name = path.split("/")[-1]
     m = re.match(r"^(\d+\.\d+)\.", name)
@@ -170,7 +170,7 @@ def read_new_parquet_rows(
     keeping only rows where row_filter(row) is True (all rows if row_filter is None).
 
     Shared by every source's transform asset for incremental reads — see
-    hydrovu/transform.py for the reference usage.
+    pvacd_hydrovu/transform.py for the reference usage.
 
     Returns (rows, max_load_id_seen_this_run) — max_load_id is None if no new files.
     """

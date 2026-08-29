@@ -3,10 +3,10 @@ sources/cabq/dlt_pipeline.py
 
 dlt pipeline for CABQ raw ingestion.
 
-Follows the same pattern as hydrovu_dlt_pipeline.py.
+Follows the same pattern as pvacd_hydrovu/dlt_pipeline.py.
   - @dlt.source: reads config from dlt.config under [cabq]
   - @dlt.resource: per-location incremental cursor via dlt.current.resource_state()  - build_pipeline(): filesystem destination → GCS under raw_cabq/
-  - run_pipeline(): convenience entry point (mirrors hydrovu_dlt_pipeline.run_pipeline)
+  - run_pipeline(): convenience entry point (mirrors pvacd_hydrovu/dlt_pipeline.py run_pipeline)
 
 Add CABQ config block to .dlt/config.toml when wiring up:
   [cabq]

@@ -3,12 +3,12 @@ defs/jobs/backfill.py
 
 Mode A (refetch) backfill jobs — see docs/BACKFILL_STRATEGY.md §4.2, §4.5.
 
-hydrovu_backfill_refetch is the first of these (ST2DAT-202). The job is built
+pvacd_hydrovu_backfill_refetch is the first of these (ST2DAT-202). The job is built
 by a small factory (_make_backfill_refetch_job) parameterized by the same
 per-source prepare_backfill()/run_backfill_chunk() shape every source's
-backfill.py exposes (see sources/hydrovu/backfill.py) — so a future source
+backfill.py exposes (see sources/pvacd_hydrovu/backfill.py) — so a future source
 only needs its own sources/<name>/backfill.py plus one more call to the
-factory here, no other job-wiring changes. Only HydroVu is wired for now.
+factory here, no other job-wiring changes. Only pvacd_hydrovu is wired for now.
 
 Not a Dagster asset job — this is a plain @job of one @op, driven entirely by
 run configuration (BackfillRefetchConfig), matching how an operator actually
@@ -46,7 +46,7 @@ from aqueduct_dagster.shared.backfill import (
 )
 from aqueduct_dagster.shared.gcs import _gcs_bucket_url, _gcs_filesystem
 from aqueduct_dagster.shared.source_registry import SOURCE_REGISTRY
-from aqueduct_dagster.sources.hydrovu.backfill import (
+from aqueduct_dagster.sources.pvacd_hydrovu.backfill import (
     default_backfill_location_ids,
     prepare_backfill,
     run_backfill_chunk,
@@ -126,7 +126,7 @@ def _make_backfill_refetch_op(
       3. dry_run short-circuits here — logs the resolved plan, no GCS/FROST calls.
       4. Otherwise processes chunks sequentially, skipping ones already
          checkpointed for this run_key, checkpointing each only after its
-         ingest + transform + load succeed (sources/hydrovu/backfill.py's
+         ingest + transform + load succeed (sources/pvacd_hydrovu/backfill.py's
          run_backfill_chunk).
     """
 
@@ -141,7 +141,7 @@ def _make_backfill_refetch_op(
         chunks = month_chunks(start, end)
 
         # Forwards prepare_fn()/run_chunk_fn()'s stdlib logging (see
-        # sources/hydrovu/dlt_pipeline.py) plus BackfillCheckpointStore's own
+        # sources/pvacd_hydrovu/dlt_pipeline.py) plus BackfillCheckpointStore's own
         # logger ("aqueduct_dagster.shared.backfill", not a descendant of
         # "aqueduct_dagster.sources.{name}") into this run's log stream.
         # prepare_fn() runs even during dry_run, so this wraps it unconditionally.
@@ -194,7 +194,7 @@ def _make_backfill_refetch_op(
                 fs = _gcs_filesystem()
                 checkpoints = BackfillCheckpointStore(fs, bucket, dataset, run_key=cfg.run_key)
                 # Separate FROST watermark file from production's
-                # (raw_pvacd/_frost_watermarks.json), same isolation principle as the
+                # (raw_pvacd_hydrovu/_frost_watermarks.json), same isolation principle as the
                 # separate GCS raw table (hydrovu_backfill_readings vs hydrovu_readings) —
                 # so a backfill run can never race with, or clobber, the daily scheduled
                 # pipeline's own watermark state.
@@ -290,7 +290,7 @@ def _make_backfill_refetch_job(
 
 class HydroVuBackfillRefetchConfig(BackfillRefetchConfig):
     """
-    hydrovu_backfill_refetch's run configuration. Only overrides
+    pvacd_hydrovu_backfill_refetch's run configuration. Only overrides
     location_ids' default (HydroVu's own known-good allowlist, read at
     import time via default_backfill_location_ids()) — every other field is
     inherited unchanged from BackfillRefetchConfig.
@@ -300,15 +300,15 @@ class HydroVuBackfillRefetchConfig(BackfillRefetchConfig):
         default=default_backfill_location_ids(),
         description="HydroVu location IDs to backfill. Defaults to the "
         "daily pipeline's own allowlist (.dlt/config.toml "
-        "[sources.hydrovu].location_ids). Leave empty to backfill every "
+        "[sources.pvacd_hydrovu].location_ids). Leave empty to backfill every "
         "location the API returns instead.",
     )
 
 
-_hydrovu_registry_cfg = next(cfg for cfg in SOURCE_REGISTRY if cfg["name"] == "hydrovu")
-hydrovu_backfill_refetch = _make_backfill_refetch_job(
-    _hydrovu_registry_cfg["name"],
-    _hydrovu_registry_cfg["dataset"],
+_pvacd_hydrovu_registry_cfg = next(cfg for cfg in SOURCE_REGISTRY if cfg["name"] == "pvacd_hydrovu")
+pvacd_hydrovu_backfill_refetch = _make_backfill_refetch_job(
+    _pvacd_hydrovu_registry_cfg["name"],
+    _pvacd_hydrovu_registry_cfg["dataset"],
     prepare_backfill,
     run_backfill_chunk,
     HydroVuBackfillRefetchConfig,

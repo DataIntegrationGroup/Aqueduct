@@ -18,7 +18,7 @@ Implementations:
   FrostWatermarkStore    — GCS-backed, durable across Dagster restarts
   InMemoryWatermarkStore — dev/test only, not durable across runs
 
-GCS watermark file: raw_pvacd/_frost_watermarks.json
+GCS watermark file: raw_pvacd_hydrovu/_frost_watermarks.json
   {"pvacd-4745648669458432-dtw": "2026-06-16T18:00:00+00:00", ...}
   One key per datastream. Written after every successful chunk so a partial
   failure resumes from the last successful chunk on the next run.

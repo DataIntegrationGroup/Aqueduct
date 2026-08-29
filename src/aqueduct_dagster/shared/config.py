@@ -70,7 +70,7 @@ def settings_dir() -> Path:
     to match when it isn't already set.
 
     Exporting the variable is the point of doing this eagerly: dlt resolves
-    `dlt.config.value` defaults (the whole `[sources.hydrovu]` block) through its own
+    `dlt.config.value` defaults (the whole `[sources.pvacd_hydrovu]` block) through its own
     provider chain, not through this module, so it has to be pointed at the same file.
 
     Raises FileNotFoundError naming every path tried, since a wrong answer here

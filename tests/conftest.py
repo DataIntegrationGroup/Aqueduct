@@ -2,7 +2,7 @@
 tests/conftest.py
 
 Shared test helpers for httpx.Client/BearerAuth-based code, used by both
-tests/shared/test_http.py and tests/sources/hydrovu/test_dlt_pipeline.py.
+tests/shared/test_http.py and tests/sources/pvacd_hydrovu/test_dlt_pipeline.py.
 Consolidated here after the two files independently grew near-identical
 make_tm()/client_with_responses() helpers.
 """

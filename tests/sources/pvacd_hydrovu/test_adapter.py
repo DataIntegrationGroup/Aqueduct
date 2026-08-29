@@ -1,5 +1,5 @@
 """
-tests/sources/hydrovu/test_adapter.py
+tests/sources/pvacd_hydrovu/test_adapter.py
 
 Unit tests for HydroVuAdapter.
 No real API calls — uses mock records matching the grouped record shape
@@ -25,7 +25,7 @@ Parameter IDs (confirmed June 2026):
 
 from datetime import UTC
 
-from aqueduct_dagster.sources.hydrovu.adapter import (
+from aqueduct_dagster.sources.pvacd_hydrovu.adapter import (
     METRES_TO_FEET,
     HydroVuAdapter,
 )

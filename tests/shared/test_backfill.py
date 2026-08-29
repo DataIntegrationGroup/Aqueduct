@@ -185,7 +185,9 @@ def _make_store(gcs_content: dict | None = None) -> tuple[BackfillCheckpointStor
         mock_fs.open.return_value.__enter__ = lambda _: io.StringIO(raw)
         mock_fs.open.return_value.__exit__ = MagicMock(return_value=False)
 
-    store = BackfillCheckpointStore(mock_fs, "my-bucket", "raw_pvacd", run_key="hydrovu-jan2026")
+    store = BackfillCheckpointStore(
+        mock_fs, "my-bucket", "raw_pvacd_hydrovu", run_key="hydrovu-jan2026"
+    )
     return store, mock_fs
 
 
@@ -200,9 +202,9 @@ def test_run_key_is_sanitized_in_checkpoint_path():
     characters can't split the two identifiers for the same run apart.
     """
     store = BackfillCheckpointStore(
-        MagicMock(), "my-bucket", "raw_pvacd", run_key="team/jan-2026 fix"
+        MagicMock(), "my-bucket", "raw_pvacd_hydrovu", run_key="team/jan-2026 fix"
     )
-    assert store._path == "my-bucket/raw_pvacd/_backfill_checkpoints/team_jan-2026_fix.json"
+    assert store._path == "my-bucket/raw_pvacd_hydrovu/_backfill_checkpoints/team_jan-2026_fix.json"
 
 
 def test_is_complete_false_when_no_checkpoint_file():
@@ -220,7 +222,7 @@ def test_corrupt_checkpoint_file_treated_as_fresh_start():
     mock_fs = MagicMock()
     mock_fs.open.return_value.__enter__ = lambda _: io.StringIO("not valid json{{{")
     mock_fs.open.return_value.__exit__ = MagicMock(return_value=False)
-    store = BackfillCheckpointStore(mock_fs, "my-bucket", "raw_pvacd", run_key="r")
+    store = BackfillCheckpointStore(mock_fs, "my-bucket", "raw_pvacd_hydrovu", run_key="r")
     assert store.is_complete(*CHUNK_1) is False
 
 
@@ -240,8 +242,8 @@ def test_mark_complete_writes_tmp_then_renames():
 
     store.mark_complete(*CHUNK_1)
 
-    tmp_path = "my-bucket/raw_pvacd/_backfill_checkpoints/hydrovu-jan2026.json.tmp"
-    final_path = "my-bucket/raw_pvacd/_backfill_checkpoints/hydrovu-jan2026.json"
+    tmp_path = "my-bucket/raw_pvacd_hydrovu/_backfill_checkpoints/hydrovu-jan2026.json.tmp"
+    final_path = "my-bucket/raw_pvacd_hydrovu/_backfill_checkpoints/hydrovu-jan2026.json"
     mock_fs.open.assert_called_with(tmp_path, "w")
     mock_fs.rename.assert_called_once_with(tmp_path, final_path)
 
@@ -325,8 +327,8 @@ def test_save_raises_after_all_retries_exhausted():
 
 @patch("aqueduct_dagster.shared.backfill.load_config")
 def test_load_source_config_reads_named_section(mock_load_config):
-    mock_load_config.return_value = {"sources": {"hydrovu": {"gcp_secret": "x"}}}
-    assert load_source_config("hydrovu") == {"gcp_secret": "x"}
+    mock_load_config.return_value = {"sources": {"pvacd_hydrovu": {"gcp_secret": "x"}}}
+    assert load_source_config("pvacd_hydrovu") == {"gcp_secret": "x"}
 
 
 # ── build_backfill_pipeline ────────────────────────────────────────────────────
@@ -335,17 +337,19 @@ def test_load_source_config_reads_named_section(mock_load_config):
 @patch("aqueduct_dagster.shared.backfill.build_source_pipeline")
 def test_build_backfill_pipeline_includes_run_key_in_pipeline_name(mock_build_source_pipeline):
     build_backfill_pipeline(
-        pipeline_name_prefix="hydrovu_backfill", dataset="raw_pvacd", run_key="jan-repair"
+        pipeline_name_prefix="hydrovu_backfill", dataset="raw_pvacd_hydrovu", run_key="jan-repair"
     )
     args, _kwargs = mock_build_source_pipeline.call_args
-    assert args == ("hydrovu_backfill_jan-repair", "raw_pvacd")
+    assert args == ("hydrovu_backfill_jan-repair", "raw_pvacd_hydrovu")
 
 
 @patch("aqueduct_dagster.shared.backfill.build_source_pipeline")
 def test_build_backfill_pipeline_sanitizes_run_key(mock_build_source_pipeline):
     """Two different run_keys must never collide into the same pipeline_name."""
     build_backfill_pipeline(
-        pipeline_name_prefix="hydrovu_backfill", dataset="raw_pvacd", run_key="jan repair/v2"
+        pipeline_name_prefix="hydrovu_backfill",
+        dataset="raw_pvacd_hydrovu",
+        run_key="jan repair/v2",
     )
     args, _kwargs = mock_build_source_pipeline.call_args
     assert args[0] == "hydrovu_backfill_jan_repair_v2"
@@ -401,10 +405,12 @@ def test_run_backfill_ingest_forwards_prefix_dataset_and_run_key(mock_build_pipe
     mock_pipeline.run.return_value = MagicMock(loads_ids=["100.0"])
     mock_build_pipeline.return_value = mock_pipeline
 
-    _run_ingest(pipeline_name_prefix="hydrovu_backfill", dataset="raw_pvacd", run_key="jan-repair")
+    _run_ingest(
+        pipeline_name_prefix="hydrovu_backfill", dataset="raw_pvacd_hydrovu", run_key="jan-repair"
+    )
 
     mock_build_pipeline.assert_called_once_with(
-        pipeline_name_prefix="hydrovu_backfill", dataset="raw_pvacd", run_key="jan-repair"
+        pipeline_name_prefix="hydrovu_backfill", dataset="raw_pvacd_hydrovu", run_key="jan-repair"
     )
 
 

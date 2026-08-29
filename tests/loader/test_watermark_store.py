@@ -39,7 +39,9 @@ def _make_store(gcs_content: dict[str, str] | None = None) -> FrostWatermarkStor
         mock_fs.open.return_value.__enter__ = lambda _: io.StringIO(raw)
         mock_fs.open.return_value.__exit__ = MagicMock(return_value=False)
 
-    return FrostWatermarkStore(mock_context, mock_fs, "my-bucket", dataset="raw_pvacd"), mock_fs
+    return FrostWatermarkStore(
+        mock_context, mock_fs, "my-bucket", dataset="raw_pvacd_hydrovu"
+    ), mock_fs
 
 
 # ── InMemoryWatermarkStore ───────────────────────────────────────────────────
@@ -72,7 +74,7 @@ def test_corrupt_gcs_file_treated_as_first_run():
     mock_fs.open.return_value.__enter__ = lambda _: io.StringIO("not valid json{{{")
     mock_fs.open.return_value.__exit__ = MagicMock(return_value=False)
 
-    store = FrostWatermarkStore(mock_context, mock_fs, "my-bucket", dataset="raw_pvacd")
+    store = FrostWatermarkStore(mock_context, mock_fs, "my-bucket", dataset="raw_pvacd_hydrovu")
     assert store.get("any-key") is None
     assert store._loaded is True
 
@@ -152,8 +154,8 @@ def test_set_writes_to_tmp_then_renames():
     ts = datetime(2026, 6, 20, tzinfo=UTC)
     store.set("ds-1", ts)
 
-    tmp_path = f"my-bucket/raw_pvacd/{_FROST_WATERMARKS_FILENAME}.tmp"
-    final_path = f"my-bucket/raw_pvacd/{_FROST_WATERMARKS_FILENAME}"
+    tmp_path = f"my-bucket/raw_pvacd_hydrovu/{_FROST_WATERMARKS_FILENAME}.tmp"
+    final_path = f"my-bucket/raw_pvacd_hydrovu/{_FROST_WATERMARKS_FILENAME}"
     mock_fs.open.assert_called_with(tmp_path, "w")
     mock_fs.rename.assert_called_once_with(tmp_path, final_path)
 

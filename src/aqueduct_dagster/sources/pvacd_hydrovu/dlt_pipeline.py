@@ -1,15 +1,15 @@
 """
-sources/hydrovu/dlt_pipeline.py
+sources/pvacd_hydrovu/dlt_pipeline.py
 
 dlt pipeline for HydroVu raw ingestion.
 
-Two resources returned from hydrovu_source():
+Two resources returned from pvacd_hydrovu_source():
 
   hydrovu_locations  (write_disposition="replace")
     Fetches GET /locations/list on every run and fully replaces the parquet.
     One row per location: id, name, description, latitude, longitude.
     Acts as a reference table — rename in HydroVu → latest name in GCS.
-    Written to: gs://<bucket>/raw_pvacd/hydrovu_locations/year={YYYY}/month={MM}/day={DD}/
+    Written to: gs://<bucket>/raw_pvacd_hydrovu/hydrovu_locations/year={YYYY}/month={MM}/day={DD}/
 
   hydrovu_readings   (write_disposition="append", per-location incremental cursor)
     Fetches readings per location since that location's last successful fetch.
@@ -17,14 +17,14 @@ Two resources returned from hydrovu_source():
     from the same point next run rather than being skipped permanently.
     One row per (location, parameter, reading) — location metadata is NOT
     embedded; join to hydrovu_locations on location_id at transform time.
-    Written to: gs://<bucket>/raw_pvacd/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/
+    Written to: gs://<bucket>/raw_pvacd_hydrovu/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/
 
 A TokenManager is created (via build_hydrovu_client(), below) once per run and
 wrapped in an authenticated httpx.Client (base_url + BearerAuth) shared by both
 resources, so a single token and a single client cover the full run.
 
-This module is NOT a Dagster asset — it is called by sources/hydrovu/ingest.py
-(normal daily pipeline) and sources/hydrovu/backfill.py (Mode A refetch), which
+This module is NOT a Dagster asset — it is called by sources/pvacd_hydrovu/ingest.py
+(normal daily pipeline) and sources/pvacd_hydrovu/backfill.py (Mode A refetch), which
 both reuse build_hydrovu_client()/_fetch_locations()/_fetch_location_data() from
 here rather than duplicating the OAuth/pagination logic.
 
@@ -132,7 +132,7 @@ def _fetch_location_data(
       are chronological, so a later page would only contain data further
       beyond the window. The real API has no server-side end-time parameter
       (only startTime); this is a client-side cutoff. Used by backfill's
-      windowed chunk fetch (sources/hydrovu/backfill.py). Production's normal
+      windowed chunk fetch (sources/pvacd_hydrovu/backfill.py). Production's normal
       ingest (hydrovu_readings, below) always calls with end_time=None —
       unbounded, fetch-to-present, unchanged from before this parameter existed.
 
@@ -288,7 +288,7 @@ def build_hydrovu_client(
 ) -> httpx.Client:
     """
     Resolves credentials (Secret Manager if client_id is empty) and returns an
-    authenticated httpx.Client for the HydroVu API. Shared by hydrovu_source()
+    authenticated httpx.Client for the HydroVu API. Shared by pvacd_hydrovu_source()
     (normal ingest) and hydrovu_backfill_source() (backfill.py) so the
     OAuth/Secret-Manager logic is written once.
     """
@@ -297,8 +297,8 @@ def build_hydrovu_client(
     return build_authenticated_client(api_base_url, tm, timeout=_LOCATION_TIMEOUT)
 
 
-@dlt.source(name="hydrovu")
-def hydrovu_source(
+@dlt.source(name="pvacd_hydrovu")
+def pvacd_hydrovu_source(
     client_id: str = "",
     client_secret: str = "",
     gcp_secret: str = dlt.config.value,
@@ -309,7 +309,7 @@ def hydrovu_source(
     _stats: dict | None = None,
 ) -> Any:
     """
-    Reads config from dlt.config under [hydrovu].
+    Reads config from dlt.config under [sources.pvacd_hydrovu].
     Creates a single authenticated httpx.Client shared by both resources, so
     the token is fetched once and both requests and auth-retries go through
     one client for the full run.
@@ -317,7 +317,7 @@ def hydrovu_source(
     a redundant second API call.
 
     location_ids: allowlist of HydroVu location integer IDs to fetch.
-      Read from [sources.hydrovu] location_ids in .dlt/config.toml.
+      Read from [sources.pvacd_hydrovu] location_ids in .dlt/config.toml.
       Add or remove IDs there without any code change.
 
     _stats: optional mutable dict populated with extraction counts after pipeline.run().
@@ -394,7 +394,7 @@ def hydrovu_readings(
 
     location_ids: allowlist of HydroVu location integer IDs to fetch. Locations
       absent from this list are skipped to avoid slow 404s on /locations/{id}/data.
-      Managed via [sources.hydrovu] location_ids in .dlt/config.toml.
+      Managed via [sources.pvacd_hydrovu] location_ids in .dlt/config.toml.
 
     Incremental: each location has its own cursor stored in dlt.current.resource_state() under
     "location_cursors". A location's cursor only advances after a successful fetch,
@@ -500,11 +500,11 @@ def hydrovu_readings(
 
 
 def build_pipeline() -> dlt.Pipeline:
-    return build_source_pipeline("pvacd_hydrovu", "raw_pvacd")
+    return build_source_pipeline("pvacd_hydrovu", "raw_pvacd_hydrovu")
 
 
 def run_pipeline() -> None:
     """Convenience entry point: builds and runs the pipeline with parquet output."""
     pipeline = build_pipeline()
-    load_info = pipeline.run(hydrovu_source(), loader_file_format="parquet")
+    load_info = pipeline.run(pvacd_hydrovu_source(), loader_file_format="parquet")
     logger.info("Load complete: %s", load_info)

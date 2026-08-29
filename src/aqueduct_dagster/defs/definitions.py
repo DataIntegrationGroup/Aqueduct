@@ -4,7 +4,7 @@ defs/definitions.py
 Dagster entry point — all assets, jobs, and schedules registered here.
 
 Two independent pipelines — each can be run and scheduled separately:
-  hydrovu_pipeline:  raw_hydrovu_readings → canonical_bundles_hydrovu → frost_load_hydrovu
+  pvacd_hydrovu_pipeline:  raw_pvacd_hydrovu_readings → canonical_bundles_pvacd_hydrovu → frost_load_pvacd_hydrovu
   cabq_pipeline:     raw_cabq_readings    → canonical_bundles_cabq    → frost_load_cabq
 
 Adding source 3: add one entry to shared/source_registry.py's SOURCE_REGISTRY.
@@ -23,7 +23,7 @@ from dagster import (
 
 from aqueduct_dagster import sources as sources_pkg
 from aqueduct_dagster.defs import assets as shared_assets_pkg
-from aqueduct_dagster.defs.jobs.backfill import hydrovu_backfill_refetch
+from aqueduct_dagster.defs.jobs.backfill import pvacd_hydrovu_backfill_refetch
 from aqueduct_dagster.shared.source_registry import SOURCE_REGISTRY
 
 # ── Load all assets ───────────────────────────────────────────────────────────
@@ -58,10 +58,10 @@ for _cfg in SOURCE_REGISTRY:
 
 # ── Backfill jobs (Mode A refetch) ─────────────────────────────────────────────
 # Launched manually via run configuration — no schedule attached, see
-# docs/BACKFILL_STRATEGY.md §5.2. Only HydroVu is wired so far
+# docs/BACKFILL_STRATEGY.md §5.2. Only pvacd_hydrovu is wired so far
 # (defs/jobs/backfill.py); a future source adds one more factory call there.
 
-_jobs.append(hydrovu_backfill_refetch)
+_jobs.append(pvacd_hydrovu_backfill_refetch)
 
 # ── Definitions ───────────────────────────────────────────────────────────────
 

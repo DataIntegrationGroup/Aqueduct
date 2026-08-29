@@ -273,7 +273,7 @@ class BackfillCheckpointStore:
     """
     GCS-backed record of which chunks a specific backfill run has completed.
 
-    Keyed by an operator-supplied `run_key` (e.g. "hydrovu-jan2026-repair") —
+    Keyed by an operator-supplied `run_key` (e.g. "pvacd_hydrovu-jan2026-repair") —
     re-launching the job with the same run_key resumes from the last
     completed chunk; a different run_key starts fresh and can be run
     independently (e.g. two unrelated backfills for the same source).

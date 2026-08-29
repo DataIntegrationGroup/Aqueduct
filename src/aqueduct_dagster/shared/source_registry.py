@@ -17,13 +17,11 @@ from typing import TypedDict
 
 class SourceConfig(TypedDict):
     name: str  # source key — must match the sources/<name>/ folder and asset naming convention
-    dataset: (
-        str  # GCS dataset name (raw_<dataset>) — FROST watermark store + transform watermark path
-    )
+    dataset: str  # GCS dataset name, raw_<name> — FROST watermark store + transform watermark path
     cron: str  # cron schedule for this source's daily pipeline job
 
 
 SOURCE_REGISTRY: list[SourceConfig] = [
-    {"name": "hydrovu", "dataset": "raw_pvacd", "cron": "0 6 * * *"},
+    {"name": "pvacd_hydrovu", "dataset": "raw_pvacd_hydrovu", "cron": "0 6 * * *"},
     {"name": "cabq", "dataset": "raw_cabq", "cron": "0 8 * * *"},
 ]
