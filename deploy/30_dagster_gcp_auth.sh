@@ -19,7 +19,7 @@
 #
 # Requires: roles/storage.admin (bucket create + IAM), roles/iam.serviceAccountAdmin
 # (only if the SA does not exist yet), roles/iam.serviceAccountKeyAdmin (only with
-# --emit-key), and permission to bind secretAccessor on ${SECRET_HYDROVU}.
+# --emit-key), and permission to bind secretAccessor on ${SECRET_PVACD_HYDROVU}.
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/00_config.sh"
@@ -116,8 +116,8 @@ done
 
 # The HydroVu OAuth credentials are themselves fetched through ADC at ingest time,
 # so bucket access alone is not enough to run the pipeline.
-echo "== Grant secretAccessor on ${SECRET_HYDROVU} =="
-gcloud secrets add-iam-policy-binding "${SECRET_HYDROVU}" \
+echo "== Grant secretAccessor on ${SECRET_PVACD_HYDROVU} =="
+gcloud secrets add-iam-policy-binding "${SECRET_PVACD_HYDROVU}" \
   --project="${PROJECT_ID}" \
   --member="serviceAccount:${DAGSTER_SA}" \
   --role="roles/secretmanager.secretAccessor" >/dev/null
@@ -184,7 +184,7 @@ cat <<EOF
 
 Done. Service account : ${DAGSTER_SA}
       Buckets         : gs://${BUCKET_PROD} (prod), gs://${BUCKET_POC} (poc/verify)
-      Secret          : ${SECRET_HYDROVU}
+      Secret          : ${SECRET_PVACD_HYDROVU}
       FROST           : ${FROST_URL:-<not deployed>}
 
 Dagster+ → Deployment → Environment variables (code location aqueduct_dagster_defs_definitions):
@@ -206,6 +206,6 @@ Verify without minting a key (needs roles/iam.serviceAccountTokenCreator on the 
 
 Confirm the bindings landed:
   gcloud storage buckets get-iam-policy gs://${BUCKET_PROD} --format=json
-  gcloud secrets get-iam-policy ${SECRET_HYDROVU} --project=${PROJECT_ID}
+  gcloud secrets get-iam-policy ${SECRET_PVACD_HYDROVU} --project=${PROJECT_ID}
   gcloud run services get-iam-policy ${FROST_SERVICE} --project=${PROJECT_ID} --region=${REGION}
 EOF

@@ -50,8 +50,8 @@ export SQL_DB_VERSION="POSTGRES_17"
 # --- Secret Manager ---------------------------------------------------------
 export SECRET_FROST_DB_PW="frost-db-password"
 # HydroVu OAuth client id/secret, read at ingest time via ADC. Matches
-# [sources.hydrovu] gcp_secret in .dlt/config.toml.
-export SECRET_HYDROVU="hydrovu_pvacd"
+# [sources.pvacd_hydrovu] gcp_secret in .dlt/config.toml.
+export SECRET_PVACD_HYDROVU="hydrovu_pvacd"
 
 # --- GCS buckets ------------------------------------------------------------
 # Where Dagster+ writes raw parquet. BUCKET_PROD is the deployment target;
