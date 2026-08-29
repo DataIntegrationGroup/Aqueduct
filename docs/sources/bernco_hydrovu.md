@@ -9,7 +9,7 @@
 **Credentials:** GCP Secret Manager, project `waterdatainitiative-271000` (project number
 `95715287188`), secret name `hydrovu_bernco`, confirmed present 2026-08-24 and separate
 from PVACD's `hydrovu_pvacd`. The payload is a JSON object with keys `id` and `secret`,
-which is what `_resolve_hydrovu_credentials()` in `sources/hydrovu/dlt_pipeline.py`
+which is what `_resolve_hydrovu_credentials()` in `sources/pvacd_hydrovu/dlt_pipeline.py`
 already expects, so no credential-handling code has to change.
 
 `deploy/30_dagster_gcp_auth.sh` grants `roles/secretmanager.secretAccessor` on
@@ -228,7 +228,7 @@ SIS lookup.
 > the sensor below the water surface. Parameter 4 is the depth from the reference point
 > down to water. They share `unitId="35"` (metres) and are easy to conflate, but they
 > measure in opposite directions. Filtering on `parameter_id == "4"`, as
-> `sources/hydrovu/adapter.py` already does, is correct.
+> `sources/pvacd_hydrovu/adapter.py` already does, is correct.
 
 **A location's parameter set changes over time.** `SP4VuLink-636814` reports parameter 3
 in its oldest data (from 2019-11-05) and parameter 4 in recent data.
@@ -325,7 +325,7 @@ not catch both.
 |---|---|---|---|---|
 | `result` (DTW reading) | metres | `unitId="35"` > `"m"` via `GET /v1/sispec/friendlynames` (2026-08-24). Verified as the only unit used for `parameterId="4"` across all 53 locations | feet | `× 3.28084` |
 
-Identical to PVACD, so `METRES_TO_FEET = 3.28084` in `sources/hydrovu/adapter.py` carries
+Identical to PVACD, so `METRES_TO_FEET = 3.28084` in `sources/pvacd_hydrovu/adapter.py` carries
 over unchanged. Reference factors for the other level units HydroVu can return, none of
 which appear in this tenant today:
 
@@ -340,25 +340,8 @@ which appear in this tenant today:
 
 ## Open Questions
 
-1. **Multi-tenant HydroVu is unmodeled.** BernCo is the first case of two agencies on one
-   source system, and nothing in the repo anticipates it:
-   - `.dlt/config.toml` has a single flat `[sources.hydrovu]` block with one `gcp_secret`
-     (`hydrovu_pvacd`) and one flat `location_ids` list.
-   - `shared/source_registry.py` has one entry, `{"name": "hydrovu", "dataset": "raw_pvacd"}`.
-   - `deploy/00_config.sh:54` hardcodes `SECRET_HYDROVU="hydrovu_pvacd"`, and the
-     `secretmanager.secretAccessor` grant in `deploy/30_dagster_gcp_auth.sh` is scoped to
-     that one secret.
-
-   `docs/STORAGE_CONVENTIONS.md:128-134` covers only the inverse case (one agency, several
-   source systems). Following that convention BernCo would land at
-   `raw_bernco/hydrovu_readings/` with the vertical slice at `sources/bernco_hydrovu/`.
-   One more thing to settle is whether the existing `hydrovu` source should become
-   `pvacd_hydrovu` for symmetry. Its dlt pipeline name already is `pvacd_hydrovu`
-   (`dlt_pipeline.py:503`) while the folder and registry entry are the bare `hydrovu`.
-   This ticket changes no code and no config.
-
-2. **HTTP 404 means "no data at or after `startTime`", not "no data endpoint."**
-   `sources/hydrovu/dlt_pipeline.py:191-193` logs a 404 as "no data endpoint" and treats it
+1. **HTTP 404 means "no data at or after `startTime`", not "no data endpoint."**
+   `sources/pvacd_hydrovu/dlt_pipeline.py:191-193` logs a 404 as "no data endpoint" and treats it
    as terminal for the run. I retried the 14 BernCo locations that 404 on a recent
    `startTime`, and 13 of them return full history at `startTime=0`. They are dormant, not
    endpoint-less. Only `SerenityMesa` (id `4562953333243904`) 404s at `startTime=0` and has
@@ -366,25 +349,25 @@ which appear in this tenant today:
    the log message points a debugger in the wrong direction. Worth a docstring fix in the
    implementation ticket.
 
-3. **The API has an `endTime` parameter that the code says it does not.**
-   `sources/hydrovu/dlt_pipeline.py:130-137` states "The real API has no server-side
+1. **The API has an `endTime` parameter that the code says it does not.**
+   `sources/pvacd_hydrovu/dlt_pipeline.py:130-137` states "The real API has no server-side
    end-time parameter (only startTime)" and implements a client-side cutoff for windowed
    backfill. The published OpenAPI spec lists `endTime` as a query parameter on
    `/locations/{id}/data` alongside `startTime`. If it works server-side it would cut the
    windowing code out of the backfill path. I did not test it. Flagging it for whoever
    picks up the backfill work.
 
-4. **Which locations are wells?** The Carlito Springs cluster (flume, baro, lower pool) is
+1. **Which locations are wells?** The Carlito Springs cluster (flume, baro, lower pool) is
    surface water and barometric instrumentation, not wells, so the fixed
    `Thing.name = "Water Well"` would be wrong for them. All three are dormant today and the
    DTW-only ingest never touches them, but BernCo should confirm the intended scope before
    anyone draws up the allowlist.
 
-5. **The three factory-default locations.** `default-1191022`, `default-817181` and
+1. **The three factory-default locations.** `default-1191022`, `default-817181` and
    `default-969659` report In-Situ's Fort Collins coordinates. `default-969659` has live
    DTW data. Does BernCo have real coordinates for these, or should they be excluded?
 
-6. **`initial_start_date` for BernCo.** History runs far deeper than PVACD's. The earliest
+1. **`initial_start_date` for BernCo.** History runs far deeper than PVACD's. The earliest
    readings go back to 2009-05-18 (`BCFDWildlandSub-1091579`), with onsets spread across
    2009, 2011, 2013, 2014 (×4), 2015, 2016, 2018, 2023 (×2), 2024 (×8), 2025 (×6) and 2026.
    A full load from 2009 across 35 DTW locations is a big backfill: at roughly 2-day pages,
@@ -392,7 +375,7 @@ which appear in this tenant today:
    BernCo wants before `initial_start_date` gets set. Build that backfill allowlist from
    historical parameter coverage, not current (see ObservedProperty above).
 
-7. **Where do `topic`, `is_provisional`, `is_continuous`, `measurement_method` and
+1. **Where do `topic`, `is_provisional`, `is_continuous`, `measurement_method` and
    `data_source` come from?** None appears in any source API. `ebid.md`,
    `san_acacia.md` and `pvacd_hydrovu.md` all raise versions of this; `is_continuous` is
    used as a `source_specific` key by two of them but is not documented in

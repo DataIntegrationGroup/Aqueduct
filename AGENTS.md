@@ -20,11 +20,11 @@ Each source is an independent pipeline with three stages:
 API → dlt → GCS (parquet) → Adapter → CanonicalBundle → FROST loader → FROST
 ```
 
-| Stage | Asset (HydroVu) | Asset (CABQ) |
+| Stage | Asset (PVACD HydroVu) | Asset (CABQ) |
 |---|---|---|
-| Ingest (dlt → GCS) | `raw_hydrovu_readings` | `raw_cabq_readings` |
-| Transform (GCS → CanonicalBundles) | `canonical_bundles_hydrovu` | `canonical_bundles_cabq` |
-| Load (CanonicalBundles → FROST) | `frost_load_hydrovu` | `frost_load_cabq` |
+| Ingest (dlt → GCS) | `raw_pvacd_hydrovu_readings` | `raw_cabq_readings` |
+| Transform (GCS → CanonicalBundles) | `canonical_bundles_pvacd_hydrovu` | `canonical_bundles_cabq` |
+| Load (CanonicalBundles → FROST) | `frost_load_pvacd_hydrovu` | `frost_load_cabq` |
 
 HydroVu is live; CABQ is scaffolded (`cabq_*` raise `NotImplementedError`). Use
 HydroVu as the reference implementation when wiring up a new source.
@@ -48,7 +48,7 @@ src/aqueduct_dagster/
 │   ├── pipeline.py        # build_source_pipeline() — shared dlt pipeline factory
 │   ├── http.py            # retry_transient(), TokenManager, BearerAuth, build_authenticated_client()
 │   └── source_registry.py # SOURCE_REGISTRY — single per-source config, read by definitions.py and load.py
-├── sources/        # one folder per agency source (vertical slice) — see hydrovu/ as the reference
+├── sources/        # one folder per source key (vertical slice) — see pvacd_hydrovu/ as the reference
 │   └── <name>/
 │       ├── adapter.py       # raw rows → CanonicalBundle (source-specific)
 │       ├── dlt_pipeline.py  # dlt source/resource/pipeline factory

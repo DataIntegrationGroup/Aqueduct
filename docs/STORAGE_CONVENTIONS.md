@@ -8,7 +8,7 @@ grows. When you add a source, a zone, or a partitioning scheme, update the
 [Changelog](#changelog) at the bottom.
 
 - **Status:** raw zone only, date-partitioned, 2 agencies (PVACD via HydroVu live; CABQ scaffolded)
-- **Last updated:** 2026-08-13
+- **Last updated:** 2026-08-28
 
 ---
 
@@ -18,16 +18,16 @@ grows. When you add a source, a zone, or a partitioning scheme, update the
 |---|---|---|
 | Bucket | lowercase, hyphen-delimited, `nmwdi-aqueduct-<env>` | `nmwdi-aqueduct-production` |
 | Zone prefix | `raw_` today; reserve `staging_` / `curated_` for later | `raw_` |
-| Dataset (top folder) | `raw_<agency>`, lowercase `snake_case` | `raw_pvacd` |
+| Dataset (top folder) | `raw_<source_key>`, lowercase `snake_case` | `raw_pvacd_hydrovu` |
 | Table (sub-folder) | `<source>_<entity>`, lowercase `snake_case` | `hydrovu_readings` |
 | Partition path | date-partitioned, Hive-style `key=value/` | `year=2024/month=06/day=18/` |
 | Data file | **dlt-managed — never hand-name** | `1781192390.555875.0.parquet` |
-| Control / sidecar file | leading underscore, not a data table | `_hydrovu_transform_watermark.json` |
+| Control / sidecar file | leading underscore, not a data table | `_pvacd_hydrovu_transform_watermark.json` |
 
 Three guiding rules that cover almost everything:
 
 1. **Lowercase + hyphens for buckets, lowercase + `snake_case` for everything inside.**
-2. **One folder = one logical thing.** A dataset is one agency; a table folder holds one source's entity; nothing else lives in it.
+2. **One folder = one logical thing.** A dataset is one agency's feed from one source system; a table folder holds one entity from it; nothing else lives in it.
 3. **Don't invent file names.** dlt owns the file names inside table folders. The only files you name by hand are underscore-prefixed control files.
 
 ---
@@ -39,7 +39,7 @@ and the pipeline factories:
 
 ```
 gs://nmwdi-aqueduct-production/          # the raw-zone bucket (one per environment)
-├── raw_pvacd/                           # agency PVACD — can hold several source tables
+├── raw_pvacd_hydrovu/                   # PVACD's HydroVu feed — source key `pvacd_hydrovu`
 │   ├── hydrovu_locations/               # HydroVu source: reference table (write_disposition="replace")
 │   │   └── year=2024/month=06/day=18/
 │   │       └── <load_id>.<file_id>.parquet
@@ -49,17 +49,22 @@ gs://nmwdi-aqueduct-production/          # the raw-zone bucket (one per environm
 │   ├── hydrovu_backfill_readings/       # HydroVu Mode A backfill: separate table, own dlt
 │   │   └── year=2024/month=06/day=18/   #   pipeline_name — never read by the normal scheduled
 │   │       └── <load_id>.<file_id>.parquet   #   transform, so it can't interfere with production
-│   ├── metermanager_readings/           # ← example: a 2nd PVACD source (not built yet)
-│   │   └── year=2024/month=06/day=18/
-│   │       └── <load_id>.<file_id>.parquet
-│   ├── _hydrovu_transform_watermark.json    # app sidecar: highest load_id transformed
+│   ├── _pvacd_hydrovu_transform_watermark.json    # app sidecar: highest load_id transformed
 │   ├── _backfill_checkpoints/           # one file per backfill run_key — completed chunks
-│   │   └── hydrovu-jan2026-repair.json  #   e.g. {"completed_chunks": ["<start>_<end>", ...]}
+│   │   └── pvacd_hydrovu-jan2026-repair.json  #   e.g. {"completed_chunks": ["<start>_<end>", ...]}
 │   └── _dlt_*                           # dlt control tables (state, loads, version)
-├── raw_pvacd_backfill/                  # NOT a real dlt dataset — just the isolated FROST
-│   └── _frost_watermarks.json           #   watermark file backfill jobs read/write, kept
-│                                         #   fully separate from raw_pvacd/_frost_watermarks.json
-└── raw_cabq/                            # agency CABQ (scaffolded)
+├── raw_pvacd_hydrovu_backfill/          # NOT a real dlt dataset — just the isolated FROST
+│   └── _frost_watermarks.json           #   watermark file backfill jobs read/write, kept fully
+│                                        #   separate from raw_pvacd_hydrovu/_frost_watermarks.json
+├── raw_bernco_hydrovu/                  # ← BernCo's HydroVu feed (not built yet). Same table
+│   └── hydrovu_readings/                #   names as PVACD's — the dataset is what separates them.
+│       └── year=2024/month=06/day=18/
+│           └── <load_id>.<file_id>.parquet
+├── raw_pvacd_metermanager/              # ← example: a 2nd PVACD source system (not built yet)
+│   └── metermanager_readings/
+│       └── year=2024/month=06/day=18/
+│           └── <load_id>.<file_id>.parquet
+└── raw_cabq/                            # CABQ, which exposes its data directly (scaffolded)
     └── cabq_readings/
         └── year=2024/month=06/day=18/
             └── <load_id>.<file_id>.parquet
@@ -70,7 +75,7 @@ dlt builds these paths from two settings:
 - `bucket_url` and the date-partitioned `layout` (see
   [Date partitioning](#date-partitioning)) in `.dlt/config.toml`. 
   `bucket_url` can be overridden by setting a `GCS_BUCKET_URL` env var
-- `dataset_name=` in each `build_pipeline()` (`raw_pvacd`, `raw_cabq`), which dlt
+- `dataset_name=` in each `build_pipeline()` (`raw_pvacd_hydrovu`, `raw_cabq`), which dlt
   prepends as the top-level folder.
 
 So every object lands at:
@@ -100,7 +105,7 @@ across tools:
     start rather than discovering the collision at provisioning time.
   - `env` — deployment context: `production`, `stage`, `dev`.
   - Agency scope is **not** in the bucket name — it lives in the dataset prefix
-    (`raw_pvacd`, `raw_cabq`), so one production bucket holds every agency's data.
+    (`raw_pvacd_hydrovu`, `raw_cabq`), so one production bucket holds every agency's data.
 
 One bucket per environment keeps IAM and lifecycle rules simple. Don't split a
 single logical dataset across multiple buckets.
@@ -122,23 +127,36 @@ it; when you do, reuse the same dataset/table rules below with the new prefix.
 
 ### Datasets (top-level folders)
 
-A dataset = one **agency** — the organization that owns the data (PVACD, CABQ).
-Name it `raw_<agency>`: `raw_pvacd`, `raw_cabq`, …
+A dataset = one **source key** — one agency's feed from one source system. Name it
+`raw_<source_key>`, using the same key as the `sources/<name>/` folder, the
+`[sources.<name>]` config block, and the `SOURCE_REGISTRY` entry:
+`raw_pvacd_hydrovu`, `raw_bernco_hydrovu`, `raw_cabq`, …
 
-An agency can expose data through **more than one source system** (HydroVu,
-MeterManager, a CKAN portal, …). All of an agency's sources live under that one
-agency dataset; the source name lives in the *table* prefix, not the dataset. So
-PVACD's HydroVu and (future) MeterManager feeds both sit under `raw_pvacd`:
+The source key itself is `<agency>_<source system>` when an agency's data arrives
+through a named third-party platform, and just `<agency>` when the agency exposes its
+data directly (hence `cabq`, not `cabq_cabq`).
+
+**Why the key and not the agency.** Two things are true at once, and only a
+source-keyed dataset covers both:
+
+- One agency, several source systems — PVACD via HydroVu and (future) MeterManager.
+- One source system, several agencies — HydroVu serves both PVACD and BernCo, on
+  separate tenants with separate credentials.
+
+Keying on the agency alone handles the first and collides on the second: both
+tenants' HydroVu feeds would want `hydrovu_readings` inside the same dataset. Keying
+on the source pair handles both, and gives each feed its own `_dlt_*` state, its own
+`_frost_watermarks.json`, and its own transform watermark with nothing shared:
 
 ```
-raw_pvacd/hydrovu_readings/
-raw_pvacd/metermanager_readings/
+raw_pvacd_hydrovu/hydrovu_readings/       # PVACD's HydroVu tenant
+raw_bernco_hydrovu/hydrovu_readings/      # BernCo's — same table name, different dataset
+raw_pvacd_metermanager/metermanager_readings/
 ```
 
-Each Dagster pipeline sets a `dataset_name`. When an agency gains a second
-source, that source's pipeline sets the **same** `dataset_name` as the agency
-(`raw_pvacd`) and just uses a distinct table name — multiple pipelines can share
-one agency dataset as long as their table names don't collide.
+Each Dagster pipeline sets its own `dataset_name`, and no two pipelines share one.
+That is the rule that makes a new tenant purely additive: nothing existing has to
+move to make room for it.
 
 ### Tables (sub-folders)
 
@@ -175,7 +193,7 @@ and lexically separated from real data:
 
 - `_dlt_loads`, `_dlt_pipeline_state`, `_dlt_version` — dlt's own bookkeeping.
   Treat as read-only; never edit or delete.
-- `_hydrovu_transform_watermark.json` — our sidecar tracking the highest
+- `_pvacd_hydrovu_transform_watermark.json` — our sidecar tracking the highest
   `load_id` already transformed.
 
 New app-managed state files follow the same pattern: `_<purpose>.json`, written
@@ -203,16 +221,16 @@ layout = "{table_name}/year={YYYY}/month={MM}/day={DD}/{load_id}.{file_id}.{ext}
 Which produces paths like:
 
 ```
-raw_pvacd/hydrovu_readings/year=2024/month=06/day=18/1781192390.555875.0.parquet
+raw_pvacd_hydrovu/hydrovu_readings/year=2024/month=06/day=18/1781192390.555875.0.parquet
 ```
 
 instead of the old flat form:
 
 ```
-raw_pvacd/hydrovu_readings/1781192390.555875.0.parquet
+raw_pvacd_hydrovu/hydrovu_readings/1781192390.555875.0.parquet
 ```
 
-**Watermark is unaffected.** `transform_hydrovu.py` derives its incremental
+**Watermark is unaffected.** `sources/pvacd_hydrovu/transform.py` derives its incremental
 watermark from the `load_id` embedded in the *filename*, not from the path —
 adding `year=`/`month=`/`day=` folders does not change which files it picks up,
 so no transform code change is needed.
@@ -232,20 +250,21 @@ so no transform code change is needed.
 
 ## Adding data — checklist
 
-**New source under an existing agency** (e.g. MeterManager for PVACD):
+Every new feed is the same checklist, whether it's a new agency, a new source system
+for an existing agency, or a second tenant on a source system already in use:
 
-1. Name each dlt resource `<source>_<entity>`; the GCS table folder inherits it.
-2. Set the pipeline's `dataset_name` to the **existing** agency dataset
-   (`raw_<agency>`). Pipelines can share it — just don't reuse a table name.
-3. Leave `bucket_url` and `layout` alone — they're shared.
-4. Any new state file → `_<purpose>.json` inside the agency dataset folder.
-5. Update [Current layout](#current-layout) and add a [Changelog](#changelog) line.
-
-**New agency** (a brand-new data provider):
-
-1. Pick the dataset name `raw_<agency>` and set `dataset_name="raw_<agency>"` in
-   that pipeline's `build_pipeline()`.
-2. Then follow steps 1 and 3–5 above for its first source.
+1. Pick the source key — `<agency>_<source system>`, or just `<agency>` if the agency
+   exposes its data directly. It names the `sources/<name>/` folder, the
+   `[sources.<name>]` config block, and the `SOURCE_REGISTRY` entry.
+2. Set `dataset_name="raw_<source_key>"` in that pipeline's `build_pipeline()`, and
+   the matching `dataset` in its `SOURCE_REGISTRY` entry. Never reuse another feed's
+   dataset.
+3. Name each dlt resource `<source>_<entity>`; the GCS table folder inherits it. Two
+   tenants on one platform use the **same** table names — their datasets already
+   separate them.
+4. Leave `bucket_url` and `layout` alone — they're shared.
+5. Any new state file → `_<purpose>.json` inside that feed's dataset folder.
+6. Update [Current layout](#current-layout) and add a [Changelog](#changelog) line.
 
 ---
 
@@ -259,3 +278,4 @@ so no transform code change is needed.
 | 2026-07-27 | Isolated the backfill job's FROST watermark from production's — added `raw_pvacd_backfill/_frost_watermarks.json`, a distinct file from `raw_pvacd/_frost_watermarks.json`, so a backfill run can no longer race with or silently advance the daily scheduled pipeline's own watermark. |
 | 2026-08-11 | Adopted the `nmwdi-` bucket prefix: the pattern is now `nmwdi-aqueduct-<env>` and the production bucket is `gs://nmwdi-aqueduct-production`. The unprefixed `aqueduct-production` referenced in earlier entries was never created — the name is held by another organization, and GCS bucket names are globally unique. `bucket_url` in `.dlt/config.toml` still points at `gs://aqueduct-poc-bravo-pvacd`; moving it is a separate ticket. |
 | 2026-08-13 | Production moved onto `gs://nmwdi-aqueduct-production` via `GCS_BUCKET_URL` on the Dagster+ full deployment; the committed `bucket_url` stays on `gs://aqueduct-poc-bravo-pvacd` so local runs cannot default to production. Production started **empty** — no data was copied — so dlt cursors restarted from `initial_start_date` and raw parquet from before this date exists only in the POC bucket. |
+| 2026-08-28 | Datasets are now keyed on the **source key**, `raw_<source_key>`, not on the agency (ST2DAT-241). `raw_pvacd` became `raw_pvacd_hydrovu`, and BernCo's HydroVu tenant will land at `raw_bernco_hydrovu`. The old agency rule could not express two agencies on one source system: both tenants' HydroVu feeds would have wanted `hydrovu_readings` in one dataset. Table names are unchanged — `hydrovu_readings` and `hydrovu_locations` stay as they are under both tenants. Nothing was copied: `raw_pvacd/` is left in place, orphaned, and the renamed dataset starts empty, so PVACD's dlt cursors restarted from `initial_start_date`. |
