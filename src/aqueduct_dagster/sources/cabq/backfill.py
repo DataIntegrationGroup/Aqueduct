@@ -44,6 +44,11 @@ def cabq_backfill_readings(
     start_ts: int,
     end_ts: int,
 ) -> Iterator[dict]:
+    """
+    Yields a flat record per location within the time range [start_ts, end_ts].
+    No persisted cursor, every call is explicit in its time range.
+    Raises RuntimeError if backfill failed.
+    """
     allowed = frozenset(location_ids)
     for location in locations:
         loc_id = location["sys_loc_code"]
@@ -73,6 +78,9 @@ def cabq_backfill_readings(
 
 
 def _locations_by_id(locations: list[dict]) -> dict[str, dict]:
+    """
+    Converts list of locations into dict with location id as key
+    """
     return {
         loc["sys_loc_code"]: {
             "name": loc["loc_name"],
@@ -84,10 +92,17 @@ def _locations_by_id(locations: list[dict]) -> dict[str, dict]:
 
 
 def default_backfill_location_ids() -> list[str]:
+    """
+    Loads allowed list for locations ids from .dlt/config.toml
+    An empty list implies pull from all locations
+    """
     return list(load_source_config("cabq").get("location_ids", []))
 
 
 def prepare_backfill() -> tuple[httpx.Client, list[dict], dict[str, dict]]:
+    """
+    One time setup, gets location info from source for all locations
+    """
     cfg = load_source_config("cabq")
     client = build_cabq_client(cfg["api_base_url"])
     try:
@@ -119,6 +134,11 @@ def run_backfill_chunk(
     fs: gcsfs.GCSFileSystem,
     run_key: str,
 ) -> ChunkResult:
+    """
+    Runs ingest + transform + load for all data from source within provided time range.
+    Each step reuses code implementation from other cabq asset implementations.
+    Raises on any failure in any stage.
+    """
     start_ts = int(chunk_start.timestamp())
     end_ts = int(chunk_end.timestamp())
 
