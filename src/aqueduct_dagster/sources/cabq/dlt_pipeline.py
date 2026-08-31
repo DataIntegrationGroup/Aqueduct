@@ -144,28 +144,18 @@ def _fetch_readings_for_location(
     while True:
 
         def _fetch_readings() -> httpx.Response:
-            # query for location code = given location id for measurement info
-            if end_time is None:
-                return client.get(
-                    "/query?where=sys_loc_code%3D'"
-                    + loc_id
-                    + "'+AND+measurement_date%3E%3D'"
-                    # take unix timestamp in seconds and produce date in format YYYY-MM-DD
-                    + datetime.fromtimestamp(start_time, tz=UTC).strftime("%Y-%m-%d")
-                    + "'&outfields=measurement_date,water_depth&f=pjson"
-                )
-            else:
-                return client.get(
-                    "/query?where=sys_loc_code%3D'"
-                    + loc_id
-                    + "'+AND+measurement_date%3E%3D'"
-                    # take unix timestamp in seconds and produce date in format YYYY-MM-DD
-                    + datetime.fromtimestamp(start_time, tz=UTC).strftime("%Y-%m-%d")
-                    + "'+AND+measurement_date%3C%3D'"
-                    # take unix timestamp in seconds and produce date in format YYYY-MM-DD
-                    + datetime.fromtimestamp(end_time, tz=UTC).strftime("%Y-%m-%d")
-                    + "'&outfields=measurement_date,water_depth&f=pjson"
-                )
+            query = (
+                "/query?where=sys_loc_code%3D'"
+                + loc_id
+                + "'+AND+measurement_date%3E%3D'"
+                + datetime.fromtimestamp(start_time, tz=UTC).strftime("%Y-%m-%d")
+            )
+            if end_time is not None:
+                query += "'+AND+measurement_date%3C%3D'" + datetime.fromtimestamp(
+                    end_time, tz=UTC
+                ).strftime("%Y-%m-%d")
+            query += "'&outfields=measurement_date,water_depth&f=pjson"
+            return client.get(query)
 
         try:
             resp = retry_transient(

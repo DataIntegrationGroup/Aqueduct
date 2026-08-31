@@ -93,7 +93,13 @@ def prepare_backfill() -> tuple[httpx.Client, list[dict], dict[str, dict]]:
     try:
         locations, err = _fetch_locations(client)
         if locations is None:
-            raise RuntimeError("Backfill fetch failed for to receive locations")
+            logger.error("No locations found")
+            client.close()
+            raise
+        if err is not None:
+            logger.error("Error fetching locations %s", err)
+            client.close()
+            raise
     except Exception:
         client.close()
         raise
