@@ -57,10 +57,12 @@ class TestFetchLocations:
     def test_hits_correct_endpoint(self):
         client, calls = _client_with_responses([httpx.Response(200, json=LOCATIONS_RESPONSE)])
         _fetch_locations(client)
-        assert (
-            str(calls[0].url)
-            == "https://api/query?where=OBJECTID%3E0&outFields=sys_loc_code,loc_name,latitude,longitude&returnDistinctValues=true&f=pjson"
-        )
+        assert calls[0].url.path == "/query"
+        assert calls[0].url.path == "/query"
+        assert calls[0].url.params["f"] == "pjson"
+        assert calls[0].url.params["returnDistinctValues"] == "true"
+        assert calls[0].url.params["outfields"] == "sys_loc_code,loc_name,latitude,longitude"
+        assert calls[0].url.params["where"] == "OBJECTID>0"
 
 
 # -- _fetch_readings_for_location --

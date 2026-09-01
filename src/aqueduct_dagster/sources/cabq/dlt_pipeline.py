@@ -78,15 +78,19 @@ def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | Non
         "longitude": num        *longitude coordinate for location
     }
     """
+    path = "/query"
+    params = {
+        "where": "OBJECTID>0",
+        "outfields": "sys_loc_code,loc_name,latitude,longitude",
+        "returnDistinctValues": "true",
+        "f": "pjson",
+    }
     rate_limit_retries = 0
     result: dict[Any, Any] = {}
     while True:
 
         def _fetch_location_info() -> httpx.Response:
-            # query for OBJECTID > 0, aka all entries, for unique location info
-            return client.get(
-                "/query?where=OBJECTID%3E0&outFields=sys_loc_code,loc_name,latitude,longitude&returnDistinctValues=true&f=pjson"
-            )
+            return client.get(path, params=params)
 
         try:
             resp = retry_transient(
