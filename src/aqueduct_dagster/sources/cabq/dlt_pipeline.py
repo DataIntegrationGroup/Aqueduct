@@ -147,13 +147,13 @@ def _fetch_readings_for_location(
     query = (
         "sys_loc_code='"
         + loc_id
-        + "'+AND+measurement_date>='"
+        + "' AND measurement_date>='"
         + datetime.fromtimestamp(start_time, tz=UTC).strftime("%Y-%m-%d")
         + "'"
     )
     if end_time is not None:
         query += (
-            "+AND+measurement_date<='"
+            " AND measurement_date<='"
             + datetime.fromtimestamp(end_time, tz=UTC).strftime("%Y-%m-%d")
             + "'"
         )

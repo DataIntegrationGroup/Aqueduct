@@ -108,7 +108,7 @@ class TestFetchReadings:
         assert calls[0].url.params["f"] == "pjson"
         assert calls[0].url.params["outfields"] == "measurement_date,water_depth"
         assert (
-            calls[0].url.params["where"] == "sys_loc_code='IW4'+AND+measurement_date>='2014-01-30'"
+            calls[0].url.params["where"] == "sys_loc_code='IW4' AND measurement_date>='2014-01-30'"
         )
 
     def test_endtime_hits_correct_endpoint(self):
@@ -123,7 +123,7 @@ class TestFetchReadings:
         assert calls[0].url.params["outfields"] == "measurement_date,water_depth"
         assert (
             calls[0].url.params["where"]
-            == "sys_loc_code='IW4'+AND+measurement_date>='2014-01-30'+AND+measurement_date<='2015-02-03'"
+            == "sys_loc_code='IW4' AND measurement_date>='2014-01-30' AND measurement_date<='2015-02-03'"
         )
 
     def test_raises_on_unexpected_4xx(self):
