@@ -42,7 +42,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, Protocol
 
 import dlt
 import gcsfs
@@ -59,6 +59,12 @@ _DATE_FORMAT = "%Y-%m-%d"
 # Matches a trailing _YYYYMMDDTHHMMSSZ segment already appended by attach_run_timestamp().
 _RUN_KEY_TIMESTAMP_RE = re.compile(r"_\d{8}T\d{6}Z$")
 _UNSAFE_PIPELINE_NAME_CHARS = re.compile(r"[^A-Za-z0-9_-]")
+
+
+class _Orderable(Protocol):
+    """Anything sortable — int, str, and most other natural id types satisfy this."""
+
+    def __lt__(self, other: Any) -> bool: ...
 
 
 @dataclass
@@ -238,7 +244,9 @@ def load_bundles_windowed(
     return posted, deleted
 
 
-def resolve_location_ids(location_ids: list[int], locations_by_id: dict[int, dict]) -> list[int]:
+def resolve_location_ids[T: _Orderable](
+    location_ids: list[T], locations_by_id: dict[T, dict]
+) -> list[T]:
     """
     Empty location_ids means "every location the API returns" (locations_by_id);
     otherwise raises ValueError listing any id not in locations_by_id, instead
@@ -255,7 +263,9 @@ def resolve_location_ids(location_ids: list[int], locations_by_id: dict[int, dic
     return location_ids
 
 
-def chunk_key(chunk_start: datetime, chunk_end: datetime, location_ids: list[int]) -> str:
+def chunk_key[T: _Orderable](
+    chunk_start: datetime, chunk_end: datetime, location_ids: list[T]
+) -> str:
     """
     Canonical string key for a chunk window + entity list — used by
     BackfillCheckpointStore and logging.
@@ -316,13 +326,13 @@ class BackfillCheckpointStore:
             logger.info("No backfill checkpoint at %s — starting fresh", self._path)
         return self._completed
 
-    def is_complete(
-        self, chunk_start: datetime, chunk_end: datetime, location_ids: list[int]
+    def is_complete[T: _Orderable](
+        self, chunk_start: datetime, chunk_end: datetime, location_ids: list[T]
     ) -> bool:
         return chunk_key(chunk_start, chunk_end, location_ids) in self._load()
 
-    def mark_complete(
-        self, chunk_start: datetime, chunk_end: datetime, location_ids: list[int]
+    def mark_complete[T: _Orderable](
+        self, chunk_start: datetime, chunk_end: datetime, location_ids: list[T]
     ) -> None:
         completed = self._load()
         completed.add(chunk_key(chunk_start, chunk_end, location_ids))
