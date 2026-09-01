@@ -102,9 +102,11 @@ class TestFetchReadings:
             datetime.strptime("2014-01-30", "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
         )
         _fetch_readings_for_location(client, loc_id="IW4", start_time=start_time)
+        assert calls[0].url.path == "/query"
+        assert calls[0].url.params["f"] == "pjson"
+        assert calls[0].url.params["outfields"] == "measurement_date,water_depth"
         assert (
-            calls[0].url
-            == "https://api/query?where=sys_loc_code%3D'IW4'+AND+measurement_date%3E%3D'2014-01-30'&outfields=measurement_date,water_depth&f=pjson"
+            calls[0].url.params["where"] == "sys_loc_code='IW4'+AND+measurement_date>='2014-01-30'"
         )
 
     def test_endtime_hits_correct_endpoint(self):
@@ -114,9 +116,12 @@ class TestFetchReadings:
         )
         end_time = int(datetime.strptime("2015-02-03", "%Y-%m-%d").replace(tzinfo=UTC).timestamp())
         _fetch_readings_for_location(client, loc_id="IW4", start_time=start_time, end_time=end_time)
+        assert calls[0].url.path == "/query"
+        assert calls[0].url.params["f"] == "pjson"
+        assert calls[0].url.params["outfields"] == "measurement_date,water_depth"
         assert (
-            calls[0].url
-            == "https://api/query?where=sys_loc_code%3D'IW4'+AND+measurement_date%3E%3D'2014-01-30'+AND+measurement_date%3C%3D'2015-02-03'&outfields=measurement_date,water_depth&f=pjson"
+            calls[0].url.params["where"]
+            == "sys_loc_code='IW4'+AND+measurement_date>='2014-01-30'+AND+measurement_date<='2015-02-03'"
         )
 
     def test_raises_on_unexpected_4xx(self):

@@ -139,23 +139,31 @@ def _fetch_readings_for_location(
         water_depth: num, *water level in ft msl
     }
     """
+    path = "/query"
+    query = (
+        "sys_loc_code='"
+        + loc_id
+        + "'+AND+measurement_date>='"
+        + datetime.fromtimestamp(start_time, tz=UTC).strftime("%Y-%m-%d")
+        + "'"
+    )
+    if end_time is not None:
+        query += (
+            "+AND+measurement_date<='"
+            + datetime.fromtimestamp(end_time, tz=UTC).strftime("%Y-%m-%d")
+            + "'"
+        )
+    params = {
+        "where": query,
+        "outfields": "measurement_date,water_depth",
+        "f": "pjson",
+    }
     rate_limit_retries = 0
     result: dict[Any, Any] = {}
     while True:
 
         def _fetch_readings() -> httpx.Response:
-            query = (
-                "/query?where=sys_loc_code%3D'"
-                + loc_id
-                + "'+AND+measurement_date%3E%3D'"
-                + datetime.fromtimestamp(start_time, tz=UTC).strftime("%Y-%m-%d")
-            )
-            if end_time is not None:
-                query += "'+AND+measurement_date%3C%3D'" + datetime.fromtimestamp(
-                    end_time, tz=UTC
-                ).strftime("%Y-%m-%d")
-            query += "'&outfields=measurement_date,water_depth&f=pjson"
-            return client.get(query)
+            return client.get(path, params=params)
 
         try:
             resp = retry_transient(
