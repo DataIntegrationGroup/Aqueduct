@@ -25,7 +25,7 @@ from pydantic import ValidationError
 from aqueduct_dagster.defs.jobs.backfill import (
     BackfillRefetchConfig,
     CabqBackfillRefetchConfig,
-    HydroVuBackfillRefetchConfig,
+    PvacdHydroVuBackfillRefetchConfig,
     _make_backfill_refetch_job,
 )
 
@@ -148,7 +148,7 @@ def test_already_timestamped_run_key_is_left_unchanged():
 #    shared, non-generic location_ids type).
 
 _LOCATION_ID_CASES = [
-    pytest.param(HydroVuBackfillRefetchConfig, 111, id="hydrovu"),
+    pytest.param(PvacdHydroVuBackfillRefetchConfig, 111, id="pvacd_hydrovu"),
     pytest.param(CabqBackfillRefetchConfig, "IW4", id="cabq"),
 ]
 

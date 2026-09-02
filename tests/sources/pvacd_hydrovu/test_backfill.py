@@ -206,7 +206,7 @@ def test_default_backfill_location_ids_raises_on_missing_config(mock_cfg):
     environment, not an intentional "backfill everything" choice — instead
     of silently falling back to [] and widening a reviewed allowlist into
     "backfill everything" at Dagster's definitions-load time (see
-    HydroVuBackfillRefetchConfig).
+    PvacdHydroVuBackfillRefetchConfig).
     """
     mock_cfg.side_effect = FileNotFoundError("no .dlt/config.toml")
     with pytest.raises(FileNotFoundError):

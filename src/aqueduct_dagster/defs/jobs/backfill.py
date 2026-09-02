@@ -20,7 +20,7 @@ BackfillRefetchConfig holds every field common to all sources (start_date,
 end_date, run_key, dry_run), prefilled with example values, plus validation
 (date format/order, and an auto-attached run_key timestamp). location_ids is
 also shared, but its default differs per source — a per-source subclass (e.g.
-HydroVuBackfillRefetchConfig) only overrides that one field's default, since
+PvacdHydroVuBackfillRefetchConfig) only overrides that one field's default, since
 that's the only thing a new source needs to customize.
 """
 
@@ -79,7 +79,7 @@ class BackfillRefetchConfig[LocationId](Config):
     as-is (dry_run: true).
 
     Fields here are common to every source. Per-source subclasses (e.g.
-    HydroVuBackfillRefetchConfig below) parameterize LocationId with their own
+    PvacdHydroVuBackfillRefetchConfig below) parameterize LocationId with their own
     concrete id type and override location_ids' default; everything else is
     inherited. Validation lives in shared/backfill.py as plain, Dagster-free
     functions so Mode B (replay) can reuse it too.
@@ -313,12 +313,14 @@ def _make_backfill_refetch_job(
     return _job
 
 
-class HydroVuBackfillRefetchConfig(BackfillRefetchConfig[int]):
+class PvacdHydroVuBackfillRefetchConfig(BackfillRefetchConfig[int]):
     """
     pvacd_hydrovu_backfill_refetch's run configuration. Only overrides
-    location_ids' default (HydroVu's own known-good allowlist, read at
-    import time via default_backfill_location_ids()) — every other field is
-    inherited unchanged from BackfillRefetchConfig.
+    location_ids' default (PVACD's own known-good allowlist, read at import
+    time via default_backfill_location_ids()) — every other field is inherited
+    unchanged from BackfillRefetchConfig. Tenant-scoped, not vendor-scoped: a
+    second HydroVu tenant gets its own subclass reading its own allowlist, it
+    does not reuse this one.
     """
 
     location_ids: list[int] = Field(
@@ -336,7 +338,7 @@ pvacd_hydrovu_backfill_refetch = _make_backfill_refetch_job(
     _pvacd_hydrovu_registry_cfg["dataset"],
     pvacd_hydrovu_prepare_backfill,
     pvacd_hydrovu_run_backfill_chunk,
-    HydroVuBackfillRefetchConfig,
+    PvacdHydroVuBackfillRefetchConfig,
 )
 
 
