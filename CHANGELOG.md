@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.4.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.3.0...Aqueduct-v0.4.0) (2026-09-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* rename hydrovu source to pvacd_hydrovu for multi-tenant layout (ST2DAT-241) ([#47](https://github.com/DataIntegrationGroup/Aqueduct/issues/47))
+
+### Features
+
+* **cabq:** cabq backfill implementation ([#48](https://github.com/DataIntegrationGroup/Aqueduct/issues/48)) ([9aa6e15](https://github.com/DataIntegrationGroup/Aqueduct/commit/9aa6e15c574861c253cd26a3426de40edce4360c))
+
+
+### Documentation
+
+* document BernCo HydroVu source schema (ST2DAT-129) ([#46](https://github.com/DataIntegrationGroup/Aqueduct/issues/46)) ([afd8391](https://github.com/DataIntegrationGroup/Aqueduct/commit/afd8391faf1597fb05ad259da324c2af21887f6c))
+* document EBID source mapping (ST2DAT-135) ([#44](https://github.com/DataIntegrationGroup/Aqueduct/issues/44)) ([500b288](https://github.com/DataIntegrationGroup/Aqueduct/commit/500b28807ee9b5fdcc802c37ab906cb701b9005d))
+
+
+### Code Refactoring
+
+* rename hydrovu source to pvacd_hydrovu for multi-tenant layout (ST2DAT-241) ([#47](https://github.com/DataIntegrationGroup/Aqueduct/issues/47)) ([f590f70](https://github.com/DataIntegrationGroup/Aqueduct/commit/f590f70a28bf5e21ffc8d2e767c56043586911d6))
+
 ## [0.3.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.2.0...Aqueduct-v0.3.0) (2026-08-19)
 
 
