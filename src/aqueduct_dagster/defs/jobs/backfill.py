@@ -3,12 +3,12 @@ defs/jobs/backfill.py
 
 Mode A (refetch) backfill jobs — see docs/BACKFILL_STRATEGY.md §4.2, §4.5.
 
-pvacd_hydrovu_backfill_refetch is the first of these (ST2DAT-202). The job is built
-by a small factory (_make_backfill_refetch_job) parameterized by the same
-per-source prepare_backfill()/run_backfill_chunk() shape every source's
-backfill.py exposes (see sources/pvacd_hydrovu/backfill.py) — so a future source
-only needs its own sources/<name>/backfill.py plus one more call to the
-factory here, no other job-wiring changes. Only pvacd_hydrovu is wired for now.
+One <source>_backfill_refetch job per source, each built by a small
+factory (_make_backfill_refetch_job) parameterized by the same per-source
+prepare_backfill()/run_backfill_chunk() shape every source's backfill.py exposes
+(see sources/pvacd_hydrovu/backfill.py for a reference implementation). A new
+source needs only its own sources/<name>/backfill.py plus one more call to the
+factory at the bottom of this file; no other job-wiring changes.
 
 Not a Dagster asset job — this is a plain @job of one @op, driven entirely by
 run configuration (BackfillRefetchConfig), matching how an operator actually
@@ -26,7 +26,7 @@ that's the only thing a new source needs to customize.
 
 import logging
 from collections.abc import Callable
-from typing import cast
+from typing import Any, cast
 
 import httpx
 from dagster import Config, JobDefinition, MetadataValue, OpDefinition, OpExecutionContext, job, op
@@ -46,19 +46,32 @@ from aqueduct_dagster.shared.backfill import (
 )
 from aqueduct_dagster.shared.gcs import _gcs_bucket_url, _gcs_filesystem
 from aqueduct_dagster.shared.source_registry import SOURCE_REGISTRY
+from aqueduct_dagster.sources.cabq.backfill import (
+    default_backfill_location_ids as cabq_default_backfill_location_ids,
+)
+from aqueduct_dagster.sources.cabq.backfill import (
+    prepare_backfill as cabq_prepare_backfill,
+)
+from aqueduct_dagster.sources.cabq.backfill import (
+    run_backfill_chunk as cabq_run_backfill_chunk,
+)
 from aqueduct_dagster.sources.pvacd_hydrovu.backfill import (
-    default_backfill_location_ids,
-    prepare_backfill,
-    run_backfill_chunk,
+    default_backfill_location_ids as pvacd_hydrovu_default_backfill_location_ids,
+)
+from aqueduct_dagster.sources.pvacd_hydrovu.backfill import (
+    prepare_backfill as pvacd_hydrovu_prepare_backfill,
+)
+from aqueduct_dagster.sources.pvacd_hydrovu.backfill import (
+    run_backfill_chunk as pvacd_hydrovu_run_backfill_chunk,
 )
 
 logger = logging.getLogger(__name__)
 
-PrepareBackfillFn = Callable[[], tuple[httpx.Client, list[dict], dict[int, dict]]]
+PrepareBackfillFn = Callable[[], tuple[httpx.Client, list[dict], dict[Any, dict]]]
 RunBackfillChunkFn = Callable[..., ChunkResult]
 
 
-class BackfillRefetchConfig(Config):
+class BackfillRefetchConfig[LocationId](Config):
     """
     Run configuration for a <source>_backfill_refetch job, filled in via the
     Dagster Launchpad — see docs/BACKFILL_STRATEGY.md §5.2. Prefilled with
@@ -66,12 +79,13 @@ class BackfillRefetchConfig(Config):
     as-is (dry_run: true).
 
     Fields here are common to every source. Per-source subclasses (e.g.
-    HydroVuBackfillRefetchConfig below) only override location_ids' default;
-    everything else is inherited. Validation lives in shared/backfill.py as
-    plain, Dagster-free functions so Mode B (replay) can reuse it too.
+    HydroVuBackfillRefetchConfig below) parameterize LocationId with their own
+    concrete id type and override location_ids' default; everything else is
+    inherited. Validation lives in shared/backfill.py as plain, Dagster-free
+    functions so Mode B (replay) can reuse it too.
     """
 
-    location_ids: list[int] = Field(
+    location_ids: list[LocationId] = Field(
         default=[],
         description="Location/entity IDs to backfill. Leave empty (the "
         "default) to backfill every location the source's API returns — "
@@ -115,7 +129,12 @@ def _make_backfill_refetch_op(
     dataset: str,
     prepare_fn: PrepareBackfillFn,
     run_chunk_fn: RunBackfillChunkFn,
-    config_cls: type[BackfillRefetchConfig] = BackfillRefetchConfig,
+    # [int] is an arbitrary concrete choice for callers that omit config_cls
+    # (only tests/defs/jobs/test_backfill.py's generic factory-level tests do
+    # this) — every real source always passes its own concrete subclass
+    # explicitly (see the per-source BackfillRefetchConfig subclasses
+    # below), so the id type here is never actually exercised.
+    config_cls: type[BackfillRefetchConfig] = BackfillRefetchConfig[int],
 ) -> OpDefinition:
     """
     Builds the op behind <name>_backfill_refetch:
@@ -193,10 +212,11 @@ def _make_backfill_refetch_op(
                 bucket = _gcs_bucket_url().replace("gs://", "")
                 fs = _gcs_filesystem()
                 checkpoints = BackfillCheckpointStore(fs, bucket, dataset, run_key=cfg.run_key)
-                # Separate FROST watermark file from production's
-                # (raw_pvacd_hydrovu/_frost_watermarks.json), same isolation principle as the
-                # separate GCS raw table (hydrovu_backfill_readings vs hydrovu_readings) —
-                # so a backfill run can never race with, or clobber, the daily scheduled
+                # Separate FROST watermark file from production's (e.g.
+                # raw_pvacd_hydrovu/_frost_watermarks.json), same isolation principle as
+                # the separate GCS raw table each source's backfill.py writes to
+                # (hydrovu_backfill_readings vs hydrovu_readings, for pvacd_hydrovu) — so
+                # a backfill run can never race with, or clobber, the daily scheduled
                 # pipeline's own watermark state.
                 #
                 # Known limitation this trades away: if this backfill is repairing an
@@ -273,7 +293,12 @@ def _make_backfill_refetch_job(
     dataset: str,
     prepare_fn: PrepareBackfillFn,
     run_chunk_fn: RunBackfillChunkFn,
-    config_cls: type[BackfillRefetchConfig] = BackfillRefetchConfig,
+    # [int] is an arbitrary concrete choice for callers that omit config_cls
+    # (only tests/defs/jobs/test_backfill.py's generic factory-level tests do
+    # this) — every real source always passes its own concrete subclass
+    # explicitly (see the per-source BackfillRefetchConfig subclasses at the
+    # bottom of this file), so the id type here is never actually exercised.
+    config_cls: type[BackfillRefetchConfig] = BackfillRefetchConfig[int],
 ) -> JobDefinition:
     op_fn = _make_backfill_refetch_op(name, dataset, prepare_fn, run_chunk_fn, config_cls)
 
@@ -288,7 +313,7 @@ def _make_backfill_refetch_job(
     return _job
 
 
-class HydroVuBackfillRefetchConfig(BackfillRefetchConfig):
+class HydroVuBackfillRefetchConfig(BackfillRefetchConfig[int]):
     """
     pvacd_hydrovu_backfill_refetch's run configuration. Only overrides
     location_ids' default (HydroVu's own known-good allowlist, read at
@@ -297,7 +322,7 @@ class HydroVuBackfillRefetchConfig(BackfillRefetchConfig):
     """
 
     location_ids: list[int] = Field(
-        default=default_backfill_location_ids(),
+        default=pvacd_hydrovu_default_backfill_location_ids(),
         description="HydroVu location IDs to backfill. Defaults to the "
         "daily pipeline's own allowlist (.dlt/config.toml "
         "[sources.pvacd_hydrovu].location_ids). Leave empty to backfill every "
@@ -309,7 +334,24 @@ _pvacd_hydrovu_registry_cfg = next(cfg for cfg in SOURCE_REGISTRY if cfg["name"]
 pvacd_hydrovu_backfill_refetch = _make_backfill_refetch_job(
     _pvacd_hydrovu_registry_cfg["name"],
     _pvacd_hydrovu_registry_cfg["dataset"],
-    prepare_backfill,
-    run_backfill_chunk,
+    pvacd_hydrovu_prepare_backfill,
+    pvacd_hydrovu_run_backfill_chunk,
     HydroVuBackfillRefetchConfig,
+)
+
+
+class CabqBackfillRefetchConfig(BackfillRefetchConfig[str]):
+    location_ids: list[str] = Field(
+        default=cabq_default_backfill_location_ids(),
+        description="CABQ location IDs to backfill. Leave empty to backfill every location the API returns instead.",
+    )
+
+
+_cabq_registry_cfg = next(cfg for cfg in SOURCE_REGISTRY if cfg["name"] == "cabq")
+cabq_backfill_refetch = _make_backfill_refetch_job(
+    _cabq_registry_cfg["name"],
+    _cabq_registry_cfg["dataset"],
+    cabq_prepare_backfill,
+    cabq_run_backfill_chunk,
+    CabqBackfillRefetchConfig,
 )

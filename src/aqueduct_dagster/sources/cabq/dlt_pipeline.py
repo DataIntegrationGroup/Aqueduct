@@ -78,15 +78,19 @@ def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | Non
         "longitude": num        *longitude coordinate for location
     }
     """
+    path = "/query"
+    params = {
+        "where": "OBJECTID>0",
+        "outfields": "sys_loc_code,loc_name,latitude,longitude",
+        "returnDistinctValues": "true",
+        "f": "pjson",
+    }
     rate_limit_retries = 0
     result: dict[Any, Any] = {}
     while True:
 
         def _fetch_location_info() -> httpx.Response:
-            # query for OBJECTID > 0, aka all entries, for unique location info
-            return client.get(
-                "/query?where=OBJECTID%3E0&outFields=sys_loc_code,loc_name,latitude,longitude&returnDistinctValues=true&f=pjson"
-            )
+            return client.get(path, params=params)
 
         try:
             resp = retry_transient(
@@ -129,7 +133,7 @@ def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | Non
 
 
 def _fetch_readings_for_location(
-    client: httpx.Client, loc_id: str, loc_start: int
+    client: httpx.Client, loc_id: str, start_time: int, end_time: int | None = None
 ) -> tuple[list[dict] | None, str | None]:
     """
     get reading information for location from CABQ
@@ -139,20 +143,31 @@ def _fetch_readings_for_location(
         water_depth: num, *water level in ft msl
     }
     """
+    path = "/query"
+    query = (
+        "sys_loc_code='"
+        + loc_id
+        + "' AND measurement_date>='"
+        + datetime.fromtimestamp(start_time, tz=UTC).strftime("%Y-%m-%d")
+        + "'"
+    )
+    if end_time is not None:
+        query += (
+            " AND measurement_date<='"
+            + datetime.fromtimestamp(end_time, tz=UTC).strftime("%Y-%m-%d")
+            + "'"
+        )
+    params = {
+        "where": query,
+        "outfields": "measurement_date,water_depth",
+        "f": "pjson",
+    }
     rate_limit_retries = 0
     result: dict[Any, Any] = {}
     while True:
 
         def _fetch_readings() -> httpx.Response:
-            # query for location code = given location id for measurement info
-            return client.get(
-                "/query?where=sys_loc_code%3D'"
-                + loc_id
-                + "'+AND+measurement_date%3E%3D'"
-                # take unix timestamp in seconds and produce date in format YYYY-MM-DD
-                + datetime.fromtimestamp(loc_start, tz=UTC).strftime("%Y-%m-%d")
-                + "'&outfields=measurement_date,water_depth&f=pjson"
-            )
+            return client.get(path, params=params)
 
         try:
             resp = retry_transient(
@@ -200,7 +215,28 @@ def _fetch_readings_for_location(
         resp.raise_for_status()
         result = resp.json()
         break
-    return _transform_result(result), None
+
+    rows = _transform_result(result)
+    if end_time is not None:
+        # The API's measurement_date query only accepts date literals (see
+        # _fetch_readings() above), so it's inclusive of the entire end date —
+        # a reading exactly at end_time's midnight instant would otherwise pass
+        # this query but violate the strict half-open [start, end) window
+        # load_window() (loader/frost_loader.py) enforces. Trim it client-side
+        # on the exact millisecond timestamp, mirroring hydrovu_dlt_pipeline's
+        # _fetch_location_data end_time handling. measurement_date is epoch
+        # milliseconds; end_time is epoch seconds (see cabq_backfill_readings).
+        rows = [row for row in rows if row["measurement_date"] < end_time * 1000]
+    return rows, None
+
+
+def build_cabq_client(
+    api_base_url: str,
+) -> httpx.Client:
+    client = build_unauthenticated_client(
+        api_base_url, timeout=httpx.Timeout(connect=30.0, read=60.0, write=30.0, pool=30.0)
+    )
+    return client
 
 
 @dlt.source(name="cabq")
@@ -212,10 +248,7 @@ def cabq_source(
     start_ts = int(
         datetime.strptime(initial_start_date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
     )
-    client = build_unauthenticated_client(
-        api_base_url, timeout=httpx.Timeout(connect=30.0, read=60.0, write=30.0, pool=30.0)
-    )
-    return cabq_readings(client=client, start_ts=start_ts, _stats=_stats)
+    return cabq_readings(client=build_cabq_client(api_base_url), start_ts=start_ts, _stats=_stats)
 
 
 @dlt.resource(
