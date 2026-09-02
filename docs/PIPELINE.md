@@ -15,33 +15,33 @@ HydroVu API → dlt → GCS (parquet) → Adapter → CanonicalBundle → FROST 
 
 | Stage | Dagster asset | Code |
 |---|---|---|
-| 1. Ingest | `raw_hydrovu_readings` | [sources/hydrovu/ingest.py](../src/aqueduct_dagster/sources/hydrovu/ingest.py), [dlt_pipeline.py](../src/aqueduct_dagster/sources/hydrovu/dlt_pipeline.py) |
-| 2. Transform | `canonical_bundles_hydrovu` | [sources/hydrovu/transform.py](../src/aqueduct_dagster/sources/hydrovu/transform.py), [adapter.py](../src/aqueduct_dagster/sources/hydrovu/adapter.py) |
-| 3. Load | `frost_load_hydrovu` | [defs/assets/load.py](../src/aqueduct_dagster/defs/assets/load.py), [loader/frost_loader.py](../src/aqueduct_dagster/loader/frost_loader.py) |
+| 1. Ingest | `raw_pvacd_hydrovu_readings` | [sources/pvacd_hydrovu/ingest.py](../src/aqueduct_dagster/sources/pvacd_hydrovu/ingest.py), [dlt_pipeline.py](../src/aqueduct_dagster/sources/pvacd_hydrovu/dlt_pipeline.py) |
+| 2. Transform | `canonical_bundles_pvacd_hydrovu` | [sources/pvacd_hydrovu/transform.py](../src/aqueduct_dagster/sources/pvacd_hydrovu/transform.py), [adapter.py](../src/aqueduct_dagster/sources/pvacd_hydrovu/adapter.py) |
+| 3. Load | `frost_load_pvacd_hydrovu` | [defs/assets/load.py](../src/aqueduct_dagster/defs/assets/load.py), [loader/frost_loader.py](../src/aqueduct_dagster/loader/frost_loader.py) |
 
-One job (`hydrovu_pipeline`), one daily schedule (`hydrovu_schedule`, cron
+One job (`pvacd_hydrovu_pipeline`), one daily schedule (`pvacd_hydrovu_schedule`, cron
 `0 6 * * *`), no Dagster partitioning — each run just processes everything new
 since the last watermark. Both the job and schedule are generated from a
 single config entry, not hand-written (see [Wiring](#wiring)).
 
 ---
 
-## Stage 1 — Ingest: `raw_hydrovu_readings`
+## Stage 1 — Ingest: `raw_pvacd_hydrovu_readings`
 
 No upstream deps — this is the entry point.
 
-[`ingest.py`](../src/aqueduct_dagster/sources/hydrovu/ingest.py) wraps a dlt
+[`ingest.py`](../src/aqueduct_dagster/sources/pvacd_hydrovu/ingest.py) wraps a dlt
 pipeline run in `forward_python_logs_to_dagster` (so dlt's stdlib logging
-shows up in the Dagster UI) and calls `pipeline.run(hydrovu_source(...),
+shows up in the Dagster UI) and calls `pipeline.run(pvacd_hydrovu_source(...),
 loader_file_format="parquet")`. It raises `dagster.Failure` only if *every*
 location errored; otherwise it returns a `MaterializeResult` with metadata
 (`rows_yielded`, `locations_fetched/skipped/no_data/errored`,
 `failed_location_ids`).
 
-[`dlt_pipeline.py`](../src/aqueduct_dagster/sources/hydrovu/dlt_pipeline.py)
+[`dlt_pipeline.py`](../src/aqueduct_dagster/sources/pvacd_hydrovu/dlt_pipeline.py)
 defines the actual dlt source:
 
-- `hydrovu_source()` — fetches OAuth creds from GCP Secret Manager (secret
+- `pvacd_hydrovu_source()` — fetches OAuth creds from GCP Secret Manager (secret
   `hydrovu_pvacd`, see [Config](#config)), builds one shared `httpx.Client` via
   `build_authenticated_client()` + `BearerAuth` (shared infra, see
   [shared/http.py](../src/aqueduct_dagster/shared/http.py)), fetches the
@@ -60,14 +60,14 @@ defines the actual dlt source:
   `X-ISI-Next-Page` cursor headers, with `retry_transient` handling
   429/5xx/transient failures (429 respects `Retry-After`, falling back to a
   60s backoff, capped at 3 retries).
-- Output lands as parquet in GCS (`raw_pvacd` dataset — see
+- Output lands as parquet in GCS (`raw_pvacd_hydrovu` dataset — see
   [STORAGE_CONVENTIONS.md](STORAGE_CONVENTIONS.md)).
 
-## Stage 2 — Transform: `canonical_bundles_hydrovu`
+## Stage 2 — Transform: `canonical_bundles_pvacd_hydrovu`
 
-Deps: `raw_hydrovu_readings`.
+Deps: `raw_pvacd_hydrovu_readings`.
 
-[`transform.py`](../src/aqueduct_dagster/sources/hydrovu/transform.py):
+[`transform.py`](../src/aqueduct_dagster/sources/pvacd_hydrovu/transform.py):
 
 1. Reads the **transform watermark** (the highest dlt `load_id` already
    processed, stored as a GCS sidecar file — see
@@ -88,7 +88,7 @@ Deps: `raw_hydrovu_readings`.
    not committed here** — it only advances after Stage 3 confirms FROST
    accepted the data (see [Idempotency](#idempotency--watermarks)).
 
-[`adapter.py`](../src/aqueduct_dagster/sources/hydrovu/adapter.py)
+[`adapter.py`](../src/aqueduct_dagster/sources/pvacd_hydrovu/adapter.py)
 (`HydroVuAdapter`, subclass of the shared `BaseAdapter`) converts one grouped
 record into canonical entities:
 
@@ -114,9 +114,9 @@ real API evidence), see
 the canonical model itself, see
 [canonical/CANONICAL_MODEL.md](../src/aqueduct_dagster/canonical/CANONICAL_MODEL.md).
 
-## Stage 3 — Load: `frost_load_hydrovu`
+## Stage 3 — Load: `frost_load_pvacd_hydrovu`
 
-Deps: `canonical_bundles_hydrovu` (via `AssetIn`).
+Deps: `canonical_bundles_pvacd_hydrovu` (via `AssetIn`).
 
 This stage has **no HydroVu-specific code** — it's generated once, generically,
 for every source in `SOURCE_REGISTRY` (see [Wiring](#wiring)).
@@ -149,7 +149,7 @@ is the single source of truth per source:
 
 ```python
 SOURCE_REGISTRY: list[SourceConfig] = [
-    {"name": "hydrovu", "dataset": "raw_pvacd", "cron": "0 6 * * *"},
+    {"name": "pvacd_hydrovu", "dataset": "raw_pvacd_hydrovu", "cron": "0 6 * * *"},
     {"name": "cabq", "dataset": "raw_cabq", "cron": "0 8 * * *"},
 ]
 ```
@@ -174,8 +174,8 @@ Every stage is safe to re-run:
 
 ## Config
 
-All HydroVu-specific settings live in `.dlt/config.toml` under
-`[sources.hydrovu]`: `api_base_url`, `token_url`, `gcp_secret` (Secret Manager
+All of this source's settings live in `.dlt/config.toml` under
+`[sources.pvacd_hydrovu]`: `api_base_url`, `token_url`, `gcp_secret` (Secret Manager
 secret name — real credentials never touch git), `initial_start_date`, and an
 explicit `location_ids` allowlist. FROST's target URL is under
 `[destination.frost]`. GCS bucket/layout is under `[destination.filesystem]`
@@ -194,9 +194,9 @@ Google ID token; localhost is called unauthenticated.
 Mirrors `src/` layout, unit-only (no live GCS/FROST/API calls — see
 [AGENTS.md](../AGENTS.md)):
 
-- `tests/sources/hydrovu/test_adapter.py` — `HydroVuAdapter` against mock
+- `tests/sources/pvacd_hydrovu/test_adapter.py` — `HydroVuAdapter` against mock
   grouped records.
-- `tests/sources/hydrovu/test_dlt_pipeline.py` — pagination, auth-retry,
+- `tests/sources/pvacd_hydrovu/test_dlt_pipeline.py` — pagination, auth-retry,
   404/429/5xx handling, cursor behavior, via `httpx.MockTransport`.
 - `tests/shared/test_http.py`, `tests/shared/test_gcs.py` — shared infra
   (`TokenManager`/`BearerAuth`/`retry_transient`, `read_new_parquet_rows`).
@@ -206,16 +206,19 @@ Mirrors `src/` layout, unit-only (no live GCS/FROST/API calls — see
 
 ## Adding a new source checklist
 
+1. Pick the source key `<name>`. It is `<agency>_<source system>` when the data
+   arrives through a named third-party platform (`pvacd_hydrovu`, `bernco_hydrovu`)
+   and just `<agency>` when the agency serves its own data (`cabq`).
 1. Write `docs/sources/<name>.md` from
    [`_mapping_template.md`](sources/_mapping_template.md), filled against a
    real sample response
-2. Create `sources/<name>/` with `adapter.py`, `dlt_pipeline.py`,
-   `ingest.py`, `transform.py` — mirror HydroVu's structure.
-3. Add one entry to `SOURCE_REGISTRY` — this alone generates the job,
+1. Create `sources/<name>/` with `adapter.py`, `dlt_pipeline.py`,
+   `ingest.py`, `transform.py` — mirror `pvacd_hydrovu`'s structure.
+1. Add one entry to `SOURCE_REGISTRY` — this alone generates the job,
    schedule, and `frost_load_<name>` asset.
-4. Follow [STORAGE_CONVENTIONS.md](STORAGE_CONVENTIONS.md) for the GCS
+1. Follow [STORAGE_CONVENTIONS.md](STORAGE_CONVENTIONS.md) for the GCS
    dataset/table names.
-5. Do not touch `loader/` or `canonical/` unless the canonical model itself
+1. Do not touch `loader/` or `canonical/` unless the canonical model itself
    is missing a field — those stay source-agnostic (see
    [AGENTS.md](../AGENTS.md#the-one-rule-that-explains-the-design)).
 
@@ -226,3 +229,4 @@ Mirrors `src/` layout, unit-only (no live GCS/FROST/API calls — see
 | Date | Change |
 |---|---|
 | 2026-07-20 | Initial version, based on the live PVACD HydroVu pipeline. |
+| 2026-08-28 | Renamed the `hydrovu` source to `pvacd_hydrovu` throughout and moved its dataset to `raw_pvacd_hydrovu` (ST2DAT-241), so a second HydroVu tenant can be added without touching this one. Added the source-key step to the new-source checklist. |

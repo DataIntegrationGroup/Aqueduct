@@ -1,6 +1,9 @@
 # Source Mapping: {AGENCY}
 
 > Copy this template to `docs/sources/{source_key}.md` and fill it out.
+> The source key is `{agency}_{source system}` when the data arrives through a named
+> third-party platform (`pvacd_hydrovu`, `bernco_hydrovu`) and just `{agency}` when the
+> agency serves its own data (`cabq`) — see `docs/STORAGE_CONVENTIONS.md`.
 > Fixed fields (same for every source) are pre-filled. Fill in the **Source Field** column for everything else.
 
 **Source key:** `{source_key}`

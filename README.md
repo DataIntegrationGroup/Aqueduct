@@ -13,17 +13,17 @@ Dagster + dlt + GCS + FROST SensorThings
 Two independent source pipelines, each running on its own schedule:
 
 ```
-HydroVu API  → dlt → GCS (parquet) → HydroVuAdapter → CanonicalBundle → frost_load_hydrovu → FROST
-CABQ API     → dlt → GCS (parquet) → CabqAdapter    → CanonicalBundle → frost_load_cabq    → FROST
+HydroVu API  → dlt → GCS (parquet) → HydroVuAdapter → CanonicalBundle → frost_load_pvacd_hydrovu → FROST
+CABQ API     → dlt → GCS (parquet) → CabqAdapter    → CanonicalBundle → frost_load_cabq          → FROST
 ```
 
 Orchestrated by Dagster. Each pipeline has three assets:
 
-| Asset | HydroVu | CABQ |
-|-------|---------|------|
-| Ingest (dlt → GCS) | `raw_hydrovu_readings` | `raw_cabq_readings` |
-| Transform (GCS → CanonicalBundles) | `canonical_bundles_hydrovu` | `canonical_bundles_cabq` |
-| Load (CanonicalBundles → FROST) | `frost_load_hydrovu` | `frost_load_cabq` |
+| Asset | PVACD HydroVu | CABQ |
+|-------|---------------|------|
+| Ingest (dlt → GCS) | `raw_pvacd_hydrovu_readings` | `raw_cabq_readings` |
+| Transform (GCS → CanonicalBundles) | `canonical_bundles_pvacd_hydrovu` | `canonical_bundles_cabq` |
+| Load (CanonicalBundles → FROST) | `frost_load_pvacd_hydrovu` | `frost_load_cabq` |
 
 
 
@@ -60,21 +60,21 @@ Aqueduct/
 │   │   ├── http.py                 # retry_transient(), TokenManager, BearerAuth, build_authenticated_client()
 │   │   ├── backfill.py             # month_chunks(), BackfillCheckpointStore, ChunkResult — Mode A refetch infra
 │   │   └── source_registry.py      # SOURCE_REGISTRY — single per-source config for definitions.py + load.py
-│   ├── sources/                    # one folder per agency source (vertical slice)
-│   │   ├── hydrovu/
+│   ├── sources/                    # one folder per source key (vertical slice)
+│   │   ├── pvacd_hydrovu/          # PVACD's HydroVu tenant; BernCo's will sit beside it
 │   │   │   ├── adapter.py          # HydroVu → CanonicalBundle mapping
 │   │   │   ├── dlt_pipeline.py     # dlt source + resource + pipeline factory
-│   │   │   ├── ingest.py           # Dagster asset: raw_hydrovu_readings
-│   │   │   ├── transform.py        # Dagster asset: canonical_bundles_hydrovu
+│   │   │   ├── ingest.py           # Dagster asset: raw_pvacd_hydrovu_readings
+│   │   │   ├── transform.py        # Dagster asset: canonical_bundles_pvacd_hydrovu
 │   │   │   └── backfill.py         # Mode A refetch: isolated ingest + transform + load per chunk
-│   │   └── cabq/                   # same shape as hydrovu/ — currently a stub
+│   │   └── cabq/                   # same shape as pvacd_hydrovu/ — currently a stub
 │   │       ├── adapter.py
 │   │       ├── dlt_pipeline.py
 │   │       ├── ingest.py
 │   │       └── transform.py
 │   ├── defs/
 │   │   ├── assets/
-│   │   │   └── load.py             # Dagster assets: frost_load_hydrovu, frost_load_cabq (shared factory)
+│   │   │   └── load.py             # Dagster assets: frost_load_pvacd_hydrovu, frost_load_cabq (shared factory)
 │   │   ├── jobs/
 │   │   │   └── backfill.py         # <source>_backfill_refetch job factory (BackfillRefetchConfig, chunk loop)
 │   │   ├── definitions.py          # Dagster entry point — jobs, schedules, asset registry
@@ -84,7 +84,7 @@ Aqueduct/
 │       └── watermark_store.py      # FrostWatermarkStore — per-run dedup via Dagster context
 └── tests/                          # mirrors src/aqueduct_dagster/'s layout above
     ├── conftest.py                 # cross-file test helpers (e.g. httpx.MockTransport/BearerAuth builders)
-    ├── sources/{hydrovu,cabq}/
+    ├── sources/{pvacd_hydrovu,cabq}/
     ├── shared/
     ├── defs/assets/
     ├── defs/jobs/
@@ -190,7 +190,7 @@ Open the Dagster UI at `http://localhost:3000`.
 
 To run the full HydroVu pipeline end-to-end:
 1. Click **Assets** in the left nav
-2. Select all three `hydrovu` group assets (`raw_hydrovu_readings`, `canonical_bundles_hydrovu`, `frost_load_hydrovu`)
+2. Select all three `pvacd_hydrovu` group assets (`raw_pvacd_hydrovu_readings`, `canonical_bundles_pvacd_hydrovu`, `frost_load_pvacd_hydrovu`)
 3. Click **Materialize selected**
 
 On first run, dlt fetches from `initial_start_date` in `.dlt/config.toml` (currently `2026-05-01`). Subsequent runs are incremental.
@@ -225,6 +225,6 @@ dlt tracks a cursor (`timestamp` field) per source. On first run it fetches from
 `FrostWatermarkStore` tracks the last observation timestamp successfully loaded into FROST per datastream. Each run skips any observation at or before the watermark — FROST has no built-in deduplication.
 
 **Independent pipelines**
-`hydrovu_pipeline` and `cabq_pipeline` are completely independent Dagster jobs. Each has its own schedule and its own terminal load asset (`frost_load_hydrovu` / `frost_load_cabq`). Running one never triggers or blocks the other.
+`pvacd_hydrovu_pipeline` and `cabq_pipeline` are completely independent Dagster jobs. Each has its own schedule and its own terminal load asset (`frost_load_pvacd_hydrovu` / `frost_load_cabq`). Running one never triggers or blocks the other.
 
 ---

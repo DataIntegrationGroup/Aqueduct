@@ -25,7 +25,7 @@ from pydantic import ValidationError
 from aqueduct_dagster.defs.jobs.backfill import (
     BackfillRefetchConfig,
     CabqBackfillRefetchConfig,
-    HydroVuBackfillRefetchConfig,
+    PvacdHydroVuBackfillRefetchConfig,
     _make_backfill_refetch_job,
 )
 
@@ -148,7 +148,7 @@ def test_already_timestamped_run_key_is_left_unchanged():
 #    shared, non-generic location_ids type).
 
 _LOCATION_ID_CASES = [
-    pytest.param(HydroVuBackfillRefetchConfig, 111, id="hydrovu"),
+    pytest.param(PvacdHydroVuBackfillRefetchConfig, 111, id="pvacd_hydrovu"),
     pytest.param(CabqBackfillRefetchConfig, "IW4", id="cabq"),
 ]
 
@@ -296,13 +296,13 @@ def test_frost_watermark_dataset_is_isolated_from_production(
     prepare_fn = _prepare_fn()
     run_chunk_fn = MagicMock(return_value=_stub_chunk_result())
 
-    job = _make_backfill_refetch_job("test", "raw_pvacd", prepare_fn, run_chunk_fn)
+    job = _make_backfill_refetch_job("test", "raw_pvacd_hydrovu", prepare_fn, run_chunk_fn)
     job.execute_in_process(run_config=_run_config(dry_run=False))
 
     mock_build_loader.assert_called_once()
     called_dataset = mock_build_loader.call_args[0][1]
-    assert called_dataset == "raw_pvacd_backfill"
-    assert called_dataset != "raw_pvacd"  # never the same dataset production uses
+    assert called_dataset == "raw_pvacd_hydrovu_backfill"
+    assert called_dataset != "raw_pvacd_hydrovu"  # never the same dataset production uses
 
 
 @patch("aqueduct_dagster.defs.jobs.backfill.forward_python_logs_to_dagster")
@@ -315,7 +315,7 @@ def test_real_run_forwards_python_logs_with_source_specific_prefix(
 ):
     """
     Regression test: prepare_fn()/run_chunk_fn() emit per-location/per-page
-    progress via stdlib logging (see sources/hydrovu/dlt_pipeline.py), which
+    progress via stdlib logging (see sources/pvacd_hydrovu/dlt_pipeline.py), which
     only reaches the Dagster run log if forward_python_logs_to_dagster wraps
     the call — this was originally missing, leaving a silent multi-minute gap
     in real backfill runs. Also covers BackfillCheckpointStore's own logger

@@ -1,9 +1,9 @@
 """
-sources/hydrovu/adapter.py
+sources/pvacd_hydrovu/adapter.py
 
 Transforms grouped HydroVu parquet rows into CanonicalBundles for FROST.
 
-Called by hydrovu/transform.py which:
+Called by pvacd_hydrovu/transform.py which:
   1. Reads raw parquet from GCS
   2. Filters to DTW rows (parameter_id="4") before grouping
   3. Groups filtered rows by location_id into one record per location

@@ -250,7 +250,7 @@ uv run python deploy/31_verify_dagster_auth.py
 This checks four layers independently: ADC bootstrap, GCS write/read/delete, Secret
 Manager access, and an ID-token GET against FROST. `VERBOSE=1` adds
 tracebacks. For a full end-to-end run instead, `uv run dagster dev` with the same two
-variables set and materialize `hydrovu_pipeline`.
+variables set and materialize `pvacd_hydrovu_pipeline`.
 
 ## How Dagster+ connects to FROST
 

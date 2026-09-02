@@ -9,7 +9,7 @@ TokenManager, which calls a token endpoint directly, not through a Client).
 
 Covers:
   TokenManager             — caching, expiry, force-refresh (moved verbatim
-                              from tests/sources/hydrovu/test_dlt_pipeline.py
+                              from tests/sources/pvacd_hydrovu/test_dlt_pipeline.py
                               when TokenManager moved to shared/http.py)
   BearerAuth               — attaches token, refreshes + retries once on 401
   build_authenticated_client — wires base_url, default headers, auth, timeout

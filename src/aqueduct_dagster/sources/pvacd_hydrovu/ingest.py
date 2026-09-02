@@ -1,13 +1,13 @@
 """
-sources/hydrovu/ingest.py
+sources/pvacd_hydrovu/ingest.py
 
-Dagster asset: raw_hydrovu_readings
+Dagster asset: raw_pvacd_hydrovu_readings
   Runs the HydroVu dlt source which writes two resources to GCS:
 
-  hydrovu_locations  (replace)  gs://<bucket>/raw_pvacd/hydrovu_locations/year={YYYY}/month={MM}/day={DD}/
+  hydrovu_locations  (replace)  gs://<bucket>/raw_pvacd_hydrovu/hydrovu_locations/year={YYYY}/month={MM}/day={DD}/
     Full location list on every run — one row per location.
 
-  hydrovu_readings   (append, per-location incremental)  gs://<bucket>/raw_pvacd/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/
+  hydrovu_readings   (append, per-location incremental)  gs://<bucket>/raw_pvacd_hydrovu/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/
     New readings since each location's last successful fetch — one row per (location, parameter, reading).
     Location metadata is omitted; join to hydrovu_locations on location_id at transform time.
 
@@ -18,16 +18,16 @@ Downstream: transform_hydrovu (reads both GCS folders)
 from dagster import AssetExecutionContext, Failure, MaterializeResult, MetadataValue, asset
 
 from aqueduct_dagster.defs.dagster_logging import forward_python_logs_to_dagster
-from aqueduct_dagster.sources.hydrovu.dlt_pipeline import build_pipeline, hydrovu_source
+from aqueduct_dagster.sources.pvacd_hydrovu.dlt_pipeline import build_pipeline, pvacd_hydrovu_source
 
 
 @asset(
-    name="raw_hydrovu_readings",
-    group_name="hydrovu",
+    name="raw_pvacd_hydrovu_readings",
+    group_name="pvacd_hydrovu",
     description="Raw HydroVu readings landed in GCS via dlt.",
     compute_kind="dlt",
 )
-def raw_hydrovu_readings(context: AssetExecutionContext) -> MaterializeResult:
+def raw_pvacd_hydrovu_readings(context: AssetExecutionContext) -> MaterializeResult:
     """
     Runs the dlt pipeline to incrementally fetch HydroVu readings and
     write them as parquet to the GCS raw zone.
@@ -49,8 +49,8 @@ def raw_hydrovu_readings(context: AssetExecutionContext) -> MaterializeResult:
         pipeline.dataset_name,
     )
     stats: dict = {}
-    with forward_python_logs_to_dagster(context, "aqueduct_dagster.sources.hydrovu", "dlt"):
-        load_info = pipeline.run(hydrovu_source(_stats=stats), loader_file_format="parquet")
+    with forward_python_logs_to_dagster(context, "aqueduct_dagster.sources.pvacd_hydrovu", "dlt"):
+        load_info = pipeline.run(pvacd_hydrovu_source(_stats=stats), loader_file_format="parquet")
 
     context.log.info("HydroVu dlt load complete: %s", load_info)
 

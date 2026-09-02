@@ -1,4 +1,4 @@
-[sources.hydrovu]
+[sources.pvacd_hydrovu]
 api_base_url       = "https://www.hydrovu.com/public-api/v1"
 token_url          = "https://hydrovu.com/public-api/oauth/token"
 gcp_secret         = "hydrovu_pvacd"

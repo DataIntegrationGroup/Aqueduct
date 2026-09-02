@@ -104,7 +104,7 @@ def check_secret_manager() -> str:
 
     config = load_config()
     project_number = config["destination"]["filesystem"]["gcp_project_number"]
-    secret_id = config["sources"]["hydrovu"]["gcp_secret"]
+    secret_id = config["sources"]["pvacd_hydrovu"]["gcp_secret"]
 
     client = secretmanager.SecretManagerServiceClient()
     name = client.secret_version_path(project_number, secret_id, "latest")

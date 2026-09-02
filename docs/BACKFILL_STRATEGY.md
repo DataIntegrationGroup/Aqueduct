@@ -147,7 +147,7 @@ regardless of count.
 **Option 3 — Per-source generated jobs, two per source (recommended).**
 
 This follows the pattern already used in this codebase for
-`frost_load_hydrovu` / `frost_load_cabq` and `hydrovu_pipeline` /
+`frost_load_pvacd_hydrovu` / `frost_load_cabq` and `pvacd_hydrovu_pipeline` /
 `cabq_pipeline`: one shared factory function per job type, looped over the
 source registry, so that adding a third source requires one registry entry
 and no new job-wiring code. "Which source" is determined by which job is
@@ -182,7 +182,7 @@ load together:
    (DTW filtering, location join, grouping, adapter mapping), factored into
    a plain function callable from both the normal transform asset and this
    job, mirroring how `_frost_load()` is already factored out separately
-   from the `frost_load_hydrovu` asset wrapper.
+   from the `frost_load_pvacd_hydrovu` asset wrapper.
 3. **Load** — always uses the window-scoped, delete-then-repost mechanism
    described in §4.4, rather than the normal `frost_load` asset's
    single-watermark filter. This mechanism is safe for every situation in
@@ -316,8 +316,8 @@ or list specific ids to scope the run to just those.
 Each source's existing schedule fires its existing pipeline job
 automatically, with no operator involvement:
 
-- `hydrovu_schedule` (`0 6 * * *`) triggers `hydrovu_pipeline`, which runs
-  `raw_hydrovu_readings` → `canonical_bundles_hydrovu` → `frost_load_hydrovu`
+- `pvacd_hydrovu_schedule` (`0 6 * * *`) triggers `pvacd_hydrovu_pipeline`, which runs
+  `raw_pvacd_hydrovu_readings` → `canonical_bundles_pvacd_hydrovu` → `frost_load_pvacd_hydrovu`
   in sequence.
 - `cabq_schedule` (`0 8 * * *`) triggers `cabq_pipeline` independently, with
   its own three assets. Running one source's pipeline never triggers or
@@ -331,7 +331,7 @@ and `<source>_backfill_replay`. Neither has a schedule attached — both are
 launched manually, on demand:
 
 1. Open the Dagster UI and select **Jobs**.
-2. Select the relevant job (for example, `hydrovu_backfill_refetch`).
+2. Select the relevant job (for example, `pvacd_hydrovu_backfill_refetch`).
 3. Open the **Launchpad** and provide the run configuration — entity list,
    start and end dates, and (for Mode A) an isolated pipeline name — as YAML
    or JSON directly in the browser. No command-line access is required.

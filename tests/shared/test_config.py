@@ -88,7 +88,7 @@ class TestResolutionOrder:
 class TestDltProjectDirExport:
     def test_exports_env_for_dlt(self, monkeypatch, tmp_path):
         """
-        dlt resolves the [sources.hydrovu] block through its own provider chain, so
+        dlt resolves the [sources.pvacd_hydrovu] block through its own provider chain, so
         it has to be pointed at the same file we resolved.
         """
         root = _make_settings(tmp_path / "repo")

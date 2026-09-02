@@ -1,5 +1,5 @@
 """
-sources/hydrovu/backfill.py
+sources/pvacd_hydrovu/backfill.py
 
 Mode A (refetch) backfill for PVACD HydroVu — see docs/BACKFILL_STRATEGY.md §4.2.
 
@@ -8,7 +8,7 @@ under fully isolated dlt pipeline state (own pipeline_name, BACKFILL_PIPELINE_NA
 and its own GCS table (hydrovu_backfill_readings, not hydrovu_readings — see
 BACKFILL_TABLE_NAME). Because it's a different table, not just a different
 pipeline_name, its files never match production transform.py's
-"raw_pvacd/hydrovu_readings/**/*.parquet" glob — the normal scheduled pipeline
+"raw_pvacd_hydrovu/hydrovu_readings/**/*.parquet" glob — the normal scheduled pipeline
 cannot see this data at all, so there's nothing to coordinate or interfere with.
 
 Not a Dagster asset or op itself — no Dagster imports here. Called per-chunk
@@ -46,13 +46,13 @@ from aqueduct_dagster.shared.backfill import (
     run_backfill_ingest,
 )
 from aqueduct_dagster.shared.gcs import read_parquet_rows_for_load_id
-from aqueduct_dagster.sources.hydrovu.adapter import HydroVuAdapter
-from aqueduct_dagster.sources.hydrovu.dlt_pipeline import (
+from aqueduct_dagster.sources.pvacd_hydrovu.adapter import HydroVuAdapter
+from aqueduct_dagster.sources.pvacd_hydrovu.dlt_pipeline import (
     _fetch_location_data,
     _fetch_locations,
     build_hydrovu_client,
 )
-from aqueduct_dagster.sources.hydrovu.transform import (
+from aqueduct_dagster.sources.pvacd_hydrovu.transform import (
     DTW_PARAMETER_ID,
     GCS_DATASET,
     _group_by_location,
@@ -144,7 +144,7 @@ def _locations_by_id(locations: list[dict]) -> dict[int, dict]:
 def default_backfill_location_ids() -> list[int]:
     """
     Same allowlist the daily pipeline reads from .dlt/config.toml
-    ([sources.hydrovu].location_ids). Called once, eagerly, at
+    ([sources.pvacd_hydrovu].location_ids). Called once, eagerly, at
     defs/jobs/backfill.py import time, since Dagster's Launchpad only shows
     a plain, already-computed default — not a lazily-resolved one.
 
@@ -155,7 +155,7 @@ def default_backfill_location_ids() -> list[int]:
     failing Dagster's definitions load loudly beats silently defaulting to
     "backfill everything."
     """
-    return list(load_source_config("hydrovu").get("location_ids", []))
+    return list(load_source_config("pvacd_hydrovu").get("location_ids", []))
 
 
 def prepare_backfill() -> tuple[httpx.Client, list[dict], dict[int, dict]]:
@@ -167,12 +167,12 @@ def prepare_backfill() -> tuple[httpx.Client, list[dict], dict[int, dict]]:
 
     Returns (client, locations, locations_by_id).
     """
-    cfg = load_source_config("hydrovu")
+    cfg = load_source_config("pvacd_hydrovu")
     client = build_hydrovu_client("", "", cfg["gcp_secret"], cfg["api_base_url"], cfg["token_url"])
     try:
         locations = _fetch_locations(client)
     except Exception:
-        # Mirrors hydrovu_source() in dlt_pipeline.py: nothing else holds a
+        # Mirrors pvacd_hydrovu_source() in dlt_pipeline.py: nothing else holds a
         # reference to this client yet if this raises, so it must close itself.
         client.close()
         raise

@@ -1,7 +1,7 @@
 """
-tests/sources/hydrovu/test_backfill.py
+tests/sources/pvacd_hydrovu/test_backfill.py
 
-Unit tests for sources/hydrovu/backfill.py (Mode A refetch).
+Unit tests for sources/pvacd_hydrovu/backfill.py (Mode A refetch).
 No live API/GCS/FROST — all I/O is mocked.
 """
 
@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 from aqueduct_dagster.loader.frost_loader import LoadResult
-from aqueduct_dagster.sources.hydrovu.backfill import (
+from aqueduct_dagster.sources.pvacd_hydrovu.backfill import (
     BACKFILL_PIPELINE_NAME,
     BACKFILL_TABLE_NAME,
     GCS_DATASET,
@@ -56,7 +56,7 @@ _READINGS_DATA = {
 
 
 class TestHydroVuBackfillReadings:
-    @patch("aqueduct_dagster.sources.hydrovu.backfill._fetch_location_data")
+    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_location_data")
     def test_only_fetches_allowlisted_locations(self, mock_fetch):
         mock_fetch.return_value = (_READINGS_DATA, None)
         list(
@@ -71,7 +71,7 @@ class TestHydroVuBackfillReadings:
         called_ids = {call[0][1] for call in mock_fetch.call_args_list}
         assert called_ids == {111}
 
-    @patch("aqueduct_dagster.sources.hydrovu.backfill._fetch_location_data")
+    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_location_data")
     def test_passes_start_and_end_ts_through(self, mock_fetch):
         mock_fetch.return_value = (_READINGS_DATA, None)
         list(
@@ -87,7 +87,7 @@ class TestHydroVuBackfillReadings:
         assert start_time == 123
         assert mock_fetch.call_args[1]["end_time"] == 456
 
-    @patch("aqueduct_dagster.sources.hydrovu.backfill._fetch_location_data")
+    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_location_data")
     def test_yields_flat_rows(self, mock_fetch):
         mock_fetch.return_value = (_READINGS_DATA, None)
         rows = list(
@@ -110,7 +110,7 @@ class TestHydroVuBackfillReadings:
             }
         ]
 
-    @patch("aqueduct_dagster.sources.hydrovu.backfill._fetch_location_data")
+    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_location_data")
     def test_skips_location_on_404(self, mock_fetch):
         mock_fetch.return_value = (None, None)
         rows = list(
@@ -124,7 +124,7 @@ class TestHydroVuBackfillReadings:
         )
         assert rows == []
 
-    @patch("aqueduct_dagster.sources.hydrovu.backfill._fetch_location_data")
+    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_location_data")
     def test_raises_on_real_fetch_error(self, mock_fetch):
         # dlt wraps the generator's exception in its own ResourceExtractionError
         # when iterated directly (as it would be inside pipeline.run()) — match
@@ -141,7 +141,7 @@ class TestHydroVuBackfillReadings:
                 )
             )
 
-    @patch("aqueduct_dagster.sources.hydrovu.backfill._fetch_location_data")
+    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_location_data")
     def test_fetch_error_message_includes_the_chunk_window(self, mock_fetch):
         """
         An operator glancing at a failed run should immediately see which
@@ -181,16 +181,16 @@ def test_locations_by_id_shape():
 # ── prepare_backfill ─────────────────────────────────────────────────────────
 
 
-@patch("aqueduct_dagster.sources.hydrovu.backfill.load_source_config")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.load_source_config")
 def test_default_backfill_location_ids_reads_the_configured_allowlist(mock_cfg):
     mock_cfg.return_value = {"location_ids": [111, 222]}
     assert default_backfill_location_ids() == [111, 222]
 
 
-@patch("aqueduct_dagster.sources.hydrovu.backfill.load_source_config")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.load_source_config")
 def test_default_backfill_location_ids_is_empty_when_key_not_configured(mock_cfg):
     """
-    A [sources.hydrovu] section with no location_ids key at all is not an
+    A [sources.pvacd_hydrovu] section with no location_ids key at all is not an
     error — some sources may deliberately not curate an allowlist — so this
     returns [] (meaning "every location", see resolve_location_ids), not a
     KeyError.
@@ -199,23 +199,23 @@ def test_default_backfill_location_ids_is_empty_when_key_not_configured(mock_cfg
     assert default_backfill_location_ids() == []
 
 
-@patch("aqueduct_dagster.sources.hydrovu.backfill.load_source_config")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.load_source_config")
 def test_default_backfill_location_ids_raises_on_missing_config(mock_cfg):
     """
     Raises when .dlt/config.toml itself can't be read at all — a broken
     environment, not an intentional "backfill everything" choice — instead
     of silently falling back to [] and widening a reviewed allowlist into
     "backfill everything" at Dagster's definitions-load time (see
-    HydroVuBackfillRefetchConfig).
+    PvacdHydroVuBackfillRefetchConfig).
     """
     mock_cfg.side_effect = FileNotFoundError("no .dlt/config.toml")
     with pytest.raises(FileNotFoundError):
         default_backfill_location_ids()
 
 
-@patch("aqueduct_dagster.sources.hydrovu.backfill._fetch_locations")
-@patch("aqueduct_dagster.sources.hydrovu.backfill.build_hydrovu_client")
-@patch("aqueduct_dagster.sources.hydrovu.backfill.load_source_config")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_locations")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.build_hydrovu_client")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.load_source_config")
 def test_prepare_backfill_fetches_locations_once(mock_cfg, mock_build_client, mock_fetch_locations):
     mock_cfg.return_value = {
         "gcp_secret": "hydrovu_pvacd",
@@ -233,9 +233,9 @@ def test_prepare_backfill_fetches_locations_once(mock_cfg, mock_build_client, mo
     mock_fetch_locations.assert_called_once_with(_DUMMY_CLIENT)
 
 
-@patch("aqueduct_dagster.sources.hydrovu.backfill._fetch_locations")
-@patch("aqueduct_dagster.sources.hydrovu.backfill.build_hydrovu_client")
-@patch("aqueduct_dagster.sources.hydrovu.backfill.load_source_config")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_locations")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.build_hydrovu_client")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.load_source_config")
 def test_prepare_backfill_closes_client_if_fetch_locations_fails(
     mock_cfg, mock_build_client, mock_fetch_locations
 ):
@@ -286,8 +286,8 @@ CHUNK_START = datetime(2026, 1, 1, tzinfo=UTC)
 CHUNK_END = datetime(2026, 2, 1, tzinfo=UTC)
 
 
-@patch("aqueduct_dagster.sources.hydrovu.backfill.read_parquet_rows_for_load_id")
-@patch("aqueduct_dagster.sources.hydrovu.backfill.run_backfill_ingest")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.read_parquet_rows_for_load_id")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.run_backfill_ingest")
 def test_run_backfill_chunk_reads_by_exact_load_id_and_loads_bundles(
     mock_run_ingest, mock_read_rows
 ):
@@ -339,8 +339,8 @@ def test_run_backfill_chunk_reads_by_exact_load_id_and_loads_bundles(
     assert len(records) == 1
 
 
-@patch("aqueduct_dagster.sources.hydrovu.backfill.read_parquet_rows_for_load_id")
-@patch("aqueduct_dagster.sources.hydrovu.backfill.run_backfill_ingest")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.read_parquet_rows_for_load_id")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.run_backfill_ingest")
 def test_run_backfill_chunk_reports_adapter_failures_without_dropping_good_locations(
     mock_run_ingest, mock_read_rows
 ):
@@ -387,8 +387,8 @@ def test_run_backfill_chunk_reports_adapter_failures_without_dropping_good_locat
     assert len(loader.load_window_calls) == 1
 
 
-@patch("aqueduct_dagster.sources.hydrovu.backfill.read_parquet_rows_for_load_id")
-@patch("aqueduct_dagster.sources.hydrovu.backfill.run_backfill_ingest")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.read_parquet_rows_for_load_id")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.run_backfill_ingest")
 def test_run_backfill_chunk_with_no_rows_loads_nothing(mock_run_ingest, mock_read_rows):
     mock_run_ingest.return_value = 100.0
     mock_read_rows.return_value = []
@@ -414,8 +414,8 @@ def test_run_backfill_chunk_with_no_rows_loads_nothing(mock_run_ingest, mock_rea
     assert loader.ensure_calls == []
 
 
-@patch("aqueduct_dagster.sources.hydrovu.backfill.read_parquet_rows_for_load_id")
-@patch("aqueduct_dagster.sources.hydrovu.backfill.run_backfill_ingest")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.read_parquet_rows_for_load_id")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.run_backfill_ingest")
 def test_run_backfill_chunk_handles_empty_loads_ids_without_crashing(
     mock_run_ingest, mock_read_rows
 ):

@@ -57,7 +57,7 @@ class TestGcsBucketUrl:
 
 class TestLoadIdFromFilename:
     def test_extracts_load_id(self):
-        path = "bucket/raw_pvacd/hydrovu_readings/year=2024/month=06/day=18/1781192390.555875.0.parquet"
+        path = "bucket/raw_pvacd_hydrovu/hydrovu_readings/year=2024/month=06/day=18/1781192390.555875.0.parquet"
         assert _load_id_from_filename(path) == 1781192390.555875
 
     def test_returns_none_for_unrecognized_name(self):

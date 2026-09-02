@@ -87,7 +87,7 @@ base_adapter.py             ← defines the interface every adapter must follow
 
 # Each source adapter imports all three:
 sources/cabq/adapter.py     → inherits BaseAdapter → produces CanonicalBundle
-sources/hydrovu/adapter.py  → inherits BaseAdapter → produces CanonicalBundle
+sources/pvacd_hydrovu/adapter.py  → inherits BaseAdapter → produces CanonicalBundle
 sources/source_c/adapter.py → inherits BaseAdapter → produces CanonicalBundle  (future)
 
 # The loader imports canonical_model.py only:

@@ -8,7 +8,7 @@ Dagster asset: canonical_bundles_cabq
   - Returns bundles downstream to frost_load_cabq
 
 Incremental reads:
-  Follow the same load_id watermark pattern as hydrovu/transform.py, using the
+  Follow the same load_id watermark pattern as pvacd_hydrovu/transform.py, using the
   shared helpers in shared/gcs.py — no need to duplicate this logic:
     - read_transform_watermark(fs, bucket, WATERMARK_PATH) for since_load_id
     - read_new_parquet_rows(bucket, glob_suffix, since_load_id, fs, row_filter=...)
