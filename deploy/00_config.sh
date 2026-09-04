@@ -49,9 +49,14 @@ export SQL_DB_VERSION="POSTGRES_17"
 
 # --- Secret Manager ---------------------------------------------------------
 export SECRET_FROST_DB_PW="frost-db-password"
-# HydroVu OAuth client id/secret, read at ingest time via ADC. Matches
-# [sources.pvacd_hydrovu] gcp_secret in .dlt/config.toml.
+# HydroVu OAuth client id/secret, read at ingest time via ADC. One secret per
+# tenant. Each matches the gcp_secret of the [sources.<name>] block of the same
+# name in .dlt/config.toml. Add a tenant here and to SECRETS_DAGSTER below.
 export SECRET_PVACD_HYDROVU="hydrovu_pvacd"
+export SECRET_BERNCO_HYDROVU="hydrovu_bernco"
+# Every secret the Dagster service account must be able to read. 30_dagster_gcp_auth.sh
+# grants secretAccessor on each.
+SECRETS_DAGSTER=("${SECRET_PVACD_HYDROVU}" "${SECRET_BERNCO_HYDROVU}")
 
 # --- GCS buckets ------------------------------------------------------------
 # Where Dagster+ writes raw parquet. BUCKET_PROD is the deployment target;

@@ -46,12 +46,12 @@ from aqueduct_dagster.shared.backfill import (
     run_backfill_ingest,
 )
 from aqueduct_dagster.shared.gcs import read_parquet_rows_for_load_id
-from aqueduct_dagster.sources.pvacd_hydrovu.adapter import HydroVuAdapter
-from aqueduct_dagster.sources.pvacd_hydrovu.dlt_pipeline import (
-    _fetch_location_data,
-    _fetch_locations,
+from aqueduct_dagster.sources.hydrovu_common import (
     build_hydrovu_client,
+    fetch_location_data,
+    fetch_locations,
 )
+from aqueduct_dagster.sources.pvacd_hydrovu.adapter import HydroVuAdapter
 from aqueduct_dagster.sources.pvacd_hydrovu.transform import (
     DTW_PARAMETER_ID,
     GCS_DATASET,
@@ -99,7 +99,7 @@ def hydrovu_backfill_readings(
         if loc_id not in allowed:
             continue
 
-        data, err = _fetch_location_data(client, loc_id, start_ts, end_time=end_ts)
+        data, err = fetch_location_data(client, loc_id, start_ts, end_time=end_ts)
         if err is not None:
             window_start_iso = datetime.fromtimestamp(start_ts, tz=UTC).isoformat()
             window_end_iso = datetime.fromtimestamp(end_ts, tz=UTC).isoformat()
@@ -170,7 +170,7 @@ def prepare_backfill() -> tuple[httpx.Client, list[dict], dict[int, dict]]:
     cfg = load_source_config("pvacd_hydrovu")
     client = build_hydrovu_client("", "", cfg["gcp_secret"], cfg["api_base_url"], cfg["token_url"])
     try:
-        locations = _fetch_locations(client)
+        locations = fetch_locations(client)
     except Exception:
         # Mirrors pvacd_hydrovu_source() in dlt_pipeline.py: nothing else holds a
         # reference to this client yet if this raises, so it must close itself.

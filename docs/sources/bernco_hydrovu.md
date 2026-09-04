@@ -9,12 +9,12 @@
 **Credentials:** GCP Secret Manager, project `waterdatainitiative-271000` (project number
 `95715287188`), secret name `hydrovu_bernco`, confirmed present 2026-08-24 and separate
 from PVACD's `hydrovu_pvacd`. The payload is a JSON object with keys `id` and `secret`,
-which is what `_resolve_hydrovu_credentials()` in `sources/pvacd_hydrovu/dlt_pipeline.py`
-already expects, so no credential-handling code has to change.
+which is what `resolve_hydrovu_credentials()` in `sources/hydrovu_common.py`
+already expects, so no credential-handling code had to change.
 
-`deploy/30_dagster_gcp_auth.sh` grants `roles/secretmanager.secretAccessor` on
-`hydrovu_pvacd` only. The Dagster service account needs the same grant on
-`hydrovu_bernco` before this source can run in production.
+`deploy/30_dagster_gcp_auth.sh` now grants `roles/secretmanager.secretAccessor` on every
+secret listed in `SECRETS_DAGSTER` (`deploy/00_config.sh`), which includes
+`hydrovu_bernco`.
 
 **API endpoints confirmed live (2026-08-24):**
 
@@ -340,22 +340,21 @@ which appear in this tenant today:
 
 ## Open Questions
 
-1. **HTTP 404 means "no data at or after `startTime`", not "no data endpoint."**
-   `sources/pvacd_hydrovu/dlt_pipeline.py:191-193` logs a 404 as "no data endpoint" and treats it
-   as terminal for the run. I retried the 14 BernCo locations that 404 on a recent
-   `startTime`, and 13 of them return full history at `startTime=0`. They are dormant, not
+1. ~~**HTTP 404 means "no data at or after `startTime`", not "no data endpoint."**~~
+   **Fixed 2026-09-02** in `sources/hydrovu_common.py`: the log line and docstring now say
+   what a 404 actually means, and record that 13 of the 14 BernCo locations that 404 on a
+   recent `startTime` return full history at `startTime=0` — they are dormant, not
    endpoint-less. Only `SerenityMesa` (id `4562953333243904`) 404s at `startTime=0` and has
-   no data at all. The handling itself (skip, don't advance the cursor) stays right, but
-   the log message points a debugger in the wrong direction. Worth a docstring fix in the
-   implementation ticket.
+   no data at all. The handling itself (skip, don't advance the cursor) was always right;
+   only the message pointed a debugger in the wrong direction.
 
-1. **The API has an `endTime` parameter that the code says it does not.**
-   `sources/pvacd_hydrovu/dlt_pipeline.py:130-137` states "The real API has no server-side
-   end-time parameter (only startTime)" and implements a client-side cutoff for windowed
-   backfill. The published OpenAPI spec lists `endTime` as a query parameter on
-   `/locations/{id}/data` alongside `startTime`. If it works server-side it would cut the
-   windowing code out of the backfill path. I did not test it. Flagging it for whoever
-   picks up the backfill work.
+1. **The API has an `endTime` parameter the code does not use.** `fetch_location_data()` in
+   `sources/hydrovu_common.py` implements a client-side cutoff for windowed backfill. The
+   published OpenAPI spec lists `endTime` as a query parameter on `/locations/{id}/data`
+   alongside `startTime`. If it works server-side it would cut the windowing code out of
+   the backfill path. Still untested; the docstring now records the discrepancy rather
+   than asserting the parameter does not exist. Flagging it for whoever picks up the
+   backfill work.
 
 1. **Which locations are wells?** The Carlito Springs cluster (flume, baro, lower pool) is
    surface water and barometric instrumentation, not wells, so the fixed
@@ -367,19 +366,72 @@ which appear in this tenant today:
    `default-969659` report In-Situ's Fort Collins coordinates. `default-969659` has live
    DTW data. Does BernCo have real coordinates for these, or should they be excluded?
 
-1. **`initial_start_date` for BernCo.** History runs far deeper than PVACD's. The earliest
-   readings go back to 2009-05-18 (`BCFDWildlandSub-1091579`), with onsets spread across
-   2009, 2011, 2013, 2014 (×4), 2015, 2016, 2018, 2023 (×2), 2024 (×8), 2025 (×6) and 2026.
-   A full load from 2009 across 35 DTW locations is a big backfill: at roughly 2-day pages,
-   one location-decade is about 1,800 requests. Someone has to decide how much history
-   BernCo wants before `initial_start_date` gets set. Build that backfill allowlist from
-   historical parameter coverage, not current (see ObservedProperty above).
+   **Interim decision 2026-09-02:** excluded from the ingest allowlist. Their DTW data is
+   not fetched at all, so nothing downstream can place a New Mexico observation in
+   Colorado. Reversible the moment BernCo supplies real coordinates — add the IDs to
+   `location_ids` and the data starts flowing from `initial_start_date`.
+
+1. ~~**`initial_start_date` for BernCo.**~~ **Settled 2026-09-02:** `2026-05-01`, matching
+   PVACD. It also serves as the sentinel-timestamp floor, since `startTime` is applied
+   server-side and the pipeline never requests anything earlier.
+
+   The history question is not settled, only deferred: the earliest readings go back to
+   2009-05-18 (`BCFDWildlandSub-1091579`), with onsets spread across 2009, 2011, 2013,
+   2014 (×4), 2015, 2016, 2018, 2023 (×2), 2024 (×8), 2025 (×6) and 2026. A full load
+   from 2009 across 35 DTW locations is a big backfill: at roughly 2-day pages, one
+   location-decade is about 1,800 requests. How much history BernCo wants is a decision
+   for whoever picks up the backfill, and that allowlist must be built from historical
+   parameter coverage, not current (see ObservedProperty above).
 
 1. **Where do `topic`, `is_provisional`, `is_continuous`, `measurement_method` and
    `data_source` come from?** None appears in any source API. `ebid.md`,
    `san_acacia.md` and `pvacd_hydrovu.md` all raise versions of this; `is_continuous` is
    used as a `source_specific` key by two of them but is not documented in
    `CANONICAL_MODEL.md`.
+
+---
+
+## Completing the `location_ids` allowlist
+
+`[sources.bernco_hydrovu] location_ids` in `.dlt/config.toml` ships with the only two
+DTW locations this document names by ID:
+
+```toml
+location_ids = [
+    6255051791532032,  # SierraVista-966932 — Aqua TROLL sonde
+    5617246532927488,  # WhisperingPines-1002958 — level-only logger
+]
+```
+
+That is a deliberate placeholder, not the intended production list (about 29 locations
+report `parameterId="4"`). Until it is completed the pipeline runs against those two
+and reports the rest as `locations_skipped_allowlist`, which makes the first run a
+useful smoke test but not a real ingest.
+
+To finish it, with credentials that can read `hydrovu_bernco`:
+
+1. `GET /v1/locations/list`, walking `X-ISI-Start-Page` / `X-ISI-Next-Page`, for all 53
+   locations. `fetch_locations()` in `sources/hydrovu_common.py` already does exactly
+   this if it is easier to call than to reimplement.
+2. For each location, `GET /v1/locations/{id}/data?startTime={unix_ts}` and keep the ones
+   whose response carries a parameter with `parameterId == "4"`. Use a recent
+   `startTime` for the production allowlist; use `startTime=0` for a backfill allowlist,
+   because 35 locations have carried DTW at some point against 29 today.
+3. Drop the 10 VuLink-gateway locations (parameters 1/16/26/33 only — they hold no water
+   level at all) and the three factory-default locations `default-1191022`
+   (`4905339374338048`), `default-817181` (`6179866399342592`) and `default-969659`
+   (`4657879867523072`), which report In-Situ's Fort Collins coordinates. See Open
+   Questions #4.
+4. Write the IDs into `location_ids` with the location name as a trailing comment, the
+   way `[sources.pvacd_hydrovu]` does. No code change is needed.
+
+A 404 while probing means "no data at or after that `startTime`", not "no such
+location" — 13 of the 14 currently dormant locations return their full history at
+`startTime=0`. Only `SerenityMesa` (`4562953333243904`) has no data at all.
+
+Start `bernco_hydrovu_schedule` only after this list is real. Note that the transform
+also has to land first — it currently raises `NotImplementedError`, so a scheduled run
+of the full `bernco_hydrovu_pipeline` job would fail at its second step.
 
 ---
 

@@ -39,7 +39,11 @@ location errored; otherwise it returns a `MaterializeResult` with metadata
 `failed_location_ids`).
 
 [`dlt_pipeline.py`](../src/aqueduct_dagster/sources/pvacd_hydrovu/dlt_pipeline.py)
-defines the actual dlt source:
+defines the actual dlt source. The HydroVu API client it fetches through —
+credentials, pagination, retries, the per-location fetch loop — is
+[`sources/hydrovu_common.py`](../src/aqueduct_dagster/sources/hydrovu_common.py),
+shared with the `bernco_hydrovu` tenant, which is otherwise an independent pipeline
+with its own credentials, allowlist, dlt state and dataset:
 
 - `pvacd_hydrovu_source()` — fetches OAuth creds from GCP Secret Manager (secret
   `hydrovu_pvacd`, see [Config](#config)), builds one shared `httpx.Client` via
@@ -150,6 +154,7 @@ is the single source of truth per source:
 ```python
 SOURCE_REGISTRY: list[SourceConfig] = [
     {"name": "pvacd_hydrovu", "dataset": "raw_pvacd_hydrovu", "cron": "0 6 * * *"},
+    {"name": "bernco_hydrovu", "dataset": "raw_bernco_hydrovu", "cron": "0 7 * * *"},
     {"name": "cabq", "dataset": "raw_cabq", "cron": "0 8 * * *"},
 ]
 ```
@@ -214,6 +219,13 @@ Mirrors `src/` layout, unit-only (no live GCS/FROST/API calls — see
    real sample response
 1. Create `sources/<name>/` with `adapter.py`, `dlt_pipeline.py`,
    `ingest.py`, `transform.py` — mirror `pvacd_hydrovu`'s structure.
+   If the source is another tenant on a platform already ingested, put the
+   vendor-level client in a shared `sources/<vendor>_common.py` instead of copying
+   it, and keep only the dlt source, resources, config block and dataset in the
+   tenant folder — `sources/hydrovu_common.py` is the worked example.
+1. Add `[sources.<name>]` to `.dlt/config.toml`, and if it authenticates, the
+   secret's name to `SECRETS_DAGSTER` in `deploy/00_config.sh` so
+   `deploy/30_dagster_gcp_auth.sh` grants the Dagster service account access to it.
 1. Add one entry to `SOURCE_REGISTRY` — this alone generates the job,
    schedule, and `frost_load_<name>` asset.
 1. Follow [STORAGE_CONVENTIONS.md](STORAGE_CONVENTIONS.md) for the GCS
@@ -230,3 +242,4 @@ Mirrors `src/` layout, unit-only (no live GCS/FROST/API calls — see
 |---|---|
 | 2026-07-20 | Initial version, based on the live PVACD HydroVu pipeline. |
 | 2026-08-28 | Renamed the `hydrovu` source to `pvacd_hydrovu` throughout and moved its dataset to `raw_pvacd_hydrovu` (ST2DAT-241), so a second HydroVu tenant can be added without touching this one. Added the source-key step to the new-source checklist. |
+| 2026-09-02 | Added the `bernco_hydrovu` source (ST2DAT-130): a second HydroVu tenant, ingest only. Vendor-level HydroVu code moved out of `sources/pvacd_hydrovu/dlt_pipeline.py` into `sources/hydrovu_common.py`, shared by both tenants; each tenant folder keeps its own dlt source, resources, config block and dataset. Added the config/secret step to the new-source checklist. |
