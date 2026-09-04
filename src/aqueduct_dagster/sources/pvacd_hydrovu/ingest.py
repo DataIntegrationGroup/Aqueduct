@@ -49,7 +49,13 @@ def raw_pvacd_hydrovu_readings(context: AssetExecutionContext) -> MaterializeRes
         pipeline.dataset_name,
     )
     stats: dict = {}
-    with forward_python_logs_to_dagster(context, "aqueduct_dagster.sources.pvacd_hydrovu", "dlt"):
+    # hydrovu_common carries the fetch logs, so it needs forwarding alongside this package.
+    with forward_python_logs_to_dagster(
+        context,
+        "aqueduct_dagster.sources.pvacd_hydrovu",
+        "aqueduct_dagster.sources.hydrovu_common",
+        "dlt",
+    ):
         load_info = pipeline.run(pvacd_hydrovu_source(_stats=stats), loader_file_format="parquet")
 
     context.log.info("HydroVu dlt load complete: %s", load_info)
