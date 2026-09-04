@@ -19,7 +19,7 @@
 #
 # Requires: roles/storage.admin (bucket create + IAM), roles/iam.serviceAccountAdmin
 # (only if the SA does not exist yet), roles/iam.serviceAccountKeyAdmin (only with
-# --emit-key), and permission to bind secretAccessor on ${SECRET_PVACD_HYDROVU}.
+# --emit-key), and permission to bind secretAccessor on ${SECRETS_DAGSTER[*]}.
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/00_config.sh"
@@ -116,12 +116,19 @@ done
 
 # The HydroVu OAuth credentials are themselves fetched through ADC at ingest time,
 # so bucket access alone is not enough to run the pipeline.
-echo "== Grant secretAccessor on ${SECRET_PVACD_HYDROVU} =="
-gcloud secrets add-iam-policy-binding "${SECRET_PVACD_HYDROVU}" \
-  --project="${PROJECT_ID}" \
-  --member="serviceAccount:${DAGSTER_SA}" \
-  --role="roles/secretmanager.secretAccessor" >/dev/null
-echo "   bound."
+for secret in "${SECRETS_DAGSTER[@]}"; do
+  echo "== Grant secretAccessor on ${secret} =="
+  if ! gcloud secrets describe "${secret}" --project="${PROJECT_ID}" \
+      --format='value(name)' >/dev/null 2>&1; then
+    echo "   WARN: secret ${secret} does not exist — skipping." >&2
+    continue
+  fi
+  gcloud secrets add-iam-policy-binding "${secret}" \
+    --project="${PROJECT_ID}" \
+    --member="serviceAccount:${DAGSTER_SA}" \
+    --role="roles/secretmanager.secretAccessor" >/dev/null
+  echo "   bound."
+done
 
 # --- FROST invoker ----------------------------------------------------------
 # FROST runs --no-allow-unauthenticated (see 20_frost.sh), so the loader reaches it
@@ -184,7 +191,7 @@ cat <<EOF
 
 Done. Service account : ${DAGSTER_SA}
       Buckets         : gs://${BUCKET_PROD} (prod), gs://${BUCKET_POC} (poc/verify)
-      Secret          : ${SECRET_PVACD_HYDROVU}
+      Secrets         : ${SECRETS_DAGSTER[*]}
       FROST           : ${FROST_URL:-<not deployed>}
 
 Dagster+ → Deployment → Environment variables (code location aqueduct_dagster_defs_definitions):
@@ -206,6 +213,6 @@ Verify without minting a key (needs roles/iam.serviceAccountTokenCreator on the 
 
 Confirm the bindings landed:
   gcloud storage buckets get-iam-policy gs://${BUCKET_PROD} --format=json
-  gcloud secrets get-iam-policy ${SECRET_PVACD_HYDROVU} --project=${PROJECT_ID}
+  for s in ${SECRETS_DAGSTER[*]}; do gcloud secrets get-iam-policy \$s --project=${PROJECT_ID}; done
   gcloud run services get-iam-policy ${FROST_SERVICE} --project=${PROJECT_ID} --region=${REGION}
 EOF
