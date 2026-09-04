@@ -18,6 +18,21 @@ location_ids = [
     6505900885147648,  # Orchard Park Level Troll
 ]
 
+[sources.bernco_hydrovu]
+api_base_url       = "https://www.hydrovu.com/public-api/v1"
+token_url          = "https://hydrovu.com/public-api/oauth/token"
+gcp_secret         = "hydrovu_bernco"
+initial_start_date = "2026-05-01"
+# TODO: address before the bernco_hydrovu_schedule is started.
+# BernCo has 53 locations; about 29 report parameterId="4" (depth to water) today and
+# 35 have at some point. Only the two below are named by ID in the schema doc, so the
+# rest have to come from a live GET /locations/list (see docs/sources/bernco_hydrovu.md).
+# Until then a run fetches only these two and reports the rest as locations_skipped_allowlist.
+location_ids = [
+    6255051791532032,  # SierraVista-966932 — Aqua TROLL sonde
+    5617246532927488,  # WhisperingPines-1002958 — level-only logger
+]
+
 [sources.cabq]
 api_base_url = "https://services.arcgis.com/CWv1abTnC3urn4bV/ArcGIS/rest/services/All_WL_Locations/FeatureServer/25"
 initial_start_date = "2026-05-01"
