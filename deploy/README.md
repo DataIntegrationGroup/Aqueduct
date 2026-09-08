@@ -123,8 +123,9 @@ What the script does, all idempotent:
 1. Creates `gs://nmwdi-aqueduct-production` if absent (`us-west3`, uniform bucket-level
    access, public access prevention).
 2. Creates the `aqueduct-dlt-writer` service account if absent.
-3. Grants **bucket-scoped** `roles/storage.objectAdmin` on `gs://nmwdi-aqueduct-production`
-   and `gs://aqueduct-poc-bravo-pvacd` — scoped to the bucket rather than the project,
+3. Grants **bucket-scoped** `roles/storage.objectAdmin` and
+   `roles/storage.legacyBucketReader` on `gs://nmwdi-aqueduct-production` and
+   `gs://aqueduct-poc-bravo-pvacd` — scoped to the bucket rather than the project,
    the same way `20_frost.sh` scopes its binding to a single secret. `objectAdmin` and
    not `objectCreator`: dlt creates objects, the transform assets list and read them,
    and the watermark JSON is overwritten in place.

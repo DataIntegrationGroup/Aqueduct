@@ -99,19 +99,24 @@ fi
 # Bucket-scoped rather than project-wide, mirroring how 20_frost.sh scopes its one
 # binding to a single secret. objectAdmin and not objectCreator: dlt creates
 # objects, the transform assets list and read them, and the watermark JSON is
-# overwritten in place — objectCreator alone cannot do the last two.
+#  overwritten in place — objectCreator alone cannot do the last two.
+#  legacyBucketReader grants storage.buckets.get.
+BUCKET_ROLES=("roles/storage.objectAdmin" "roles/storage.legacyBucketReader")
+
 for bucket in "${BUCKET_PROD}" "${BUCKET_POC}"; do
-  echo "== Grant objectAdmin on gs://${bucket} =="
+  echo "== Grant bucket roles on gs://${bucket} =="
   if ! gcloud storage buckets describe "gs://${bucket}" --project="${PROJECT_ID}" \
       --format='value(name)' >/dev/null 2>&1; then
     echo "   WARN: gs://${bucket} does not exist — skipping." >&2
     continue
   fi
-  gcloud storage buckets add-iam-policy-binding "gs://${bucket}" \
-    --project="${PROJECT_ID}" \
-    --member="serviceAccount:${DAGSTER_SA}" \
-    --role="roles/storage.objectAdmin" >/dev/null
-  echo "   bound."
+  for role in "${BUCKET_ROLES[@]}"; do
+    gcloud storage buckets add-iam-policy-binding "gs://${bucket}" \
+      --project="${PROJECT_ID}" \
+      --member="serviceAccount:${DAGSTER_SA}" \
+      --role="${role}" >/dev/null
+    echo "   ${role} bound."
+  done
 done
 
 # The HydroVu OAuth credentials are themselves fetched through ADC at ingest time,
