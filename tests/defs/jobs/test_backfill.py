@@ -310,19 +310,24 @@ def test_frost_watermark_dataset_is_isolated_from_production(
 @patch("aqueduct_dagster.defs.jobs.backfill.BackfillCheckpointStore")
 @patch("aqueduct_dagster.defs.jobs.backfill._gcs_filesystem")
 @patch("aqueduct_dagster.defs.jobs.backfill._gcs_bucket_url")
-def test_real_run_forwards_python_logs_with_source_specific_prefix(
+def test_real_run_forwards_python_logs_from_every_emitting_package(
     mock_bucket_url, mock_fs, mock_checkpoint_cls, mock_build_loader, mock_log_forward
 ):
     """
     Regression test: prepare_fn()/run_chunk_fn() emit per-location/per-page
-    progress via stdlib logging (see sources/pvacd_hydrovu/dlt_pipeline.py), which
+    progress via stdlib logging (see sources/hydrovu_common.py), which
     only reaches the Dagster run log if forward_python_logs_to_dagster wraps
     the call — this was originally missing, leaving a silent multi-minute gap
     in real backfill runs. Also covers BackfillCheckpointStore's own logger
     ("aqueduct_dagster.shared.backfill") and BaseAdapter's
     ("aqueduct_dagster.canonical.base_adapter"), neither of which is a
-    descendant of "aqueduct_dagster.sources.{name}" in the logging hierarchy,
-    so each needs its own prefix.
+    descendant of "aqueduct_dagster.sources" in the logging hierarchy, so each
+    needs its own prefix.
+
+    The sources prefix is the whole "aqueduct_dagster.sources" tree rather than
+    "aqueduct_dagster.sources.{name}": a source can fetch through a shared vendor
+    module that is its sibling, not its descendant (sources/hydrovu_common.py, which
+    carries every HydroVu fetch log), and this factory cannot know which.
     """
     mock_bucket_url.return_value = "gs://bucket"
     mock_checkpoint_cls.return_value.is_complete.return_value = False
@@ -337,7 +342,7 @@ def test_real_run_forwards_python_logs_with_source_specific_prefix(
     mock_log_forward.assert_called_once()
     _context, *prefixes = mock_log_forward.call_args[0]
     assert prefixes == [
-        "aqueduct_dagster.sources.test",
+        "aqueduct_dagster.sources",
         "aqueduct_dagster.shared",
         "aqueduct_dagster.canonical",
         "dlt",

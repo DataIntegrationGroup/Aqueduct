@@ -159,14 +159,16 @@ def _make_backfill_refetch_op(
         end = parse_backfill_date(cfg.end_date, "end_date")
         chunks = month_chunks(start, end)
 
-        # Forwards prepare_fn()/run_chunk_fn()'s stdlib logging (see
-        # sources/pvacd_hydrovu/dlt_pipeline.py) plus BackfillCheckpointStore's own
-        # logger ("aqueduct_dagster.shared.backfill", not a descendant of
-        # "aqueduct_dagster.sources.{name}") into this run's log stream.
+        # Forwards prepare_fn()/run_chunk_fn()'s stdlib logging plus
+        # BackfillCheckpointStore's own logger ("aqueduct_dagster.shared.backfill")
+        # into this run's log stream. The whole "aqueduct_dagster.sources" tree is
+        # forwarded rather than just this source's package, because a source can fetch
+        # through a shared vendor module that is a sibling of it, not a descendant
+        # (sources/hydrovu_common.py) — and this factory has no way to know which.
         # prepare_fn() runs even during dry_run, so this wraps it unconditionally.
         with forward_python_logs_to_dagster(
             context,
-            f"aqueduct_dagster.sources.{name}",
+            "aqueduct_dagster.sources",
             "aqueduct_dagster.shared",
             "aqueduct_dagster.canonical",
             "dlt",

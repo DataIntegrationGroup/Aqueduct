@@ -3,11 +3,12 @@ defs/definitions.py
 
 Dagster entry point — all assets, jobs, and schedules registered here.
 
-Two independent pipelines — each can be run and scheduled separately:
-  pvacd_hydrovu_pipeline:  raw_pvacd_hydrovu_readings → canonical_bundles_pvacd_hydrovu → frost_load_pvacd_hydrovu
-  cabq_pipeline:     raw_cabq_readings    → canonical_bundles_cabq    → frost_load_cabq
+Three independent pipelines — each can be run and scheduled separately:
+  pvacd_hydrovu_pipeline:  raw_pvacd_hydrovu_readings  → canonical_bundles_pvacd_hydrovu  → frost_load_pvacd_hydrovu
+  bernco_hydrovu_pipeline: raw_bernco_hydrovu_readings → canonical_bundles_bernco_hydrovu → frost_load_bernco_hydrovu
+  cabq_pipeline:           raw_cabq_readings           → canonical_bundles_cabq           → frost_load_cabq
 
-Adding source 3: add one entry to shared/source_registry.py's SOURCE_REGISTRY.
+Adding the next source: add one entry to shared/source_registry.py's SOURCE_REGISTRY.
 Jobs and schedules are generated automatically — no other changes needed in
 this file. defs/assets/load.py reads from the same registry.
 """

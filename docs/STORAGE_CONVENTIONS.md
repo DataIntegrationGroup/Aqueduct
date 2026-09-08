@@ -7,8 +7,8 @@ grows. When you add a source, a zone, or a partitioning scheme, update the
 [Current layout](#current-layout) section and add a line to the
 [Changelog](#changelog) at the bottom.
 
-- **Status:** raw zone only, date-partitioned, 2 agencies (PVACD via HydroVu live; CABQ scaffolded)
-- **Last updated:** 2026-08-28
+- **Status:** raw zone only, date-partitioned, 3 source keys (PVACD via HydroVu and CABQ live; BernCo via HydroVu ingest-only)
+- **Last updated:** 2026-09-02
 
 ---
 
@@ -56,10 +56,15 @@ gs://nmwdi-aqueduct-production/          # the raw-zone bucket (one per environm
 ├── raw_pvacd_hydrovu_backfill/          # NOT a real dlt dataset — just the isolated FROST
 │   └── _frost_watermarks.json           #   watermark file backfill jobs read/write, kept fully
 │                                        #   separate from raw_pvacd_hydrovu/_frost_watermarks.json
-├── raw_bernco_hydrovu/                  # ← BernCo's HydroVu feed (not built yet). Same table
-│   └── hydrovu_readings/                #   names as PVACD's — the dataset is what separates them.
-│       └── year=2024/month=06/day=18/
-│           └── <load_id>.<file_id>.parquet
+├── raw_bernco_hydrovu/                  # BernCo's HydroVu feed. Same table names as PVACD's —
+│   ├── hydrovu_locations/               #   the dataset is what separates them. Ingest only so
+│   │   └── year=2024/month=06/day=18/   #   far: no transform, so no watermark sidecar yet.
+│   │       └── <load_id>.<file_id>.parquet
+│   ├── hydrovu_readings/
+│   │   └── year=2024/month=06/day=18/
+│   │       └── <load_id>.<file_id>.parquet
+│   └── _dlt_*                           # dlt control tables — separate state from PVACD's,
+│                                        #   so each tenant's cursors advance independently
 ├── raw_pvacd_metermanager/              # ← example: a 2nd PVACD source system (not built yet)
 │   └── metermanager_readings/
 │       └── year=2024/month=06/day=18/
@@ -75,8 +80,8 @@ dlt builds these paths from two settings:
 - `bucket_url` and the date-partitioned `layout` (see
   [Date partitioning](#date-partitioning)) in `.dlt/config.toml`. 
   `bucket_url` can be overridden by setting a `GCS_BUCKET_URL` env var
-- `dataset_name=` in each `build_pipeline()` (`raw_pvacd_hydrovu`, `raw_cabq`), which dlt
-  prepends as the top-level folder.
+- `dataset_name=` in each `build_pipeline()` (`raw_pvacd_hydrovu`, `raw_bernco_hydrovu`,
+  `raw_cabq`), which dlt prepends as the top-level folder.
 
 So every object lands at:
 `gs://<bucket>/<dataset_name>/<table_name>/year=<y>/month=<m>/day=<d>/<load_id>.<file_id>.<ext>`.
@@ -279,3 +284,4 @@ for an existing agency, or a second tenant on a source system already in use:
 | 2026-08-11 | Adopted the `nmwdi-` bucket prefix: the pattern is now `nmwdi-aqueduct-<env>` and the production bucket is `gs://nmwdi-aqueduct-production`. The unprefixed `aqueduct-production` referenced in earlier entries was never created — the name is held by another organization, and GCS bucket names are globally unique. `bucket_url` in `.dlt/config.toml` still points at `gs://aqueduct-poc-bravo-pvacd`; moving it is a separate ticket. |
 | 2026-08-13 | Production moved onto `gs://nmwdi-aqueduct-production` via `GCS_BUCKET_URL` on the Dagster+ full deployment; the committed `bucket_url` stays on `gs://aqueduct-poc-bravo-pvacd` so local runs cannot default to production. Production started **empty** — no data was copied — so dlt cursors restarted from `initial_start_date` and raw parquet from before this date exists only in the POC bucket. |
 | 2026-08-28 | Datasets are now keyed on the **source key**, `raw_<source_key>`, not on the agency (ST2DAT-241). `raw_pvacd` became `raw_pvacd_hydrovu`, and BernCo's HydroVu tenant will land at `raw_bernco_hydrovu`. The old agency rule could not express two agencies on one source system: both tenants' HydroVu feeds would have wanted `hydrovu_readings` in one dataset. Table names are unchanged — `hydrovu_readings` and `hydrovu_locations` stay as they are under both tenants. Nothing was copied: `raw_pvacd/` is left in place, orphaned, and the renamed dataset starts empty, so PVACD's dlt cursors restarted from `initial_start_date`. |
+| 2026-09-02 | `raw_bernco_hydrovu` exists for real (ST2DAT-130): BernCo's HydroVu tenant now lands `hydrovu_locations` and `hydrovu_readings` through its own dlt pipeline, with the same table names as PVACD and its own `_dlt_*` state. Ingest only — there is no transform yet, so no `_bernco_hydrovu_transform_watermark.json` and no `_frost_watermarks.json` under it. The `location_ids` allowlist in `.dlt/config.toml` is deliberately incomplete until the full DTW well list is pulled from a live `/locations/list`. |

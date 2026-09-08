@@ -1,36 +1,22 @@
 """
-sources/pvacd_hydrovu/dlt_pipeline.py
+sources/bernco_hydrovu/dlt_pipeline.py
 
-dlt pipeline for PVACD's HydroVu tenant.
+dlt pipeline for Bernalillo County's HydroVu tenant.
 
-Two resources returned from pvacd_hydrovu_source():
+Two resources returned from bernco_hydrovu_source():
 
   hydrovu_locations  (write_disposition="replace")
     Fetches GET /locations/list on every run and fully replaces the parquet.
     One row per location: id, name, description, latitude, longitude.
-    Acts as a reference table — rename in HydroVu → latest name in GCS.
-    Written to: gs://<bucket>/raw_pvacd_hydrovu/hydrovu_locations/year={YYYY}/month={MM}/day={DD}/
+    Written to: gs://<bucket>/raw_bernco_hydrovu/hydrovu_locations/year={YYYY}/month={MM}/day={DD}/
 
   hydrovu_readings   (write_disposition="append", per-location incremental cursor)
     Fetches readings per location since that location's last successful fetch.
-    Each location has its own cursor in dlt.current.resource_state() — a failed location retries
-    from the same point next run rather than being skipped permanently.
-    One row per (location, parameter, reading) — location metadata is NOT
+    Each location has its own cursor in dlt.current.resource_state(). A failed location
+    retries from the same point next run rather than being skipped permanently.
+    One row per (location, parameter, reading). Location metadata is NOT
     embedded; join to hydrovu_locations on location_id at transform time.
-    Written to: gs://<bucket>/raw_pvacd_hydrovu/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/
-
-A TokenManager is created (via build_hydrovu_client(), in hydrovu_common) once per run
-and wrapped in an authenticated httpx.Client (base_url + BearerAuth) shared by both
-resources, so a single token and a single client cover the full run.
-
-This module is NOT a Dagster asset — it is called by sources/pvacd_hydrovu/ingest.py
-(normal daily pipeline) and sources/pvacd_hydrovu/backfill.py (Mode A refetch), which
-both reuse build_hydrovu_client()/fetch_locations()/fetch_location_data() from
-hydrovu_common rather than duplicating the OAuth/pagination logic.
-
-dlt destination = filesystem (GCS)
-  → GCS is the final destination for the raw data ingested by this pipeline.
-    → dlt writes parquet files to GCS and manages the incremental cursor state.
+    Written to: gs://<bucket>/raw_bernco_hydrovu/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/
 """
 
 from __future__ import annotations
@@ -54,8 +40,8 @@ from aqueduct_dagster.sources.hydrovu_common import (
 logger = logging.getLogger(__name__)
 
 
-@dlt.source(name="pvacd_hydrovu")
-def pvacd_hydrovu_source(
+@dlt.source(name="bernco_hydrovu")
+def bernco_hydrovu_source(
     client_id: str = "",
     client_secret: str = "",
     gcp_secret: str = dlt.config.value,
@@ -66,15 +52,16 @@ def pvacd_hydrovu_source(
     _stats: dict | None = None,
 ) -> Any:
     """
-    Reads config from dlt.config under [sources.pvacd_hydrovu].
-    Creates a single authenticated httpx.Client shared by both resources, so
-    the token is fetched once and both requests and auth-retries go through
-    one client for the full run.
-    Fetches the location list once and passes it to both resources to avoid
-    a redundant second API call.
+    Reads config from dlt.config under [sources.bernco_hydrovu]. The name= argument
+    on the decorator is what binds the two, so it has to stay equal to the source key.
+
+    Creates a single authenticated httpx.Client shared by both resources, so the
+    token is fetched once and both requests and auth-retries go through one client
+    for the full run. Fetches the location list once and passes it to both resources
+    to avoid a redundant second API call.
 
     location_ids: allowlist of HydroVu location integer IDs to fetch.
-      Read from [sources.pvacd_hydrovu] location_ids in .dlt/config.toml.
+      Read from [sources.bernco_hydrovu] location_ids in .dlt/config.toml.
       Add or remove IDs there without any code change.
 
     _stats: optional mutable dict populated with extraction counts after pipeline.run().
@@ -116,6 +103,9 @@ def hydrovu_locations(locations: list[dict]) -> Iterator[dict]:
     write_disposition="replace" ensures the parquet is fully refreshed on
     every run, so renames or removals in HydroVu are reflected immediately.
 
+    Every location is written here, including the ones the readings allowlist skips —
+    this is the reference table, and knowing a location exists is the point of it.
+
     Record shape is location_row()'s: id, name, description, latitude, longitude.
     """
     logger.info("Extracting hydrovu_locations (full replace)")
@@ -139,16 +129,17 @@ def hydrovu_readings(
     Yields one flat record per (location, parameter, reading).
     Location metadata is NOT embedded — join to hydrovu_locations on location_id.
 
-    Incremental: each location has its own cursor stored in dlt.current.resource_state() under
-    "location_cursors". A location's cursor only advances after a successful fetch,
+    Incremental: each location has its own cursor stored in dlt.current.resource_state()
+    under "location_cursors". A location's cursor only advances after a successful fetch,
     so a failed location retries from the same point on the next run.
     On first run (or new location), falls back to start_ts from config.
     dlt additionally deduplicates on primary_key=reading_id.
 
-    Closes the shared client in a finally block once this generator is done —
-    this is the only resource that does any I/O with it (hydrovu_locations
-    just yields pre-fetched dicts), so this is where its lifetime ends. The
-    finally also runs if dlt abandons the generator mid-run (GeneratorExit).
+    The fetch loop, record shape and stats accounting are iter_location_readings()
+    in hydrovu_common. What stays here is where the cursors live (dlt resource state)
+    and the lifetime of the client.
+
+    Closes the shared client in a finally block once this generator is done.
     """
     try:
         cursors: dict[str, int] = dlt.current.resource_state().setdefault("location_cursors", {})
@@ -165,11 +156,11 @@ def hydrovu_readings(
 
 
 def build_pipeline() -> dlt.Pipeline:
-    return build_source_pipeline("pvacd_hydrovu", "raw_pvacd_hydrovu")
+    return build_source_pipeline("bernco_hydrovu", "raw_bernco_hydrovu")
 
 
 def run_pipeline() -> None:
     """Convenience entry point: builds and runs the pipeline with parquet output."""
     pipeline = build_pipeline()
-    load_info = pipeline.run(pvacd_hydrovu_source(), loader_file_format="parquet")
+    load_info = pipeline.run(bernco_hydrovu_source(), loader_file_format="parquet")
     logger.info("Load complete: %s", load_info)

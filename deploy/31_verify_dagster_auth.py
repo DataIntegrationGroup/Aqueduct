@@ -39,6 +39,7 @@ from aqueduct_dagster.loader.frost_auth import (
 from aqueduct_dagster.shared.config import load_config
 from aqueduct_dagster.shared.gcp_auth import ENV_ADC_PATH, ENV_KEY_B64, ensure_adc
 from aqueduct_dagster.shared.gcs import _gcs_bucket_url, _gcs_filesystem
+from aqueduct_dagster.shared.source_registry import SOURCE_REGISTRY
 
 PROBE_NAME = f"_adc_probe_{uuid.uuid4().hex[:8]}.txt"
 
@@ -99,22 +100,40 @@ def check_gcs() -> str:
 
 
 def check_secret_manager() -> str:
-    """Access the HydroVu secret — the credentials ingest itself needs."""
+    """
+    Access every registered source's API secret. Driven off SOURCE_REGISTRY
+
+    Sources with no gcp_secret (they authenticate anonymously, like CABQ) are skipped.
+    """
     from google.cloud import secretmanager
 
     config = load_config()
     project_number = config["destination"]["filesystem"]["gcp_project_number"]
-    secret_id = config["sources"]["pvacd_hydrovu"]["gcp_secret"]
+    secret_ids = [
+        secret_id
+        for cfg in SOURCE_REGISTRY
+        if (secret_id := config["sources"].get(cfg["name"], {}).get("gcp_secret"))
+    ]
+    if not secret_ids:
+        raise RuntimeError("no source in SOURCE_REGISTRY declares a gcp_secret")
 
     client = secretmanager.SecretManagerServiceClient()
-    name = client.secret_version_path(project_number, secret_id, "latest")
-    payload = client.access_secret_version(name=name).payload.data
+    failures: list[str] = []
+    for secret_id in secret_ids:
+        try:
+            name = client.secret_version_path(project_number, secret_id, "latest")
+            payload = client.access_secret_version(name=name).payload.data
+            if not payload:
+                raise RuntimeError("resolved but is empty")
+            # Never print the value — only that it exists and is plausibly shaped.
+            print(f"   secret '{secret_id}' accessible ({len(payload)} bytes)")
+        except Exception as exc:
+            print(f"   secret '{secret_id}' FAILED: {exc}")
+            failures.append(secret_id)
 
-    if not payload:
-        raise RuntimeError(f"secret {secret_id} resolved but is empty")
-    # Never print the value — only that it exists and is plausibly shaped.
-    print(f"   secret '{secret_id}' accessible ({len(payload)} bytes)")
-    return secret_id
+    if failures:
+        raise RuntimeError(f"inaccessible secret(s): {', '.join(failures)}")
+    return ", ".join(secret_ids)
 
 
 def check_frost() -> str:
@@ -158,7 +177,7 @@ def main() -> int:
         return 1
 
     check.run("2. GCS  — write / read / delete a probe object", check_gcs)
-    check.run("3. Secret Manager — access the HydroVu secret", check_secret_manager)
+    check.run("3. Secret Manager — access every source's secret", check_secret_manager)
     check.run("4. FROST — ID token against Cloud Run", check_frost)
 
     print()

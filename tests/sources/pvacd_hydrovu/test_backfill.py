@@ -56,7 +56,7 @@ _READINGS_DATA = {
 
 
 class TestHydroVuBackfillReadings:
-    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_location_data")
+    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.fetch_location_data")
     def test_only_fetches_allowlisted_locations(self, mock_fetch):
         mock_fetch.return_value = (_READINGS_DATA, None)
         list(
@@ -71,7 +71,7 @@ class TestHydroVuBackfillReadings:
         called_ids = {call[0][1] for call in mock_fetch.call_args_list}
         assert called_ids == {111}
 
-    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_location_data")
+    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.fetch_location_data")
     def test_passes_start_and_end_ts_through(self, mock_fetch):
         mock_fetch.return_value = (_READINGS_DATA, None)
         list(
@@ -87,7 +87,7 @@ class TestHydroVuBackfillReadings:
         assert start_time == 123
         assert mock_fetch.call_args[1]["end_time"] == 456
 
-    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_location_data")
+    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.fetch_location_data")
     def test_yields_flat_rows(self, mock_fetch):
         mock_fetch.return_value = (_READINGS_DATA, None)
         rows = list(
@@ -110,7 +110,7 @@ class TestHydroVuBackfillReadings:
             }
         ]
 
-    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_location_data")
+    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.fetch_location_data")
     def test_skips_location_on_404(self, mock_fetch):
         mock_fetch.return_value = (None, None)
         rows = list(
@@ -124,7 +124,7 @@ class TestHydroVuBackfillReadings:
         )
         assert rows == []
 
-    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_location_data")
+    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.fetch_location_data")
     def test_raises_on_real_fetch_error(self, mock_fetch):
         # dlt wraps the generator's exception in its own ResourceExtractionError
         # when iterated directly (as it would be inside pipeline.run()) — match
@@ -141,7 +141,7 @@ class TestHydroVuBackfillReadings:
                 )
             )
 
-    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_location_data")
+    @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.fetch_location_data")
     def test_fetch_error_message_includes_the_chunk_window(self, mock_fetch):
         """
         An operator glancing at a failed run should immediately see which
@@ -213,7 +213,7 @@ def test_default_backfill_location_ids_raises_on_missing_config(mock_cfg):
         default_backfill_location_ids()
 
 
-@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_locations")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.fetch_locations")
 @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.build_hydrovu_client")
 @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.load_source_config")
 def test_prepare_backfill_fetches_locations_once(mock_cfg, mock_build_client, mock_fetch_locations):
@@ -233,7 +233,7 @@ def test_prepare_backfill_fetches_locations_once(mock_cfg, mock_build_client, mo
     mock_fetch_locations.assert_called_once_with(_DUMMY_CLIENT)
 
 
-@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill._fetch_locations")
+@patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.fetch_locations")
 @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.build_hydrovu_client")
 @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.load_source_config")
 def test_prepare_backfill_closes_client_if_fetch_locations_fails(

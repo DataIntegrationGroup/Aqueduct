@@ -61,7 +61,9 @@ Aqueduct/
 │   │   ├── backfill.py             # month_chunks(), BackfillCheckpointStore, ChunkResult — Mode A refetch infra
 │   │   └── source_registry.py      # SOURCE_REGISTRY — single per-source config for definitions.py + load.py
 │   ├── sources/                    # one folder per source key (vertical slice)
-│   │   ├── pvacd_hydrovu/          # PVACD's HydroVu tenant; BernCo's will sit beside it
+│   │   ├── hydrovu_common.py       # HydroVu API client shared by every HydroVu tenant
+│   │   ├── bernco_hydrovu/         # BernCo's HydroVu tenant — ingest only so far
+│   │   ├── pvacd_hydrovu/          # PVACD's HydroVu tenant
 │   │   │   ├── adapter.py          # HydroVu → CanonicalBundle mapping
 │   │   │   ├── dlt_pipeline.py     # dlt source + resource + pipeline factory
 │   │   │   ├── ingest.py           # Dagster asset: raw_pvacd_hydrovu_readings

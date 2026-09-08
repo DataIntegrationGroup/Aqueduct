@@ -20,14 +20,19 @@ Each source is an independent pipeline with three stages:
 API → dlt → GCS (parquet) → Adapter → CanonicalBundle → FROST loader → FROST
 ```
 
-| Stage | Asset (PVACD HydroVu) | Asset (CABQ) |
-|---|---|---|
-| Ingest (dlt → GCS) | `raw_pvacd_hydrovu_readings` | `raw_cabq_readings` |
-| Transform (GCS → CanonicalBundles) | `canonical_bundles_pvacd_hydrovu` | `canonical_bundles_cabq` |
-| Load (CanonicalBundles → FROST) | `frost_load_pvacd_hydrovu` | `frost_load_cabq` |
+| Stage | Asset (PVACD HydroVu) | Asset (CABQ) | Asset (BernCo HydroVu) |
+|---|---|---|---|
+| Ingest (dlt → GCS) | `raw_pvacd_hydrovu_readings` | `raw_cabq_readings` | `raw_bernco_hydrovu_readings` |
+| Transform (GCS → CanonicalBundles) | `canonical_bundles_pvacd_hydrovu` | `canonical_bundles_cabq` | `canonical_bundles_bernco_hydrovu` |
+| Load (CanonicalBundles → FROST) | `frost_load_pvacd_hydrovu` | `frost_load_cabq` | `frost_load_bernco_hydrovu` |
 
-HydroVu is live; CABQ is scaffolded (`cabq_*` raise `NotImplementedError`). Use
-HydroVu as the reference implementation when wiring up a new source.
+PVACD HydroVu and CABQ run end to end. BernCo is ingest-only so far.
+Use PVACD HydroVu as the reference implementation when wiring up a new source.
+
+PVACD and BernCo are two tenants on the same platform. Vendor-level HydroVu code
+(OAuth, pagination, retries, the per-location fetch loop) lives once in
+`sources/hydrovu_common.py`; each tenant folder holds only its own dlt source,
+resources, config block, and dataset.
 
 ## The one rule that explains the design
 
@@ -49,6 +54,7 @@ src/aqueduct_dagster/
 │   ├── http.py            # retry_transient(), TokenManager, BearerAuth, build_authenticated_client()
 │   └── source_registry.py # SOURCE_REGISTRY — single per-source config, read by definitions.py and load.py
 ├── sources/        # one folder per source key (vertical slice) — see pvacd_hydrovu/ as the reference
+│   ├── hydrovu_common.py  # HydroVu API client shared by the pvacd_hydrovu and bernco_hydrovu tenants
 │   └── <name>/
 │       ├── adapter.py       # raw rows → CanonicalBundle (source-specific)
 │       ├── dlt_pipeline.py  # dlt source/resource/pipeline factory

@@ -128,7 +128,9 @@ What the script does, all idempotent:
    the same way `20_frost.sh` scopes its binding to a single secret. `objectAdmin` and
    not `objectCreator`: dlt creates objects, the transform assets list and read them,
    and the watermark JSON is overwritten in place.
-4. Grants `roles/secretmanager.secretAccessor` on `hydrovu_pvacd`.
+4. Grants `roles/secretmanager.secretAccessor` on every secret in `SECRETS_DAGSTER`
+   (`00_config.sh`) — one per HydroVu tenant: `hydrovu_pvacd` and `hydrovu_bernco`.
+   A secret that does not exist yet is warned about and skipped.
 5. Grants `roles/run.invoker` on the `frost-sensorthings` Cloud Run service, so the
    same identity can call the IAM-gated FROST endpoint. Warns and skips if FROST is
    not deployed yet, so the script still runs before `20_frost.sh`.
@@ -219,7 +221,9 @@ code location afterwards.
 
 ```bash
 gcloud storage buckets get-iam-policy gs://nmwdi-aqueduct-production --format=json
-gcloud secrets get-iam-policy hydrovu_pvacd --project=waterdatainitiative-271000
+for SECRET in hydrovu_pvacd hydrovu_bernco; do
+  gcloud secrets get-iam-policy "$SECRET" --project=waterdatainitiative-271000
+done
 gcloud run services get-iam-policy frost-sensorthings \
   --project=waterdatainitiative-271000 --region=us-west3
 ```
@@ -234,8 +238,10 @@ echo probe | gcloud storage cp - gs://aqueduct-poc-bravo-pvacd/_adc_probe.txt \
   --impersonate-service-account="$SA"
 gcloud storage rm gs://aqueduct-poc-bravo-pvacd/_adc_probe.txt \
   --impersonate-service-account="$SA"
-gcloud secrets versions access latest --secret=hydrovu_pvacd \
-  --impersonate-service-account="$SA" >/dev/null && echo "secret OK"
+for SECRET in hydrovu_pvacd hydrovu_bernco; do
+  gcloud secrets versions access latest --secret="$SECRET" \
+    --impersonate-service-account="$SA" >/dev/null && echo "secret $SECRET OK"
+done
 ```
 
 **3. Does the key work?**
