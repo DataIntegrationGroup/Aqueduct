@@ -33,7 +33,7 @@
 |-----------------|----------------------------------|----------|--------------|--------------------------------------------------------------------|
 | `source_id`     | str                              | Required | `GlobalID`   | Stable ID, always string (equivalent to `Well_ID` in measurements) |
 | `geoconnex`     | str                              | Optional | (not in API) | geoconnex.us URI if available                                      |
-| `alternate_id`  | [{id: str, agency: str}] \| None | Optional | (not in API) | Cross-reference IDs, e.g. `[{id: "NM-28258", agency: "NMBGMR"}]`   |
+| `alternate_id`  | [{id: str, agency: str}] \| None | Optional | `NMT_ID`     | Cross-reference IDs, e.g. `[{id: "NM-28258", agency: "NMBGMR"}]`   |
 
 **properties.source_specific:**
 
@@ -58,7 +58,7 @@
 |-----------------|----------------------------------|----------|--------------|-----------------------------------------------------------------|
 | `agency`        | str                              | Required | (fixed)      | Fixed: `BERNCO`                                                 |
 | `source_id`     | str                              | Required | `GlobalID`   | Same as Location                                                |
-| `alternate_id`  | [{id: str, agency: str}] \| None | Optional | (not in API) | Cross-reference IDs, e.g. `[{id: "BC-0002", agency: "NMBGMR"}]` |
+| `alternate_id`  | [{id: str, agency: str}] \| None | Optional | `NMT_ID`     | Cross-reference IDs, e.g. `[{id: "BC-0002", agency: "NMBGMR"}]` |
 
 **properties.source_specific:**
 
@@ -170,8 +170,6 @@ One per (Thing, ObservedProperty, Sensor) combination.
 ---
 
 ## Raw Response Example
-
-Paste a sanitized example (one station, a few readings). This becomes test fixture data.
 
 ### Location
 The following api call gets a list of all locations, the sample result just contains the first location returned. \
