@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.4.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.3.0...Aqueduct-v0.4.0) (2026-09-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* rename hydrovu source to pvacd_hydrovu for multi-tenant layout (ST2DAT-241) ([#47](https://github.com/DataIntegrationGroup/Aqueduct/issues/47))
+
+### Features
+
+* **bernco_hydrovu:** dlt pipeline for BernCo HydroVu raw ingestion (ST2DAT-130) ([#50](https://github.com/DataIntegrationGroup/Aqueduct/issues/50)) ([ca94563](https://github.com/DataIntegrationGroup/Aqueduct/commit/ca94563932771af21848ec192ca520d4d3def123))
+* **cabq:** cabq backfill implementation ([#48](https://github.com/DataIntegrationGroup/Aqueduct/issues/48)) ([9aa6e15](https://github.com/DataIntegrationGroup/Aqueduct/commit/9aa6e15c574861c253cd26a3426de40edce4360c))
+
+
+### Bug Fixes
+
+* also grant roles/storage.legacyBucketReader on storage buckets (ST2DAT-244) ([#49](https://github.com/DataIntegrationGroup/Aqueduct/issues/49)) ([d909f8d](https://github.com/DataIntegrationGroup/Aqueduct/commit/d909f8d9edd07f1e3ee1923bf7003a6afbe1220f))
+
+
+### Documentation
+
+* **bernco-manual:** document BernCo ArcREST source schema ([#51](https://github.com/DataIntegrationGroup/Aqueduct/issues/51)) ([43584a5](https://github.com/DataIntegrationGroup/Aqueduct/commit/43584a52b827bcb23f5a883ff4c37c5a6e0e244a))
+* document BernCo HydroVu source schema (ST2DAT-129) ([#46](https://github.com/DataIntegrationGroup/Aqueduct/issues/46)) ([afd8391](https://github.com/DataIntegrationGroup/Aqueduct/commit/afd8391faf1597fb05ad259da324c2af21887f6c))
+* document EBID source mapping (ST2DAT-135) ([#44](https://github.com/DataIntegrationGroup/Aqueduct/issues/44)) ([500b288](https://github.com/DataIntegrationGroup/Aqueduct/commit/500b28807ee9b5fdcc802c37ab906cb701b9005d))
+
+
+### Code Refactoring
+
+* rename hydrovu source to pvacd_hydrovu for multi-tenant layout (ST2DAT-241) ([#47](https://github.com/DataIntegrationGroup/Aqueduct/issues/47)) ([f590f70](https://github.com/DataIntegrationGroup/Aqueduct/commit/f590f70a28bf5e21ffc8d2e767c56043586911d6))
+
 ## [0.3.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.2.0...Aqueduct-v0.3.0) (2026-08-19)
 
 
