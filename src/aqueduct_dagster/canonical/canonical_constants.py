@@ -40,6 +40,11 @@ UNIT_CFS = {
     "definition": "http://qudt.org/vocab/unit/FT3-PER-SEC",
 }
 
+# ── Unit conversions ──────────────────────────────────────────────────────────
+# Factors for normalising a source unit to the canonical one.
+
+METRES_TO_FEET = 3.28084
+
 # ⚠ OPEN: should observations always be stored in feet, or preserve the source unit?
 
 # ── Sensors ───────────────────────────────────────────────────────────────────
