@@ -61,8 +61,9 @@ Aqueduct/
 │   │   ├── backfill.py             # month_chunks(), BackfillCheckpointStore, ChunkResult — Mode A refetch infra
 │   │   └── source_registry.py      # SOURCE_REGISTRY — single per-source config for definitions.py + load.py
 │   ├── sources/                    # one folder per source key (vertical slice)
-│   │   ├── hydrovu_common.py       # HydroVu API client shared by every HydroVu tenant
-│   │   ├── bernco_hydrovu/         # BernCo's HydroVu tenant — ingest only so far
+│   │   ├── hydrovu_common.py       # HydroVu API client shared by every HydroVu tenant (ingest)
+│   │   ├── hydrovu_transform_common.py  # HydroVu DTW mapping + GCS read/group shared by every tenant
+│   │   ├── bernco_hydrovu/         # BernCo's HydroVu tenant
 │   │   ├── pvacd_hydrovu/          # PVACD's HydroVu tenant
 │   │   │   ├── adapter.py          # HydroVu → CanonicalBundle mapping
 │   │   │   ├── dlt_pipeline.py     # dlt source + resource + pipeline factory
