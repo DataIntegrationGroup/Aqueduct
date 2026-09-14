@@ -238,7 +238,7 @@ def run_backfill_chunk(
             rows_ingested=0, bundles_loaded=0, observations_posted=0, observations_deleted=0
         )
 
-    rows = read_parquet_rows_for_load_id(
+    rows, files_skipped_bad_name = read_parquet_rows_for_load_id(
         bucket,
         f"{GCS_DATASET}/{BACKFILL_TABLE_NAME}/**/*.parquet",
         load_id,
@@ -261,4 +261,5 @@ def run_backfill_chunk(
         observations_posted=observations_posted,
         observations_deleted=observations_deleted,
         adapter_failures=adapter.failure_count,
+        files_skipped_bad_name=files_skipped_bad_name,
     )

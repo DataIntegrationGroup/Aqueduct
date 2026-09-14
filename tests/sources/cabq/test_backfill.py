@@ -217,7 +217,7 @@ class TestCabqBackfillChunk:
         self, mock_run_ingest, mock_read_rows
     ):
         mock_run_ingest.return_value = 1781192390.555875
-        mock_read_rows.return_value = [CABQ_RESULTS]
+        mock_read_rows.return_value = ([CABQ_RESULTS], 2)
 
         loader = _StubFrostLoader()
         result = run_backfill_chunk(
@@ -249,6 +249,7 @@ class TestCabqBackfillChunk:
         assert result.bundles_loaded == 1
         assert result.observations_posted == 1
         assert result.observations_deleted == 1
+        assert result.files_skipped_bad_name == 2
         assert len(loader.ensure_calls) == 1
         assert len(loader.load_window_calls) == 1
         ds_key, ds_id, records = loader.load_window_calls[0]
@@ -259,7 +260,7 @@ class TestCabqBackfillChunk:
     @patch("aqueduct_dagster.sources.cabq.backfill.run_backfill_ingest")
     def test_run_backfill_chunk_with_no_rows_loads_nothing(self, mock_run_ingest, mock_read_rows):
         mock_run_ingest.return_value = 100.0
-        mock_read_rows.return_value = []
+        mock_read_rows.return_value = ([], 0)
 
         loader = _StubFrostLoader()
         result = run_backfill_chunk(

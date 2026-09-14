@@ -502,6 +502,7 @@ def test_sum_chunk_results_adds_fields_across_chunks():
             observations_posted=10,
             observations_deleted=0,
             adapter_failures=1,
+            files_skipped_bad_name=1,
         ),
         ChunkResult(
             rows_ingested=5,
@@ -509,6 +510,7 @@ def test_sum_chunk_results_adds_fields_across_chunks():
             observations_posted=5,
             observations_deleted=3,
             adapter_failures=2,
+            files_skipped_bad_name=4,
         ),
     ]
     totals = sum_chunk_results(results)
@@ -518,6 +520,7 @@ def test_sum_chunk_results_adds_fields_across_chunks():
         observations_posted=15,
         observations_deleted=3,
         adapter_failures=3,
+        files_skipped_bad_name=5,
     )
 
 

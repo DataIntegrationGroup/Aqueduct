@@ -67,6 +67,7 @@ def _stub_chunk_result(**overrides: int) -> SimpleNamespace:
         observations_posted=1,
         observations_deleted=0,
         adapter_failures=0,
+        files_skipped_bad_name=0,
     )
     return SimpleNamespace(**{**defaults, **overrides})
 

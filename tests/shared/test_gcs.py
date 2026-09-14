@@ -98,9 +98,12 @@ def _fake_read_table(tables: dict[str, dict]):
 class TestReadNewParquetRows:
     def test_returns_empty_when_no_files(self):
         fs = _mock_fs([], {})
-        rows, max_load_id = read_new_parquet_rows("bucket", "ds/*.parquet", None, fs)
+        rows, max_load_id, files_skipped_bad_name = read_new_parquet_rows(
+            "bucket", "ds/*.parquet", None, fs
+        )
         assert rows == []
         assert max_load_id is None
+        assert files_skipped_bad_name == 0
 
     def test_skips_files_at_or_below_watermark(self):
         files = [
@@ -112,7 +115,7 @@ class TestReadNewParquetRows:
         with patch(
             "aqueduct_dagster.shared.gcs.pq.read_table", side_effect=_fake_read_table(tables)
         ):
-            rows, max_load_id = read_new_parquet_rows("bucket", "ds/*.parquet", 100.0, fs)
+            rows, max_load_id, _ = read_new_parquet_rows("bucket", "ds/*.parquet", 100.0, fs)
         assert rows == [{"v": 2}]
         assert max_load_id == 200.0
 
@@ -123,7 +126,7 @@ class TestReadNewParquetRows:
         with patch(
             "aqueduct_dagster.shared.gcs.pq.read_table", side_effect=_fake_read_table(tables)
         ):
-            rows, _ = read_new_parquet_rows(
+            rows, _, _ = read_new_parquet_rows(
                 "bucket",
                 "ds/*.parquet",
                 None,
@@ -143,16 +146,42 @@ class TestReadNewParquetRows:
         with patch(
             "aqueduct_dagster.shared.gcs.pq.read_table", side_effect=_fake_read_table(tables)
         ):
-            rows, max_load_id = read_new_parquet_rows("bucket", "ds/*.parquet", None, fs)
+            rows, max_load_id, _ = read_new_parquet_rows("bucket", "ds/*.parquet", None, fs)
         assert max_load_id == 300.0
         assert len(rows) == 3
 
     def test_ignores_files_without_parseable_load_id(self):
         files = ["bucket/ds/README.parquet"]
         fs = _mock_fs(files, {})
-        rows, max_load_id = read_new_parquet_rows("bucket", "ds/*.parquet", None, fs)
+        rows, max_load_id, files_skipped_bad_name = read_new_parquet_rows(
+            "bucket", "ds/*.parquet", None, fs
+        )
         assert rows == []
         assert max_load_id is None
+        assert files_skipped_bad_name == 1
+
+    def test_bad_name_file_is_logged_and_counted_alongside_good_files(self, caplog):
+        """A malformed filename must be logged and counted, not silently dropped."""
+        files = [
+            "bucket/ds/year=2024/month=01/day=01/100.0.0.parquet",
+            "bucket/ds/not-a-load-id.0.parquet",
+        ]
+        tables = {files[0]: {"v": [1]}}
+        fs = _mock_fs(files, tables)
+        with (
+            patch(
+                "aqueduct_dagster.shared.gcs.pq.read_table", side_effect=_fake_read_table(tables)
+            ),
+            caplog.at_level("WARNING", logger="aqueduct_dagster.shared.gcs"),
+        ):
+            rows, max_load_id, files_skipped_bad_name = read_new_parquet_rows(
+                "bucket", "ds/*.parquet", None, fs
+            )
+        assert rows == [{"v": 1}]
+        assert max_load_id == 100.0
+        assert files_skipped_bad_name == 1
+        assert "Skipping parquet file with unrecognized name" in caplog.text
+        assert files[1] in caplog.text
 
 
 # ── read_parquet_rows_for_load_id ──────────────────────────────────────────────
@@ -166,8 +195,11 @@ class TestReadParquetRowsForLoadId:
         with patch(
             "aqueduct_dagster.shared.gcs.pq.read_table", side_effect=_fake_read_table(tables)
         ):
-            rows = read_parquet_rows_for_load_id("bucket", "ds/*.parquet", 999.0, fs)
+            rows, files_skipped_bad_name = read_parquet_rows_for_load_id(
+                "bucket", "ds/*.parquet", 999.0, fs
+            )
         assert rows == []
+        assert files_skipped_bad_name == 0
 
     def test_reads_only_the_exact_load_id_not_greater(self):
         files = [
@@ -179,7 +211,7 @@ class TestReadParquetRowsForLoadId:
         with patch(
             "aqueduct_dagster.shared.gcs.pq.read_table", side_effect=_fake_read_table(tables)
         ):
-            rows = read_parquet_rows_for_load_id("bucket", "ds/*.parquet", 100.0, fs)
+            rows, _ = read_parquet_rows_for_load_id("bucket", "ds/*.parquet", 100.0, fs)
         assert rows == [{"v": 1}]
 
     def test_reads_multiple_files_sharing_the_same_load_id(self):
@@ -192,7 +224,7 @@ class TestReadParquetRowsForLoadId:
         with patch(
             "aqueduct_dagster.shared.gcs.pq.read_table", side_effect=_fake_read_table(tables)
         ):
-            rows = read_parquet_rows_for_load_id("bucket", "ds/*.parquet", 100.0, fs)
+            rows, _ = read_parquet_rows_for_load_id("bucket", "ds/*.parquet", 100.0, fs)
         assert rows == [{"v": 1}, {"v": 2}]
 
     def test_applies_row_filter(self):
@@ -202,7 +234,7 @@ class TestReadParquetRowsForLoadId:
         with patch(
             "aqueduct_dagster.shared.gcs.pq.read_table", side_effect=_fake_read_table(tables)
         ):
-            rows = read_parquet_rows_for_load_id(
+            rows, _ = read_parquet_rows_for_load_id(
                 "bucket",
                 "ds/*.parquet",
                 100.0,
@@ -210,6 +242,39 @@ class TestReadParquetRowsForLoadId:
                 row_filter=lambda row: row["parameter_id"] == "4",
             )
         assert rows == [{"parameter_id": "4", "value": 10.0}]
+
+    def test_bad_name_file_is_logged_and_counted_alongside_matching_file(self, caplog):
+        """Same malformed-filename guarantee as read_new_parquet_rows, for the
+        exact-load_id backfill read path."""
+        files = [
+            "bucket/ds/year=2024/month=01/day=01/100.0.0.parquet",
+            "bucket/ds/not-a-load-id.0.parquet",
+        ]
+        tables = {files[0]: {"v": [1]}}
+        fs = _mock_fs(files, tables)
+        with (
+            patch(
+                "aqueduct_dagster.shared.gcs.pq.read_table", side_effect=_fake_read_table(tables)
+            ),
+            caplog.at_level("WARNING", logger="aqueduct_dagster.shared.gcs"),
+        ):
+            rows, files_skipped_bad_name = read_parquet_rows_for_load_id(
+                "bucket", "ds/*.parquet", 100.0, fs
+            )
+        assert rows == [{"v": 1}]
+        assert files_skipped_bad_name == 1
+        assert "Skipping parquet file with unrecognized name" in caplog.text
+        assert files[1] in caplog.text
+
+    def test_bad_name_file_counted_even_when_no_match_found(self):
+        """The count must still surface even when the empty-result warning fires."""
+        files = ["bucket/ds/not-a-load-id.0.parquet"]
+        fs = _mock_fs(files, {})
+        rows, files_skipped_bad_name = read_parquet_rows_for_load_id(
+            "bucket", "ds/*.parquet", 100.0, fs
+        )
+        assert rows == []
+        assert files_skipped_bad_name == 1
 
 
 # ── atomic_write_json_with_retry ───────────────────────────────────────────────

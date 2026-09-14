@@ -139,6 +139,30 @@ def _load_id_from_filename(path: str) -> float | None:
     return float(m.group(1)) if m else None
 
 
+def _partition_files_by_load_id(files: list[str]) -> tuple[list[tuple[float, str]], int]:
+    """
+    Splits `files` into (load_id, path) pairs for names dlt's convention
+    recognizes, skipping — and logging — any that don't.
+
+    Shared by read_new_parquet_rows and read_parquet_rows_for_load_id so a
+    malformed filename (e.g. after a dlt version upgrade changes the naming
+    format) is detected identically by both read paths, instead of the two
+    copies risking drifting apart.
+
+    Returns (parsed, files_skipped_bad_name).
+    """
+    parsed: list[tuple[float, str]] = []
+    files_skipped_bad_name = 0
+    for f in files:
+        load_id = _load_id_from_filename(f)
+        if load_id is None:
+            logger.warning("Skipping parquet file with unrecognized name: %s", f)
+            files_skipped_bad_name += 1
+            continue
+        parsed.append((load_id, f))
+    return parsed, files_skipped_bad_name
+
+
 def _read_parquet_files(
     files: list[str],
     fs: gcsfs.GCSFileSystem,
@@ -164,7 +188,7 @@ def read_new_parquet_rows(
     since_load_id: float | None,
     fs: gcsfs.GCSFileSystem,
     row_filter: Callable[[dict], bool] | None = None,
-) -> tuple[list[dict], float | None]:
+) -> tuple[list[dict], float | None, int]:
     """
     Reads parquet files matching {bucket}/{glob_suffix} with load_id > since_load_id,
     keeping only rows where row_filter(row) is True (all rows if row_filter is None).
@@ -172,35 +196,39 @@ def read_new_parquet_rows(
     Shared by every source's transform asset for incremental reads — see
     pvacd_hydrovu/transform.py for the reference usage.
 
-    Returns (rows, max_load_id_seen_this_run) — max_load_id is None if no new files.
+    A file whose name doesn't match dlt's expected load_id format (e.g. after a
+    dlt version upgrade changes it) is skipped rather than crashing the whole
+    read — but that must never be silent: logged here, and returned as a count
+    so a caller can surface it in Dagster asset metadata, where a non-zero
+    count is immediately visible instead of buried in a "skipped N
+    already-processed" log line.
+
+    Returns (rows, max_load_id_seen_this_run, files_skipped_bad_name) —
+    max_load_id is None if no new files.
     """
     pattern = f"{bucket}/{glob_suffix}"
     all_files = fs.glob(pattern)
 
-    new_files = []
-    for f in all_files:
-        load_id = _load_id_from_filename(f)
-        if load_id is None:
-            continue
-        if since_load_id is not None and load_id <= since_load_id:
-            continue
-        new_files.append((load_id, f))
+    parsed, files_skipped_bad_name = _partition_files_by_load_id(all_files)
+    new_files = [
+        (load_id, f) for load_id, f in parsed if since_load_id is None or load_id > since_load_id
+    ]
 
     if not new_files:
         logger.info("No new parquet files since load_id=%s — nothing to process", since_load_id)
-        return [], None
+        return [], None, files_skipped_bad_name
 
     logger.info(
         "Reading %d new parquet file(s) (skipped %d already-processed)",
         len(new_files),
-        len(all_files) - len(new_files),
+        len(all_files) - len(new_files) - files_skipped_bad_name,
     )
 
     rows = _read_parquet_files([f for _, f in new_files], fs, row_filter)
     max_load_id = max([since_load_id or 0.0, *(load_id for load_id, _ in new_files)])
 
     logger.info("Read %d row(s) from %d new parquet file(s)", len(rows), len(new_files))
-    return rows, max_load_id
+    return rows, max_load_id, files_skipped_bad_name
 
 
 def read_parquet_rows_for_load_id(
@@ -209,7 +237,7 @@ def read_parquet_rows_for_load_id(
     load_id: float,
     fs: gcsfs.GCSFileSystem,
     row_filter: Callable[[dict], bool] | None = None,
-) -> list[dict]:
+) -> tuple[list[dict], int]:
     """
     Reads parquet files matching {bucket}/{glob_suffix} whose filename load_id
     is exactly `load_id` — an exact match, unlike read_new_parquet_rows's
@@ -221,18 +249,25 @@ def read_parquet_rows_for_load_id(
     "everything newer than some watermark" — no dependency on, or risk of
     interference with, any watermark the normal scheduled pipeline tracks.
 
-    Returns the matching rows (empty list if no file has this load_id).
+    A file whose name doesn't match dlt's expected load_id format is skipped
+    rather than crashing the whole read — logged here, and returned as a
+    count (see read_new_parquet_rows) so a caller can surface it in Dagster
+    asset/op metadata instead of it passing unnoticed.
+
+    Returns (rows, files_skipped_bad_name) — rows is empty if no file has this load_id.
     """
     pattern = f"{bucket}/{glob_suffix}"
     all_files = fs.glob(pattern)
 
-    matching = [f for f in all_files if _load_id_from_filename(f) == load_id]
+    parsed, files_skipped_bad_name = _partition_files_by_load_id(all_files)
+    matching = [f for file_load_id, f in parsed if file_load_id == load_id]
+
     if not matching:
         logger.warning("No parquet files found for load_id=%s (pattern=%s)", load_id, pattern)
-        return []
+        return [], files_skipped_bad_name
 
     rows = _read_parquet_files(matching, fs, row_filter)
     logger.info(
         "Read %d row(s) from %d parquet file(s) for load_id=%s", len(rows), len(matching), load_id
     )
-    return rows
+    return rows, files_skipped_bad_name
