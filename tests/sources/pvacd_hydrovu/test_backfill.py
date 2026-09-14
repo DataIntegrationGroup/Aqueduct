@@ -345,7 +345,7 @@ def test_run_backfill_chunk_reports_adapter_failures_without_dropping_good_locat
     mock_run_ingest, mock_read_rows
 ):
     """
-    One location's reading has a malformed timestamp (None) — HydroVuAdapter
+    One location's reading has a malformed timestamp (None) — PvacdHydroVuAdapter
     raises adapting it, BaseAdapter.run() catches and records it. The other,
     healthy location must still produce a bundle and get loaded; ChunkResult
     must report the failure count rather than silently swallowing it.
