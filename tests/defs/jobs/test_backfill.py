@@ -60,14 +60,14 @@ def _prepare_fn(locations_by_id: dict[int, dict] | None = None) -> MagicMock:
     return MagicMock(return_value=(client, list(locations_by_id), locations_by_id))
 
 
-def _stub_chunk_result(**overrides: int) -> SimpleNamespace:
+def _stub_chunk_result(**overrides: object) -> SimpleNamespace:
     defaults = dict(
         rows_ingested=1,
         bundles_loaded=1,
         observations_posted=1,
         observations_deleted=0,
         adapter_failures=0,
-        files_skipped_bad_name=0,
+        files_skipped_bad_name=frozenset(),
     )
     return SimpleNamespace(**{**defaults, **overrides})
 

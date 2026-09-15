@@ -183,6 +183,24 @@ class TestReadNewParquetRows:
         assert "Skipping parquet file with unrecognized name" in caplog.text
         assert files[1] in caplog.text
 
+    def test_all_files_bad_name_warns_instead_of_logging_a_plain_empty_run(self, caplog):
+        """When every candidate file has a bad name, 'nothing to process' must not
+        read the same as a genuinely quiet run with no new data at all."""
+        files = ["bucket/ds/not-a-load-id.0.parquet"]
+        fs = _mock_fs(files, {})
+        with caplog.at_level("INFO", logger="aqueduct_dagster.shared.gcs"):
+            rows, max_load_id, files_skipped_bad_name = read_new_parquet_rows(
+                "bucket", "ds/*.parquet", None, fs
+            )
+        assert rows == []
+        assert max_load_id is None
+        assert files_skipped_bad_name == 1
+        warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert any("No usable new parquet files" in r.message for r in warning_records)
+        assert not any(
+            r.message.startswith("No new parquet files since") for r in caplog.records
+        )
+
 
 # ── read_parquet_rows_for_load_id ──────────────────────────────────────────────
 
@@ -199,7 +217,7 @@ class TestReadParquetRowsForLoadId:
                 "bucket", "ds/*.parquet", 999.0, fs
             )
         assert rows == []
-        assert files_skipped_bad_name == 0
+        assert files_skipped_bad_name == frozenset()
 
     def test_reads_only_the_exact_load_id_not_greater(self):
         files = [
@@ -262,7 +280,7 @@ class TestReadParquetRowsForLoadId:
                 "bucket", "ds/*.parquet", 100.0, fs
             )
         assert rows == [{"v": 1}]
-        assert files_skipped_bad_name == 1
+        assert files_skipped_bad_name == frozenset({files[1]})
         assert "Skipping parquet file with unrecognized name" in caplog.text
         assert files[1] in caplog.text
 
@@ -274,7 +292,7 @@ class TestReadParquetRowsForLoadId:
             "bucket", "ds/*.parquet", 100.0, fs
         )
         assert rows == []
-        assert files_skipped_bad_name == 1
+        assert files_skipped_bad_name == frozenset({files[0]})
 
 
 # ── atomic_write_json_with_retry ───────────────────────────────────────────────

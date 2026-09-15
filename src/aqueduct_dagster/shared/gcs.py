@@ -139,7 +139,7 @@ def _load_id_from_filename(path: str) -> float | None:
     return float(m.group(1)) if m else None
 
 
-def _partition_files_by_load_id(files: list[str]) -> tuple[list[tuple[float, str]], int]:
+def _partition_files_by_load_id(files: list[str]) -> tuple[list[tuple[float, str]], list[str]]:
     """
     Splits `files` into (load_id, path) pairs for names dlt's convention
     recognizes, skipping — and logging — any that don't.
@@ -149,18 +149,20 @@ def _partition_files_by_load_id(files: list[str]) -> tuple[list[tuple[float, str
     format) is detected identically by both read paths, instead of the two
     copies risking drifting apart.
 
-    Returns (parsed, files_skipped_bad_name).
+    Returns (parsed, skipped_paths) — actual bad filenames, not a count, so a
+    caller re-globbing the same path repeatedly (e.g. per backfill chunk) can
+    dedupe across calls instead of recounting.
     """
     parsed: list[tuple[float, str]] = []
-    files_skipped_bad_name = 0
+    skipped_paths: list[str] = []
     for f in files:
         load_id = _load_id_from_filename(f)
         if load_id is None:
             logger.warning("Skipping parquet file with unrecognized name: %s", f)
-            files_skipped_bad_name += 1
+            skipped_paths.append(f)
             continue
         parsed.append((load_id, f))
-    return parsed, files_skipped_bad_name
+    return parsed, skipped_paths
 
 
 def _read_parquet_files(
@@ -209,13 +211,24 @@ def read_new_parquet_rows(
     pattern = f"{bucket}/{glob_suffix}"
     all_files = fs.glob(pattern)
 
-    parsed, files_skipped_bad_name = _partition_files_by_load_id(all_files)
+    parsed, skipped_paths = _partition_files_by_load_id(all_files)
+    files_skipped_bad_name = len(skipped_paths)
     new_files = [
         (load_id, f) for load_id, f in parsed if since_load_id is None or load_id > since_load_id
     ]
 
     if not new_files:
-        logger.info("No new parquet files since load_id=%s — nothing to process", since_load_id)
+        if files_skipped_bad_name:
+            logger.warning(
+                "No usable new parquet files since load_id=%s — all %d candidate file(s) had "
+                "unrecognized names (see warnings above), not genuinely empty",
+                since_load_id,
+                files_skipped_bad_name,
+            )
+        else:
+            logger.info(
+                "No new parquet files since load_id=%s — nothing to process", since_load_id
+            )
         return [], None, files_skipped_bad_name
 
     logger.info(
@@ -237,7 +250,7 @@ def read_parquet_rows_for_load_id(
     load_id: float,
     fs: gcsfs.GCSFileSystem,
     row_filter: Callable[[dict], bool] | None = None,
-) -> tuple[list[dict], int]:
+) -> tuple[list[dict], frozenset[str]]:
     """
     Reads parquet files matching {bucket}/{glob_suffix} whose filename load_id
     is exactly `load_id` — an exact match, unlike read_new_parquet_rows's
@@ -250,24 +263,26 @@ def read_parquet_rows_for_load_id(
     interference with, any watermark the normal scheduled pipeline tracks.
 
     A file whose name doesn't match dlt's expected load_id format is skipped
-    rather than crashing the whole read — logged here, and returned as a
-    count (see read_new_parquet_rows) so a caller can surface it in Dagster
-    asset/op metadata instead of it passing unnoticed.
+    rather than crashing the whole read — logged here, and returned as the
+    actual skipped paths, not a count: this re-globs the whole dataset every
+    chunk, so paths let the caller dedupe a persistently-bad file across
+    chunks (ChunkResult/sum_chunk_results in shared/backfill.py) before it's
+    ever turned into a count.
 
-    Returns (rows, files_skipped_bad_name) — rows is empty if no file has this load_id.
+    Returns (rows, skipped_paths) — rows is empty if no file has this load_id.
     """
     pattern = f"{bucket}/{glob_suffix}"
     all_files = fs.glob(pattern)
 
-    parsed, files_skipped_bad_name = _partition_files_by_load_id(all_files)
+    parsed, skipped_paths = _partition_files_by_load_id(all_files)
     matching = [f for file_load_id, f in parsed if file_load_id == load_id]
 
     if not matching:
         logger.warning("No parquet files found for load_id=%s (pattern=%s)", load_id, pattern)
-        return [], files_skipped_bad_name
+        return [], frozenset(skipped_paths)
 
     rows = _read_parquet_files(matching, fs, row_filter)
     logger.info(
         "Read %d row(s) from %d parquet file(s) for load_id=%s", len(rows), len(matching), load_id
     )
-    return rows, files_skipped_bad_name
+    return rows, frozenset(skipped_paths)

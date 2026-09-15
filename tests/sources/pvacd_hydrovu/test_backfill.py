@@ -302,7 +302,7 @@ def test_run_backfill_chunk_reads_by_exact_load_id_and_loads_bundles(
                 "value": 10.0,
             }
         ],
-        3,
+        frozenset({"bad1.parquet", "bad2.parquet", "bad3.parquet"}),
     )
 
     loader = _StubFrostLoader()
@@ -335,7 +335,9 @@ def test_run_backfill_chunk_reads_by_exact_load_id_and_loads_bundles(
     assert result.bundles_loaded == 1
     assert result.observations_posted == 1
     assert result.observations_deleted == 1
-    assert result.files_skipped_bad_name == 3
+    assert result.files_skipped_bad_name == frozenset(
+        {"bad1.parquet", "bad2.parquet", "bad3.parquet"}
+    )
     assert len(loader.ensure_calls) == 1
     assert len(loader.load_window_calls) == 1
     ds_key, ds_id, records = loader.load_window_calls[0]
@@ -372,7 +374,7 @@ def test_run_backfill_chunk_reports_adapter_failures_without_dropping_good_locat
                 "value": 5.0,
             },
         ],
-        0,
+        frozenset(),
     )
 
     loader = _StubFrostLoader()
@@ -398,7 +400,7 @@ def test_run_backfill_chunk_reports_adapter_failures_without_dropping_good_locat
 @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.run_backfill_ingest")
 def test_run_backfill_chunk_with_no_rows_loads_nothing(mock_run_ingest, mock_read_rows):
     mock_run_ingest.return_value = 100.0
-    mock_read_rows.return_value = ([], 0)
+    mock_read_rows.return_value = ([], frozenset())
 
     loader = _StubFrostLoader()
     result = run_backfill_chunk(

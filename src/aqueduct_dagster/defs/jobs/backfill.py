@@ -270,7 +270,7 @@ def _make_backfill_refetch_op(
                         result.observations_posted,
                         result.observations_deleted,
                         result.adapter_failures,
-                        result.files_skipped_bad_name,
+                        len(result.files_skipped_bad_name),
                     )
             finally:
                 client.close()
@@ -286,7 +286,7 @@ def _make_backfill_refetch_op(
                 "observations_posted": MetadataValue.int(totals.observations_posted),
                 "observations_deleted": MetadataValue.int(totals.observations_deleted),
                 "adapter_failures": MetadataValue.int(totals.adapter_failures),
-                "files_skipped_bad_name": MetadataValue.int(totals.files_skipped_bad_name),
+                "files_skipped_bad_name": MetadataValue.int(len(totals.files_skipped_bad_name)),
             }
         )
 

@@ -58,7 +58,7 @@ def test_does_not_forward_loggers_outside_the_given_prefix():
 def test_handler_is_detached_once_the_with_block_exits():
     """Regression guard: a leaked handler would keep forwarding into a stale run's context.log."""
     context = MagicMock()
-    test_logger = logging.getLogger("aqueduct_dagster.shared.gcs")
+    test_logger = logging.getLogger("aqueduct_dagster.shared")
     handlers_before = list(test_logger.handlers)
 
     with forward_python_logs_to_dagster(context, "aqueduct_dagster.shared"):
