@@ -226,9 +226,7 @@ def read_new_parquet_rows(
                 files_skipped_bad_name,
             )
         else:
-            logger.info(
-                "No new parquet files since load_id=%s — nothing to process", since_load_id
-            )
+            logger.info("No new parquet files since load_id=%s — nothing to process", since_load_id)
         return [], None, files_skipped_bad_name
 
     logger.info(

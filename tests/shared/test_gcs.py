@@ -197,9 +197,7 @@ class TestReadNewParquetRows:
         assert files_skipped_bad_name == 1
         warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
         assert any("No usable new parquet files" in r.message for r in warning_records)
-        assert not any(
-            r.message.startswith("No new parquet files since") for r in caplog.records
-        )
+        assert not any(r.message.startswith("No new parquet files since") for r in caplog.records)
 
 
 # ── read_parquet_rows_for_load_id ──────────────────────────────────────────────
