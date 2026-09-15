@@ -81,7 +81,7 @@ def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | Non
     path = "/query"
     params = {
         "where": "OBJECTID>0",
-        "outfields": "sys_loc_code,loc_name,latitude,longitude",
+        "outFields": "sys_loc_code,loc_name,latitude,longitude",
         "returnDistinctValues": "true",
         "f": "pjson",
     }
@@ -159,7 +159,7 @@ def _fetch_readings_for_location(
         )
     params = {
         "where": query,
-        "outfields": "measurement_date,water_depth",
+        "outFields": "measurement_date,water_depth",
         "f": "pjson",
     }
     rate_limit_retries = 0

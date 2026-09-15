@@ -33,6 +33,10 @@ location_ids = [
     5617246532927488,  # WhisperingPines-1002958 — level-only logger
 ]
 
+[sources.bernco_manual]
+api_base_url = "https://services6.arcgis.com/NiLPE6S5bwjCDk9X/ArcGIS/rest/services/Monitoring_Wells/FeatureServer"
+initial_start_date = "2026-05-01"
+
 [sources.cabq]
 api_base_url = "https://services.arcgis.com/CWv1abTnC3urn4bV/ArcGIS/rest/services/All_WL_Locations/FeatureServer/25"
 initial_start_date = "2026-05-01"

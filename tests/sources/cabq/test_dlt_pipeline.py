@@ -61,7 +61,7 @@ class TestFetchLocations:
         assert calls[0].url.path == "/query"
         assert calls[0].url.params["f"] == "pjson"
         assert calls[0].url.params["returnDistinctValues"] == "true"
-        assert calls[0].url.params["outfields"] == "sys_loc_code,loc_name,latitude,longitude"
+        assert calls[0].url.params["outFields"] == "sys_loc_code,loc_name,latitude,longitude"
         assert calls[0].url.params["where"] == "OBJECTID>0"
 
 
@@ -106,7 +106,7 @@ class TestFetchReadings:
         _fetch_readings_for_location(client, loc_id="IW4", start_time=start_time)
         assert calls[0].url.path == "/query"
         assert calls[0].url.params["f"] == "pjson"
-        assert calls[0].url.params["outfields"] == "measurement_date,water_depth"
+        assert calls[0].url.params["outFields"] == "measurement_date,water_depth"
         assert (
             calls[0].url.params["where"] == "sys_loc_code='IW4' AND measurement_date>='2014-01-30'"
         )
@@ -120,7 +120,7 @@ class TestFetchReadings:
         _fetch_readings_for_location(client, loc_id="IW4", start_time=start_time, end_time=end_time)
         assert calls[0].url.path == "/query"
         assert calls[0].url.params["f"] == "pjson"
-        assert calls[0].url.params["outfields"] == "measurement_date,water_depth"
+        assert calls[0].url.params["outFields"] == "measurement_date,water_depth"
         assert (
             calls[0].url.params["where"]
             == "sys_loc_code='IW4' AND measurement_date>='2014-01-30' AND measurement_date<='2015-02-03'"
