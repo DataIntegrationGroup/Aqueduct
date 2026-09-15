@@ -26,13 +26,17 @@ API → dlt → GCS (parquet) → Adapter → CanonicalBundle → FROST loader �
 | Transform (GCS → CanonicalBundles) | `canonical_bundles_pvacd_hydrovu` | `canonical_bundles_cabq` | `canonical_bundles_bernco_hydrovu` |
 | Load (CanonicalBundles → FROST) | `frost_load_pvacd_hydrovu` | `frost_load_cabq` | `frost_load_bernco_hydrovu` |
 
-PVACD HydroVu and CABQ run end to end. BernCo is ingest-only so far.
+All three run end to end.
 Use PVACD HydroVu as the reference implementation when wiring up a new source.
 
-PVACD and BernCo are two tenants on the same platform. Vendor-level HydroVu code
-(OAuth, pagination, retries, the per-location fetch loop) lives once in
-`sources/hydrovu_common.py`; each tenant folder holds only its own dlt source,
-resources, config block, and dataset.
+PVACD and BernCo are two tenants on the same platform, so vendor-level HydroVu code
+lives once and each tenant folder holds only what is genuinely its own (its dlt
+source, resources, config block, dataset, and any hazard specific to that tenant):
+
+| Stage | Shared module                                                                                                           | What a tenant still owns |
+|---|-------------------------------------------------------------------------------------------------------------------------|---|
+| Ingest | `sources/hydrovu_common.py`: OAuth, pagination, retries, the per-location fetch loop                                    | secret name, allowlist, dlt state, dataset |
+| Transform | `sources/hydrovu_transform_common.py`: the DTW mapping (`HydroVuDtwAdapter`), locations read, grouping, output metadata | agency code, GCS dataset, watermark path, result type, sanity floor |
 
 ## The one rule that explains the design
 
@@ -54,7 +58,8 @@ src/aqueduct_dagster/
 │   ├── http.py            # retry_transient(), TokenManager, BearerAuth, build_authenticated_client()
 │   └── source_registry.py # SOURCE_REGISTRY — single per-source config, read by definitions.py and load.py
 ├── sources/        # one folder per source key (vertical slice) — see pvacd_hydrovu/ as the reference
-│   ├── hydrovu_common.py  # HydroVu API client shared by the pvacd_hydrovu and bernco_hydrovu tenants
+│   ├── hydrovu_common.py  # HydroVu API client (ingest) shared by the pvacd_hydrovu and bernco_hydrovu tenants
+│   ├── hydrovu_transform_common.py  # HydroVu DTW mapping + GCS read/group shared by those same tenants
 │   └── <name>/
 │       ├── adapter.py       # raw rows → CanonicalBundle (source-specific)
 │       ├── dlt_pipeline.py  # dlt source/resource/pipeline factory

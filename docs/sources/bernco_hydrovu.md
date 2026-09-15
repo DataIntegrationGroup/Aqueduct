@@ -429,9 +429,7 @@ A 404 while probing means "no data at or after that `startTime`", not "no such
 location" — 13 of the 14 currently dormant locations return their full history at
 `startTime=0`. Only `SerenityMesa` (`4562953333243904`) has no data at all.
 
-Start `bernco_hydrovu_schedule` only after this list is real. Note that the transform
-also has to land first — it currently raises `NotImplementedError`, so a scheduled run
-of the full `bernco_hydrovu_pipeline` job would fail at its second step.
+Start `bernco_hydrovu_schedule` only after this list is real.
 
 ---
 

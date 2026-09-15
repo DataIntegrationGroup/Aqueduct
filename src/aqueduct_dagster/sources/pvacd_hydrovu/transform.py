@@ -6,8 +6,7 @@ Dagster asset: canonical_bundles_pvacd_hydrovu
   - Always reads the latest hydrovu_locations parquet (replace resource — one file)
   - Filters readings to DTW rows only (parameter_id="4")
   - Joins readings to locations on location_id to restore name/lat/lon metadata
-  - Groups joined rows by location_id into one record per location
-  - Runs HydroVuAdapter to produce CanonicalBundles (one per DTW location)
+  - Runs PvacdHydroVuAdapter to produce CanonicalBundles (one per DTW location)
   - Returns bundles downstream to frost_load_pvacd_hydrovu
 
 Incremental reads (readings only):
@@ -29,9 +28,7 @@ Downstream: frost_load_pvacd_hydrovu
 import logging
 from dataclasses import dataclass
 
-import gcsfs
-import pyarrow.parquet as pq
-from dagster import AssetExecutionContext, MetadataValue, asset
+from dagster import AssetExecutionContext, asset
 
 from aqueduct_dagster.canonical.base_adapter import log_if_adapter_failed
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
@@ -43,7 +40,13 @@ from aqueduct_dagster.shared.gcs import (
     read_transform_watermark,
     transform_watermark_path,
 )
-from aqueduct_dagster.sources.pvacd_hydrovu.adapter import HydroVuAdapter
+from aqueduct_dagster.sources.hydrovu_transform_common import (
+    DTW_PARAMETER_ID,
+    group_readings_by_location,
+    read_locations_from_gcs,
+    transform_metadata,
+)
+from aqueduct_dagster.sources.pvacd_hydrovu.adapter import PvacdHydroVuAdapter
 
 
 @dataclass
@@ -62,96 +65,13 @@ class HydroVuTransformResult:
 logger = logging.getLogger(__name__)
 
 GCS_DATASET = "raw_pvacd_hydrovu"
-DTW_PARAMETER_ID = "4"
 WATERMARK_PATH = transform_watermark_path(GCS_DATASET, "pvacd_hydrovu")
-
-
-def _read_locations_from_gcs(bucket_url: str, fs: gcsfs.GCSFileSystem) -> dict[int, dict]:
-    """
-    Reads the hydrovu_locations parquet (write_disposition=replace → always one file).
-    Returns a dict keyed by location_id for O(1) join with readings rows.
-    """
-    bucket = bucket_url.replace("gs://", "")
-    pattern = f"{bucket}/{GCS_DATASET}/hydrovu_locations/**/*.parquet"
-    files = fs.glob(pattern)
-    if not files:
-        raise FileNotFoundError(
-            f"No locations parquet found at {pattern}. "
-            "Ensure raw_pvacd_hydrovu_readings has run at least once."
-        )
-
-    locations: dict[int, dict] = {}
-    for f in files:
-        with fs.open(f) as fh:
-            table = pq.read_table(fh)
-            df = table.to_pydict()
-            for i in range(len(df["id"])):
-                locations[df["id"][i]] = {
-                    "name": df["name"][i],
-                    "description": df["description"][i],
-                    "latitude": df["latitude"][i],
-                    "longitude": df["longitude"][i],
-                }
-
-    logger.info("Read %d locations from GCS", len(locations))
-    return locations
-
-
-def _group_by_location(rows: list[dict], locations: dict[int, dict]) -> list[dict]:
-    """
-    Groups flat readings rows into one record per location, joining location
-    metadata (name, description, lat, lon) from the locations reference dict.
-    """
-    groups: dict[int, dict] = {}
-    for row in rows:
-        loc_id = row["location_id"]
-        if loc_id not in groups:
-            loc = locations.get(loc_id, {})
-            groups[loc_id] = {
-                "location_id": loc_id,
-                "location_name": loc.get("name", ""),
-                "location_description": loc.get("description", ""),
-                "latitude": loc.get("latitude"),
-                "longitude": loc.get("longitude"),
-                "readings": [],
-            }
-        groups[loc_id]["readings"].append(
-            {
-                "parameter_id": row["parameter_id"],
-                "unit_id": row["unit_id"],
-                "timestamp": row["timestamp"],
-                "value": row["value"],
-            }
-        )
-    return list(groups.values())
-
-
-def _transform_metadata(
-    *,
-    dtw_rows_read: int,
-    locations_grouped: int,
-    bundles_produced: int,
-    adapter_failures: int,
-    since_load_id: float | None,
-    max_load_id: float | None,
-) -> dict[str, MetadataValue]:
-    """Shared shape for canonical_bundles_pvacd_hydrovu's output metadata — used by
-    both the no-new-rows early return and the normal path, so the two can't
-    drift out of sync on key names."""
-    return {
-        "dtw_rows_read": MetadataValue.int(dtw_rows_read),
-        "locations_grouped": MetadataValue.int(locations_grouped),
-        "bundles_produced": MetadataValue.int(bundles_produced),
-        "adapter_failures": MetadataValue.int(adapter_failures),
-        "watermark_before": MetadataValue.text(str(since_load_id)),
-        "watermark_after": MetadataValue.text(str(max_load_id)),
-    }
 
 
 @asset(
     name="canonical_bundles_pvacd_hydrovu",
     group_name="pvacd_hydrovu",
-    description="CanonicalBundles produced by HydroVuAdapter from GCS raw parquet.",
+    description="CanonicalBundles produced by PvacdHydroVuAdapter from GCS raw parquet.",
     compute_kind="python",
     deps=["raw_pvacd_hydrovu_readings"],
 )
@@ -160,7 +80,7 @@ def canonical_bundles_pvacd_hydrovu(
 ) -> HydroVuTransformResult:
     """
     Reads only new HydroVu parquet from GCS (since last run), filters to DTW
-    readings, groups by location, and runs HydroVuAdapter to produce CanonicalBundles.
+    readings, groups by location, and runs PvacdHydroVuAdapter to produce CanonicalBundles.
 
     Does NOT write the watermark — that happens in frost_load_pvacd_hydrovu after FROST
     confirms success, so a FROST failure leaves the watermark unadvanced and the
@@ -189,7 +109,7 @@ def canonical_bundles_pvacd_hydrovu(
     if not rows:
         context.log.info("No new DTW rows — returning empty result (watermark unchanged)")
         context.add_output_metadata(
-            _transform_metadata(
+            transform_metadata(
                 dtw_rows_read=0,
                 locations_grouped=0,
                 bundles_produced=0,
@@ -200,20 +120,23 @@ def canonical_bundles_pvacd_hydrovu(
         )
         return HydroVuTransformResult(bundles=[], max_load_id=max_load_id)
 
-    locations = _read_locations_from_gcs(bucket_url, fs)
-    records = _group_by_location(rows, locations)
+    locations = read_locations_from_gcs(bucket_url, GCS_DATASET, fs)
+    records = group_readings_by_location(rows, locations)
     context.log.info("Grouped %d new DTW rows into %d location records", len(rows), len(records))
 
-    adapter = HydroVuAdapter(records)
+    adapter = PvacdHydroVuAdapter(records)
     with forward_python_logs_to_dagster(
-        context, "aqueduct_dagster.sources.pvacd_hydrovu", "aqueduct_dagster.canonical"
+        context,
+        "aqueduct_dagster.sources.pvacd_hydrovu",
+        "aqueduct_dagster.sources.hydrovu_transform_common",
+        "aqueduct_dagster.canonical",
     ):
         bundles = list(adapter.run())
     context.log.info("Produced %d CanonicalBundles", len(bundles))
     log_if_adapter_failed(adapter, context.log)
 
     context.add_output_metadata(
-        _transform_metadata(
+        transform_metadata(
             dtw_rows_read=len(rows),
             locations_grouped=len(records),
             bundles_produced=len(bundles),

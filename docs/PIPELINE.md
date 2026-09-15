@@ -82,25 +82,33 @@ Deps: `raw_pvacd_hydrovu_readings`.
    `parameter_id == "4"` (Depth to Water).
 3. If there are no new rows, returns an empty result immediately — the
    locations file isn't even read.
-4. Otherwise reads the `hydrovu_locations` parquet into a
-   `{location_id: {...}}` dict, and `_group_by_location()` joins readings +
-   location metadata into one record per location — the exact shape
-   `HydroVuAdapter` expects: `{location_id, location_name,
-   location_description, latitude, longitude, readings: [...]}`.
-5. Instantiates `HydroVuAdapter(records)` and calls `list(adapter.run())`.
+4. Otherwise `read_locations_from_gcs()` reads the `hydrovu_locations` parquet
+   into a `{location_id: {...}}` dict, and `group_readings_by_location()` joins
+   readings + location metadata into one record per location — the exact shape
+   `PvacdHydroVuAdapter` expects: `{location_id, location_name,
+   location_description, latitude, longitude, readings: [...]}`. Both helpers are
+   shared with the `bernco_hydrovu` tenant
+   ([sources/hydrovu_transform_common.py](../src/aqueduct_dagster/sources/hydrovu_transform_common.py)).
+5. Instantiates `PvacdHydroVuAdapter(records)` and calls `list(adapter.run())`.
 6. Returns `HydroVuTransformResult(bundles, max_load_id)`. **The watermark is
    not committed here** — it only advances after Stage 3 confirms FROST
    accepted the data (see [Idempotency](#idempotency--watermarks)).
 
 [`adapter.py`](../src/aqueduct_dagster/sources/pvacd_hydrovu/adapter.py)
-(`HydroVuAdapter`, subclass of the shared `BaseAdapter`) converts one grouped
-record into canonical entities:
+(`PvacdHydroVuAdapter`) converts one grouped record into canonical entities. The
+mapping itself is `HydroVuDtwAdapter` in
+[hydrovu_transform_common.py](../src/aqueduct_dagster/sources/hydrovu_transform_common.py),
+a subclass of the shared `BaseAdapter`; the tenant module supplies only the agency
+code, since both HydroVu tenants land identical raw rows and map to canonical
+identically:
 
 - `to_thing()` — builds `CanonicalLocation` + `CanonicalThing`
   (`agency="PVACD"`, `source_id=str(location_id)`, well number stored in
   `properties.source_specific.hydrovu_description`).
 - `to_observations()` — filters to `parameter_id="4"`, converts metres → feet
-  (`× 3.28084`), one `CanonicalObservation` per reading.
+  (`METRES_TO_FEET`), one `CanonicalObservation` per reading. An optional
+  `min_timestamp` drops readings below a sanity floor; PVACD leaves it unset,
+  BernCo passes its `initial_start_date` to filter sentinel epoch-0 readings.
 - `_build_datastreams()` — one `CanonicalDatastream` per thing (DTW only),
   using shared constants `HYDROVU_SENSOR`, `DTW_OBS_PROP`, `UNIT_FOOT` from
   [canonical/canonical_constants.py](../src/aqueduct_dagster/canonical/canonical_constants.py).
@@ -199,8 +207,12 @@ Google ID token; localhost is called unauthenticated.
 Mirrors `src/` layout, unit-only (no live GCS/FROST/API calls — see
 [AGENTS.md](../AGENTS.md)):
 
-- `tests/sources/pvacd_hydrovu/test_adapter.py` — `HydroVuAdapter` against mock
-  grouped records.
+- `tests/sources/pvacd_hydrovu/test_adapter.py`,
+  `tests/sources/bernco_hydrovu/test_adapter.py` — each tenant's adapter against
+  mock grouped records; between them they cover the shared `HydroVuDtwAdapter`
+  mapping, including BernCo's sentinel-timestamp floor.
+- `tests/sources/bernco_hydrovu/test_transform.py` — the sentinel floor resolved
+  from config, and the readings/locations join.
 - `tests/sources/pvacd_hydrovu/test_dlt_pipeline.py` — pagination, auth-retry,
   404/429/5xx handling, cursor behavior, via `httpx.MockTransport`.
 - `tests/shared/test_http.py`, `tests/shared/test_gcs.py` — shared infra
@@ -243,3 +255,4 @@ Mirrors `src/` layout, unit-only (no live GCS/FROST/API calls — see
 | 2026-07-20 | Initial version, based on the live PVACD HydroVu pipeline. |
 | 2026-08-28 | Renamed the `hydrovu` source to `pvacd_hydrovu` throughout and moved its dataset to `raw_pvacd_hydrovu` (ST2DAT-241), so a second HydroVu tenant can be added without touching this one. Added the source-key step to the new-source checklist. |
 | 2026-09-02 | Added the `bernco_hydrovu` source (ST2DAT-130): a second HydroVu tenant, ingest only. Vendor-level HydroVu code moved out of `sources/pvacd_hydrovu/dlt_pipeline.py` into `sources/hydrovu_common.py`, shared by both tenants; each tenant folder keeps its own dlt source, resources, config block and dataset. Added the config/secret step to the new-source checklist. |
+| 2026-09-10 | BernCo HydroVu runs end to end (ST2DAT-131). The DTW mapping, the locations read, the grouping and the transform output-metadata shape moved out of `sources/pvacd_hydrovu/` into `sources/hydrovu_transform_common.py`, shared by both tenants the same way `hydrovu_common.py` already shares the ingest client; `HydroVuAdapter` became `PvacdHydroVuAdapter` alongside the new `BerncoHydroVuAdapter`. `METRES_TO_FEET` moved to `canonical_constants.py`. BernCo's transform is incremental on the same dlt `load_id` watermark as the others, plus a sanity floor that drops sentinel readings from two locations with bad device clocks. |

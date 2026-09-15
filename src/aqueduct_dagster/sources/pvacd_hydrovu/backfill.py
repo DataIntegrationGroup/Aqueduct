@@ -15,8 +15,8 @@ Not a Dagster asset or op itself — no Dagster imports here. Called per-chunk
 by the generic backfill job factory in defs/jobs/backfill.py, which owns the
 run config, chunk loop, and checkpointing.
 
-Reused, unchanged: _group_by_location (transform.py), HydroVuAdapter
-(adapter.py). Load (FrostLoader.load_window per datastream) happens inside
+Reused, unchanged: group_readings_by_location (hydrovu_transform_common.py),
+PvacdHydroVuAdapter (adapter.py). Load (FrostLoader.load_window per datastream) happens inside
 shared.backfill.load_bundles_windowed, not here. Only the ingest side
 (hydrovu_backfill_readings) and the location_ids/client-setup glue
 (default_backfill_location_ids, prepare_backfill) are HydroVu-specific —
@@ -51,12 +51,12 @@ from aqueduct_dagster.sources.hydrovu_common import (
     fetch_location_data,
     fetch_locations,
 )
-from aqueduct_dagster.sources.pvacd_hydrovu.adapter import HydroVuAdapter
-from aqueduct_dagster.sources.pvacd_hydrovu.transform import (
+from aqueduct_dagster.sources.hydrovu_transform_common import (
     DTW_PARAMETER_ID,
-    GCS_DATASET,
-    _group_by_location,
+    group_readings_by_location,
 )
+from aqueduct_dagster.sources.pvacd_hydrovu.adapter import PvacdHydroVuAdapter
+from aqueduct_dagster.sources.pvacd_hydrovu.transform import GCS_DATASET
 
 logger = logging.getLogger(__name__)
 
@@ -125,8 +125,8 @@ def hydrovu_backfill_readings(
 def _locations_by_id(locations: list[dict]) -> dict[int, dict]:
     """
     Converts the raw HydroVu /locations/list response into the {id: {...}}
-    shape _group_by_location expects — the same shape transform.py's
-    _read_locations_from_gcs produces when reading the locations parquet.
+    shape group_readings_by_location expects — the same shape
+    read_locations_from_gcs produces when reading the locations parquet.
     Built directly from the already-fetched in-memory list, so backfill never
     needs to read or write the hydrovu_locations table at all.
     """
@@ -198,7 +198,7 @@ def run_backfill_chunk(
          hydrovu_backfill_readings (never hydrovu_readings).
       2. Transform — reads back exactly this run's rows (by exact load_id
          match, not "since some watermark"), groups by location, and runs
-         HydroVuAdapter — the same adapter production uses, unchanged.
+         PvacdHydroVuAdapter — the same adapter production uses, unchanged.
       3. Load — shared.backfill.load_bundles_windowed() per datastream:
          delete existing observations in [chunk_start, chunk_end), then repost.
 
@@ -246,8 +246,8 @@ def run_backfill_chunk(
         row_filter=lambda row: row["parameter_id"] == DTW_PARAMETER_ID,
     )
 
-    records = _group_by_location(rows, locations_by_id)
-    adapter = HydroVuAdapter(records)
+    records = group_readings_by_location(rows, locations_by_id)
+    adapter = PvacdHydroVuAdapter(records)
     bundles: list[CanonicalBundle] = list(adapter.run())
     log_if_adapter_failed(adapter, logger, context=f"Backfill chunk [{chunk_start}, {chunk_end})")
 
