@@ -199,6 +199,36 @@ class TestReadNewParquetRows:
         assert any("No usable new parquet files" in r.message for r in warning_records)
         assert not any(r.message.startswith("No new parquet files since") for r in caplog.records)
 
+    def test_bad_name_file_alongside_already_processed_good_files_is_not_a_false_warning(
+        self, caplog
+    ):
+        """A stray bad-named file must not make an otherwise-normal 'caught up,
+        nothing new' run claim 'not genuinely empty' — that's only true when
+        every candidate file was unparseable, not when good files exist but are
+        simply older than the watermark."""
+        files = [
+            "bucket/ds/year=2024/month=01/day=01/100.0.0.parquet",
+            "bucket/ds/not-a-load-id.0.parquet",
+        ]
+        tables = {files[0]: {"v": [1]}}
+        fs = _mock_fs(files, tables)
+        with (
+            patch(
+                "aqueduct_dagster.shared.gcs.pq.read_table", side_effect=_fake_read_table(tables)
+            ),
+            caplog.at_level("INFO", logger="aqueduct_dagster.shared.gcs"),
+        ):
+            rows, max_load_id, files_skipped_bad_name = read_new_parquet_rows(
+                "bucket", "ds/*.parquet", 100.0, fs
+            )
+        assert rows == []
+        assert max_load_id is None
+        assert files_skipped_bad_name == 1
+        assert not any("not genuinely empty" in r.message for r in caplog.records)
+        assert any(
+            "nothing to process" in r.message and "1 file" in r.message for r in caplog.records
+        )
+
 
 # ── read_parquet_rows_for_load_id ──────────────────────────────────────────────
 

@@ -218,10 +218,17 @@ def read_new_parquet_rows(
     ]
 
     if not new_files:
-        if files_skipped_bad_name:
+        if files_skipped_bad_name and not parsed:
             logger.warning(
                 "No usable new parquet files since load_id=%s — all %d candidate file(s) had "
                 "unrecognized names (see warnings above), not genuinely empty",
+                since_load_id,
+                files_skipped_bad_name,
+            )
+        elif files_skipped_bad_name:
+            logger.info(
+                "No new parquet files since load_id=%s — nothing to process "
+                "(%d file(s) with unrecognized names also skipped)",
                 since_load_id,
                 files_skipped_bad_name,
             )
