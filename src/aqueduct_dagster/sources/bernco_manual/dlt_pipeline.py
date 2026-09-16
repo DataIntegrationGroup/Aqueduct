@@ -1,4 +1,5 @@
 import logging
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
@@ -13,12 +14,34 @@ from aqueduct_dagster.shared.pipeline import build_source_pipeline
 
 logger = logging.getLogger(__name__)
 
+_429_BACKOFF = 60.0  # seconds to wait on 429 when Retry-After header is absent
+_MAX_RATE_LIMIT_RETRIES = 3
+
 
 def _transform_result(data: dict) -> list[dict]:
     """
-    TODO fill out comment
-    :param data:
-    :return:
+    The structure of data we get back from BerncoManual API is:
+    {
+        "objectIdFieldName": "OBJECTID",
+        "uniqueIdField": {
+            "name": "OBJECTID",
+            "isSystemMaintained": true
+        },
+        "globalIdFieldName": "",
+        "fields": [ list of fields in attributes ... ],
+        "exceededTransferLimit": true,
+        "features": [
+            {
+                "attributes": { ... }
+            },{
+                "attributes": { ... }
+            },{
+                ...
+            }
+        ]
+    }
+    The content of "attributes" in each entry of "features" list is what we actually want.
+    This function simply reads in the response from CABQ and returns a list the JSON objects in each "attributes" field.
     """
     all_attributes: list[dict] = []
     for feature in data["features"]:
@@ -28,9 +51,15 @@ def _transform_result(data: dict) -> list[dict]:
 
 def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | None]:
     """
-    TODO fill out comment
-    :param client:
-    :return:
+    get location information from BerncoManual API
+    format of location:
+    {
+        "GlobalID": str,                *string code for identifying location, UUID
+        "Well_Name": str,               *full human-readable name of location
+        "Well_Location_Latitude": num,  *latitude coordinate for location
+        "Well_Location_Longitude": num, *longitude coordinate for location
+        "NMT_ID": str                   *string code for identifying location, ex "BC-0364"
+    }
     """
     path = "/0/query"
     params = {
@@ -39,6 +68,7 @@ def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | Non
         "returnDistinctValues": "true",
         "f": "pjson",
     }
+    rate_limit_retries = 0
     result: dict[Any, Any] = {}
     while True:
 
@@ -58,7 +88,27 @@ def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | Non
                 _MAX_RETRIES,
             )
             return None, f"transient network error after {_MAX_RETRIES} attempts: {err}"
-        # TODO implement error code handling
+        if response.status_code == 429:
+            rate_limit_retries += 1
+            if rate_limit_retries > _MAX_RATE_LIMIT_RETRIES:
+                return None, f"HTTP 429: rate limited after {_MAX_RATE_LIMIT_RETRIES} retries"
+            retry_after = response.headers.get("Retry-After")
+            try:
+                delay = float(retry_after) if retry_after else _429_BACKOFF
+            except (ValueError, TypeError):
+                # Retry-After can be an HTTP-date string ("Thu, 01 Jan ...") — fall back.
+                delay = _429_BACKOFF
+            logger.warning(
+                "Locations: 429 rate limited — waiting %.0fs (attempt %d/%d)",
+                delay,
+                rate_limit_retries,
+                _MAX_RATE_LIMIT_RETRIES,
+            )
+            time.sleep(delay)
+            continue
+        if response.status_code >= 500:
+            logger.warning("Location: HTTP %s", response.status_code)
+            return None, f"HTTP {response.status_code}"
         response.raise_for_status()
         result = response.json()
         break
@@ -69,12 +119,12 @@ def _fetch_readings_for_location(
     client: httpx.Client, location_id: str, start_time: int, end_time: int | None = None
 ) -> tuple[list[dict] | None, str | None]:
     """
-    TODO fill out comment
-    :param client:
-    :param location_id:
-    :param start_time:
-    :param end_time:
-    :return:
+    get reading information for location from BerncoManual API
+    format of location:
+    {
+        MSRMNT_Date: num,                       *timestamp of when measurement was taken in unix epoch milliseconds
+        Depth_To_Water_At_Msrmnt_Point: num,    *water level in ft msl
+    }
     """
     path = "/1/query"
     query = (
@@ -161,12 +211,24 @@ def bernco_manual_readings(
     ),
 ) -> Iterator[dict]:
     """
-    TODO fill out comment
-    :param client:
-    :param start_ts:
-    :param _stats:
-    :param updated_at:
-    :return:
+    Yields one flat record per reading per location.
+    Per-location incremental cursor via dlt.current.resource_state() — same pattern as
+    hydrovu_readings. Each station has its own cursor; a failed station retries from the
+    same point next run rather than being skipped permanently.
+
+    On first run: fetches from start_ts (derived from initial_start_date in config).
+    On subsequent runs: fetches only records newer than each station's cursor.
+
+    Record shape (to define when implementing):
+      reading_id   — unique key e.g. "{location_id}_{timestamp}"
+      location_id  — bernco manual station identifier
+      location_name — human-readable name of the location
+      latitude     — latitude in decimal degrees
+      longitude    — longitude in decimal degrees
+      timestamp    — Unix epoch milliseconds
+      value        — float measurement
+      alternate_id — Cross-reference IDs, e.g. `[{id: "BC-0364", agency: "NMBGMR"}]`
+      # add other fields as needed
     """
     cursors: dict[str, int] = dlt.current.resource_state().setdefault("location_cursors", {})
     locations, err = _fetch_locations(client)

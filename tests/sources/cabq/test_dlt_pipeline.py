@@ -58,7 +58,6 @@ class TestFetchLocations:
         client, calls = _client_with_responses([httpx.Response(200, json=LOCATIONS_RESPONSE)])
         _fetch_locations(client)
         assert calls[0].url.path == "/query"
-        assert calls[0].url.path == "/query"
         assert calls[0].url.params["f"] == "pjson"
         assert calls[0].url.params["returnDistinctValues"] == "true"
         assert calls[0].url.params["outFields"] == "sys_loc_code,loc_name,latitude,longitude"
