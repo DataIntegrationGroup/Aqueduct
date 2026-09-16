@@ -145,6 +145,7 @@ def _fetch_readings_for_location(
         "outFields": "MSRMNT_Date,Depth_To_Water_At_Msrmnt_Point",
         "f": "pjson",
     }
+    rate_limit_retries = 0
     result: dict[Any, Any] = {}
     while True:
 
@@ -169,7 +170,31 @@ def _fetch_readings_for_location(
                 _MAX_RETRIES,
             )
             return None, f"transient network error after {_MAX_RETRIES} attempts: {err}"
-        # TODO implement error code handling
+        if response.status_code == 404:
+            logger.warning("Location %s: 404 — no data endpoint", location_id)
+            return None, None
+        if response.status_code == 429:
+            rate_limit_retries += 1
+            if rate_limit_retries > _MAX_RATE_LIMIT_RETRIES:
+                return None, f"HTTP 429: rate limited after {_MAX_RATE_LIMIT_RETRIES} retries"
+            retry_after = response.headers.get("Retry-After")
+            try:
+                delay = float(retry_after) if retry_after else _429_BACKOFF
+            except (ValueError, TypeError):
+                # Retry-After can be an HTTP-date string ("Thu, 01 Jan ...") — fall back.
+                delay = _429_BACKOFF
+            logger.warning(
+                "Location %s: 429 rate limited — waiting %.0fs (attempt %d/%d)",
+                location_id,
+                delay,
+                rate_limit_retries,
+                _MAX_RATE_LIMIT_RETRIES,
+            )
+            time.sleep(delay)
+            continue
+        if response.status_code >= 500:
+            logger.warning("Location %s: HTTP %s — skipping", location_id, response.status_code)
+            return None, f"HTTP {response.status_code}"
         response.raise_for_status()
         result = response.json()
         break
