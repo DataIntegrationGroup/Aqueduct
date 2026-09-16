@@ -313,7 +313,7 @@ def bernco_manual_readings(
                     "longitude": location["Well_Location_Longitude"],
                     "timestamp": measurement["MSRMNT_Date"],
                     "value": measurement["Depth_To_Water_At_Msrmnt_Point"],
-                    "alternate_id": location["NMT_ID"],
+                    "alternate_id": {"id": location["NMT_ID"], "agency": "BERNCO"},
                 }
             cursors[str(location_id)] = max_timestamp
         logger.info(
