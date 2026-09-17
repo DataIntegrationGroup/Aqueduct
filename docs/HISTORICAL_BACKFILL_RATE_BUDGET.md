@@ -15,6 +15,10 @@ is about 36,173 requests total.
 - Live response headers: only `x-isi-requests-this-minute` and
   `x-isi-requests-timeout`, both per-minute. No daily-scoped header.
 
+Since the real cap is unknown, the backfill should handle actually hitting a
+rate limit gracefully — stop the run cleanly and resume later, not crash —
+rather than assuming the per-minute limit is the only one that can ever fire.
+
 ## What already exists (no changes needed)
 
 Calendar-month chunking, `BackfillCheckpointStore` (resume from last

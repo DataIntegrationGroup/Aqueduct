@@ -22,6 +22,11 @@ have gaps of only a few weeks to a few months, all last reporting sometime in
 2026 (several as recently as mid-July) — that could be a temporary outage,
 maintenance, or connectivity issue rather than a dead sensor.
 
+**Decision: ingest all 34 (Active + Worth checking locations)**, excluding only
+the 2 confirmed Dormant ones. This can change later — if any "Worth checking"
+location turns out to be genuinely dormant rather than a temporary gap, drop
+it from the allowlist at that point.
+
 | Location | ID | Earliest reading | Latest reading | Status |
 |---|---|---|---|---|
 | Z - SandovalCounty 2 | 6679271820361728 | 2018-09-21 | 2024-02-01 | Dormant |
