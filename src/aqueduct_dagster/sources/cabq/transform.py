@@ -9,11 +9,10 @@ Dagster asset: canonical_bundles_cabq
 
 Incremental reads:
   Follow the same load_id watermark pattern as pvacd_hydrovu/transform.py, using the
-  shared helpers in shared/gcs.py — no need to duplicate this logic:
+  shared helpers in shared/gcs.py / defs/dagster_logging.py — no need to duplicate this logic:
     - read_transform_watermark(fs, bucket, WATERMARK_PATH) for since_load_id
-    - read_new_parquet_rows(bucket, glob_suffix, since_load_id, fs, row_filter=...)
-      to read only new parquet files, optionally filtered to the rows this
-      source cares about (e.g. a specific parameter/measurement type)
+    - read_new_parquet_rows_for_asset(...) to read only new parquet files, with
+      any files_skipped_bad_name warning forwarded into this run's log stream
     - Watermark must be written in frost_load_cabq (after FROST success), not here
     - Return a CabqTransformResult dataclass carrying (bundles, max_load_id) so
       the load step can call commit_watermark only on success
@@ -29,11 +28,13 @@ from dagster import AssetExecutionContext, MetadataValue, asset
 
 from aqueduct_dagster.canonical.base_adapter import log_if_adapter_failed
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
-from aqueduct_dagster.defs.dagster_logging import forward_python_logs_to_dagster
+from aqueduct_dagster.defs.dagster_logging import (
+    forward_python_logs_to_dagster,
+    read_new_parquet_rows_for_asset,
+)
 from aqueduct_dagster.shared.gcs import (
     _gcs_bucket_url,
     _gcs_filesystem,
-    read_new_parquet_rows,
     read_transform_watermark,
     transform_watermark_path,
 )
@@ -97,9 +98,10 @@ def canonical_bundles_cabq(context: AssetExecutionContext) -> CabqTransformResul
         since_load_id,
         "first run — reading all files" if since_load_id is None else "incremental",
     )
-    rows, max_load_id = read_new_parquet_rows(
-        bucket, f"{GCS_DATASET}/cabq_readings/**/*.parquet", since_load_id, fs
+    rows, max_load_id, files_skipped_bad_name = read_new_parquet_rows_for_asset(
+        context, "cabq", bucket, f"{GCS_DATASET}/cabq_readings/**/*.parquet", since_load_id, fs
     )
+
     if not rows:
         context.log.info("No new rows — returning empty result (watermark unchanged)")
         context.add_output_metadata(
@@ -107,6 +109,7 @@ def canonical_bundles_cabq(context: AssetExecutionContext) -> CabqTransformResul
                 "rows_read": MetadataValue.int(0),
                 "bundles_produced": MetadataValue.int(0),
                 "adapter_failures": MetadataValue.int(0),
+                "files_skipped_bad_name": MetadataValue.int(files_skipped_bad_name),
                 "watermark_before": MetadataValue.text(str(since_load_id)),
                 "watermark_after": MetadataValue.text(str(max_load_id)),
             }
@@ -127,6 +130,7 @@ def canonical_bundles_cabq(context: AssetExecutionContext) -> CabqTransformResul
             "locations_grouped": MetadataValue.int(len(records)),
             "bundles_produced": MetadataValue.int(len(bundles)),
             "adapter_failures": MetadataValue.int(adapter.failure_count),
+            "files_skipped_bad_name": MetadataValue.int(files_skipped_bad_name),
             "watermark_before": MetadataValue.text(str(since_load_id)),
             "watermark_after": MetadataValue.text(str(max_load_id)),
         }

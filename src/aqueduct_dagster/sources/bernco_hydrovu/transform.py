@@ -39,12 +39,14 @@ from dagster import AssetExecutionContext, asset
 
 from aqueduct_dagster.canonical.base_adapter import log_if_adapter_failed
 from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
-from aqueduct_dagster.defs.dagster_logging import forward_python_logs_to_dagster
+from aqueduct_dagster.defs.dagster_logging import (
+    forward_python_logs_to_dagster,
+    read_new_parquet_rows_for_asset,
+)
 from aqueduct_dagster.shared.config import load_config
 from aqueduct_dagster.shared.gcs import (
     _gcs_bucket_url,
     _gcs_filesystem,
-    read_new_parquet_rows,
     read_transform_watermark,
     transform_watermark_path,
 )
@@ -116,7 +118,9 @@ def canonical_bundles_bernco_hydrovu(
         "first run — reading all files" if since_load_id is None else "incremental",
     )
 
-    rows, max_load_id = read_new_parquet_rows(
+    rows, max_load_id, files_skipped_bad_name = read_new_parquet_rows_for_asset(
+        context,
+        "bernco_hydrovu",
         bucket,
         f"{GCS_DATASET}/hydrovu_readings/**/*.parquet",
         since_load_id,
@@ -132,6 +136,7 @@ def canonical_bundles_bernco_hydrovu(
                 locations_grouped=0,
                 bundles_produced=0,
                 adapter_failures=0,
+                files_skipped_bad_name=files_skipped_bad_name,
                 since_load_id=since_load_id,
                 max_load_id=max_load_id,
             )
@@ -162,6 +167,7 @@ def canonical_bundles_bernco_hydrovu(
             locations_grouped=len(records),
             bundles_produced=len(bundles),
             adapter_failures=adapter.failure_count,
+            files_skipped_bad_name=files_skipped_bad_name,
             since_load_id=since_load_id,
             max_load_id=max_load_id,
         )

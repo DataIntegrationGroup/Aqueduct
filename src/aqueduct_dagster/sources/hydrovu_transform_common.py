@@ -250,6 +250,7 @@ def transform_metadata(
     locations_grouped: int,
     bundles_produced: int,
     adapter_failures: int,
+    files_skipped_bad_name: int,
     since_load_id: float | None,
     max_load_id: float | None,
 ) -> dict[str, MetadataValue]:
@@ -259,6 +260,7 @@ def transform_metadata(
         "locations_grouped": MetadataValue.int(locations_grouped),
         "bundles_produced": MetadataValue.int(bundles_produced),
         "adapter_failures": MetadataValue.int(adapter_failures),
+        "files_skipped_bad_name": MetadataValue.int(files_skipped_bad_name),
         "watermark_before": MetadataValue.text(str(since_load_id)),
         "watermark_after": MetadataValue.text(str(max_load_id)),
     }
