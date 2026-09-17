@@ -377,12 +377,13 @@ which appear in this tenant today:
    depended on the old value. Revisit before `bernco_hydrovu_schedule` is started.
 
    The history question is not settled, only deferred: the earliest readings go back to
-   2009-05-18 (`BCFDWildlandSub-1091579`), with onsets spread across 2009, 2011, 2013,
-   2014 (×4), 2015, 2016, 2018, 2023 (×2), 2024 (×8), 2025 (×6) and 2026. A full load
-   from 2009 across 35 DTW locations is a big backfill: at roughly 2-day pages, one
-   location-decade is about 1,800 requests. How much history BernCo wants is a decision
-   for whoever picks up the backfill, and that allowlist must be built from historical
-   parameter coverage, not current (see ObservedProperty above).
+   2009-05-18 (`BCFDWildlandSub-1091579`) — see `bernco_hydrovu_location_survey.md` for
+   every location's actual earliest/latest reading date, and
+   `docs/HISTORICAL_BACKFILL_RATE_BUDGET.md` for a real request-count estimate built from
+   those dates (~36,000 total, not the rough decade-based guess this note used to make).
+   How much history BernCo wants is a decision for whoever picks up the backfill, and
+   that allowlist must be built from historical parameter coverage, not current (see
+   ObservedProperty above).
 
 1. **Where do `topic`, `is_provisional`, `is_continuous`, `measurement_method` and
    `data_source` come from?** None appears in any source API. `ebid.md`,
@@ -393,6 +394,9 @@ which appear in this tenant today:
 ---
 
 ## Completing the `location_ids` allowlist
+
+See `docs/sources/bernco_hydrovu_location_survey.md` for a full per-location
+survey.
 
 `[sources.bernco_hydrovu] location_ids` in `.dlt/config.toml` ships with the only two
 DTW locations this document names by ID:

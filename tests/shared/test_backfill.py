@@ -502,6 +502,7 @@ def test_sum_chunk_results_adds_fields_across_chunks():
             observations_posted=10,
             observations_deleted=0,
             adapter_failures=1,
+            files_skipped_bad_name=frozenset({"bad1.parquet", "bad_shared.parquet"}),
         ),
         ChunkResult(
             rows_ingested=5,
@@ -509,6 +510,7 @@ def test_sum_chunk_results_adds_fields_across_chunks():
             observations_posted=5,
             observations_deleted=3,
             adapter_failures=2,
+            files_skipped_bad_name=frozenset({"bad_shared.parquet", "bad2.parquet"}),
         ),
     ]
     totals = sum_chunk_results(results)
@@ -518,7 +520,24 @@ def test_sum_chunk_results_adds_fields_across_chunks():
         observations_posted=15,
         observations_deleted=3,
         adapter_failures=3,
+        files_skipped_bad_name=frozenset({"bad1.parquet", "bad_shared.parquet", "bad2.parquet"}),
     )
+
+
+def test_sum_chunk_results_dedupes_the_same_bad_file_seen_in_every_chunk():
+    """A persistently-bad file re-globbed on every chunk must count once, not once per chunk."""
+    results = [
+        ChunkResult(
+            rows_ingested=1,
+            bundles_loaded=0,
+            observations_posted=0,
+            observations_deleted=0,
+            files_skipped_bad_name=frozenset({"bad.parquet"}),
+        )
+        for _ in range(12)
+    ]
+    totals = sum_chunk_results(results)
+    assert totals.files_skipped_bad_name == frozenset({"bad.parquet"})
 
 
 def test_sum_chunk_results_empty_list_is_all_zero():

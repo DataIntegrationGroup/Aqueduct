@@ -81,6 +81,10 @@ class ChunkResult:
     observations_posted: int
     observations_deleted: int
     adapter_failures: int = 0
+    # Paths, not a count: read_parquet_rows_for_load_id re-globs the whole
+    # table every chunk, so a persistently-bad file would otherwise be
+    # recounted per chunk. sum_chunk_results dedupes via union instead.
+    files_skipped_bad_name: frozenset[str] = frozenset()
 
 
 def sum_chunk_results(results: list[ChunkResult]) -> ChunkResult:
@@ -91,6 +95,9 @@ def sum_chunk_results(results: list[ChunkResult]) -> ChunkResult:
         observations_posted=sum(r.observations_posted for r in results),
         observations_deleted=sum(r.observations_deleted for r in results),
         adapter_failures=sum(r.adapter_failures for r in results),
+        files_skipped_bad_name=frozenset.union(
+            frozenset(), *(r.files_skipped_bad_name for r in results)
+        ),
     )
 
 
