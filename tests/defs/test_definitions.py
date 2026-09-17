@@ -1,7 +1,7 @@
 """
 tests/defs/test_definitions.py
 
-Guards the two places where SOURCE_REGISTRY's strings have to agree with something
+Guards the three places where SOURCE_REGISTRY has to agree with something
 written independently somewhere else. Both failure modes are silent — nothing raises,
 the run just does the wrong thing — so they are worth a test rather than a comment.
 
@@ -17,17 +17,26 @@ the run just does the wrong thing — so they are worth a test rather than a com
    reprocesses from zero. shared/gcs.py:transform_watermark_path() unifies the
    filename but not the dataset it sits in.
 
+3. The transform result type. defs/assets/load.py types its input as Any and reads
+   .bundles and .max_load_id off whatever canonical_bundles_{name} returns. Each source
+   defines its own result dataclass, so a renamed or missing field type-checks fine and
+   only fails with AttributeError at the end of a live run, after ingest and transform
+   have already done their work.
+
 Offline: no GCS, FROST, or dlt destination is touched — build_source_pipeline is
 patched out so build_pipeline() can be inspected without credentials.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
+from typing import get_type_hints
 from unittest.mock import patch
 
 import pytest
 
+from aqueduct_dagster.canonical.canonical_model import CanonicalBundle
 from aqueduct_dagster.defs.definitions import defs
 from aqueduct_dagster.shared.gcs import transform_watermark_path
 from aqueduct_dagster.shared.source_registry import SOURCE_REGISTRY
@@ -84,3 +93,18 @@ def test_dlt_pipeline_writes_to_the_registry_dataset(cfg):
 
     _pipeline_name, dataset_name = mock_build.call_args.args
     assert dataset_name == cfg["dataset"]
+
+
+@pytest.mark.parametrize("name", _NAMES)
+def test_transform_result_satisfies_load_contract(name):
+    """
+    canonical_bundles_{name} returns a dataclass with the two fields frost_load_{name}
+    reads: bundles (loaded into FROST) and max_load_id (committed as the transform watermark).
+    """
+    transform_fn = defs.resolve_assets_def(f"canonical_bundles_{name}").op.compute_fn.decorated_fn
+    result_type = get_type_hints(transform_fn)["return"]
+
+    assert dataclasses.is_dataclass(result_type)
+    fields = get_type_hints(result_type)
+    assert fields["bundles"] == list[CanonicalBundle]
+    assert fields["max_load_id"] == float | None
