@@ -1,9 +1,8 @@
 # Pipeline: End-to-End (PVACD HydroVu reference)
 
 How data moves from a source API into FROST. HydroVu is the **reference
-implementation** 
-see the [checklist](#adding-a-new-source-checklist) at the bottom.
-
+implementation** — for adding a new source, see the
+[checklist](#adding-a-new-source-checklist) at the bottom.
 
 ---
 
@@ -76,10 +75,13 @@ Deps: `raw_pvacd_hydrovu_readings`.
 1. Reads the **transform watermark** (the highest dlt `load_id` already
    processed, stored as a GCS sidecar file — see
    [STORAGE_CONVENTIONS.md](STORAGE_CONVENTIONS.md#control--sidecar-files)).
-2. Uses the shared `read_new_parquet_rows()` helper
-   ([shared/gcs.py](../src/aqueduct_dagster/shared/gcs.py)) to read only
-   parquet rows written *since* that watermark, filtered at read time to
-   `parameter_id == "4"` (Depth to Water).
+2. Uses `read_new_parquet_rows_for_asset()`
+   ([defs/dagster_logging.py](../src/aqueduct_dagster/defs/dagster_logging.py)) to
+   read only parquet rows written *since* that watermark, filtered at read time to
+   `parameter_id == "4"` (Depth to Water). This wraps the source-agnostic
+   `read_new_parquet_rows()` ([shared/gcs.py](../src/aqueduct_dagster/shared/gcs.py))
+   with Dagster log forwarding, so a malformed dlt filename surfaces as both a
+   run-log warning and `files_skipped_bad_name` in this asset's output metadata.
 3. If there are no new rows, returns an empty result immediately — the
    locations file isn't even read.
 4. Otherwise `read_locations_from_gcs()` reads the `hydrovu_locations` parquet
@@ -216,7 +218,11 @@ Mirrors `src/` layout, unit-only (no live GCS/FROST/API calls — see
 - `tests/sources/pvacd_hydrovu/test_dlt_pipeline.py` — pagination, auth-retry,
   404/429/5xx handling, cursor behavior, via `httpx.MockTransport`.
 - `tests/shared/test_http.py`, `tests/shared/test_gcs.py` — shared infra
-  (`TokenManager`/`BearerAuth`/`retry_transient`, `read_new_parquet_rows`).
+  (`TokenManager`/`BearerAuth`/`retry_transient`, `read_new_parquet_rows`,
+  `read_parquet_rows_for_load_id`).
+- `tests/defs/test_dagster_logging.py` — `read_new_parquet_rows_for_asset` and
+  `forward_python_logs_to_dagster`, exercising the real handler-attach/detach
+  mechanism rather than mocking it away.
 - `tests/loader/test_frost_loader.py`, `tests/loader/test_watermark_store.py`
   — FROST upsert/retry behavior and watermark persistence, against test
   doubles.
@@ -235,6 +241,10 @@ Mirrors `src/` layout, unit-only (no live GCS/FROST/API calls — see
    vendor-level client in a shared `sources/<vendor>_common.py` instead of copying
    it, and keep only the dlt source, resources, config block and dataset in the
    tenant folder — `sources/hydrovu_common.py` is the worked example.
+   Read raw parquet via `read_new_parquet_rows_for_asset`
+   (`defs/dagster_logging.py`), not `shared/gcs.py`'s functions directly — it's
+   what surfaces a malformed dlt filename as both a run-log warning and
+   `files_skipped_bad_name` in the asset's output metadata.
 1. Add `[sources.<name>]` to `.dlt/config.toml`, and if it authenticates, the
    secret's name to `SECRETS_DAGSTER` in `deploy/00_config.sh` so
    `deploy/30_dagster_gcp_auth.sh` grants the Dagster service account access to it.
@@ -256,3 +266,4 @@ Mirrors `src/` layout, unit-only (no live GCS/FROST/API calls — see
 | 2026-08-28 | Renamed the `hydrovu` source to `pvacd_hydrovu` throughout and moved its dataset to `raw_pvacd_hydrovu` (ST2DAT-241), so a second HydroVu tenant can be added without touching this one. Added the source-key step to the new-source checklist. |
 | 2026-09-02 | Added the `bernco_hydrovu` source (ST2DAT-130): a second HydroVu tenant, ingest only. Vendor-level HydroVu code moved out of `sources/pvacd_hydrovu/dlt_pipeline.py` into `sources/hydrovu_common.py`, shared by both tenants; each tenant folder keeps its own dlt source, resources, config block and dataset. Added the config/secret step to the new-source checklist. |
 | 2026-09-10 | BernCo HydroVu runs end to end (ST2DAT-131). The DTW mapping, the locations read, the grouping and the transform output-metadata shape moved out of `sources/pvacd_hydrovu/` into `sources/hydrovu_transform_common.py`, shared by both tenants the same way `hydrovu_common.py` already shares the ingest client; `HydroVuAdapter` became `PvacdHydroVuAdapter` alongside the new `BerncoHydroVuAdapter`. `METRES_TO_FEET` moved to `canonical_constants.py`. BernCo's transform is incremental on the same dlt `load_id` watermark as the others, plus a sanity floor that drops sentinel readings from two locations with bad device clocks. |
+| 2026-09-17 | ST2DAT-116: a malformed dlt parquet filename is now logged and counted (`files_skipped_bad_name`) instead of silently dropped. Stage 2 now reads via `read_new_parquet_rows_for_asset` (`defs/dagster_logging.py`), which wraps `read_new_parquet_rows()` with Dagster log forwarding. Added the corresponding step to the new-source checklist and `tests/defs/test_dagster_logging.py` to the Tests section. |
