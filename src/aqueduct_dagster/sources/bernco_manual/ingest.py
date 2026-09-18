@@ -21,7 +21,7 @@ def raw_bernco_manual_readings(context: AssetExecutionContext) -> MaterializeRes
         load_info = pipeline.run(bernco_manual_source(_stats=stats), loader_file_format="parquet")
     context.log.info("Bernco Manual dlt load complete: %s", load_info)
     errored: int = stats.get("locations_errored", 0)
-    fetched: int = stats.get("locaitons_fetched", 0)
+    fetched: int = stats.get("locations_fetched", 0)
     failed_ids: list[int] = stats.get("failed_location_ids", [])
     if errored > 0:
         context.log.warning(

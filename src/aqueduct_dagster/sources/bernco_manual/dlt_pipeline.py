@@ -219,21 +219,43 @@ def bernco_manual_source(
     start_ts = int(
         datetime.strptime(initial_start_date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
     )
-    return bernco_manual_readings(
-        client=build_bernco_manual_client(api_base_url), start_ts=start_ts, _stats=_stats
+    client = build_bernco_manual_client(api_base_url)
+    locations, err = _fetch_locations(client)
+    if locations is None:
+        logger.error("No locations found")
+        client.close()
+        return None
+    if err is not None:
+        logger.error("Error fetching locations %s", err)
+        client.close()
+        return None
+    return (
+        bernco_manual_locations(locations=locations),
+        bernco_manual_readings(
+            client=client, locations=locations, start_ts=start_ts, _stats=_stats
+        ),
     )
+
+
+@dlt.resource(name="bernco_manual_locations", write_disposition="replace")
+def bernco_manual_locations(locations: list[dict]) -> Iterator[dict]:
+    for location in locations:
+        yield {
+            "id": location["GlobalID"],
+            "name": location["Well_Name"],
+            "description": "Location of well where measurements are made",
+            "latitude": location["Well_Location_Latitude"],
+            "longitude": location["Well_Location_Longitude"],
+            "alternate_id": {"id": location["NMT_ID"], "agency": "BERNCO"},
+        }
 
 
 @dlt.resource(name="bernco_manual_readings", write_disposition="append", primary_key="reading_id")
 def bernco_manual_readings(
     client: httpx.Client,
+    locations: list[dict],
     start_ts: int,
     _stats: dict | None = None,
-    # dlt detects the incremental cursor via this default — idiomatic, so B008 is expected.
-    updated_at: dlt.sources.incremental[int] = dlt.sources.incremental(  # noqa: B008
-        "timestamp",
-        initial_value=0,
-    ),
 ) -> Iterator[dict]:
     """
     Yields one flat record per reading per location.
@@ -256,15 +278,6 @@ def bernco_manual_readings(
       # add other fields as needed
     """
     cursors: dict[str, int] = dlt.current.resource_state().setdefault("location_cursors", {})
-    locations, err = _fetch_locations(client)
-    if locations is None:
-        logger.error("No locations found")
-        client.close()
-        return
-    if err is not None:
-        logger.error("Error fetching locations %s", err)
-        client.close()
-        return
     try:
         fetched = 0
         no_data = 0

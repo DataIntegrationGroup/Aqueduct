@@ -260,11 +260,6 @@ def cabq_readings(
     client: httpx.Client,
     start_ts: int,
     _stats: dict | None = None,
-    # dlt detects the incremental cursor via this default — idiomatic, so B008 is expected.
-    updated_at: dlt.sources.incremental[int] = dlt.sources.incremental(  # noqa: B008
-        "timestamp",
-        initial_value=0,
-    ),
 ) -> Iterator[dict]:
     """
     Yields one flat record per reading per location.

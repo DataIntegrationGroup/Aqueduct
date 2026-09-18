@@ -169,14 +169,13 @@ DUMMY_CLIENT = MagicMock(spec=Client)
 class TestCabqReadings:
     @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
     @patch("aqueduct_dagster.sources.bernco_manual.dlt_pipeline._fetch_readings_for_location")
-    @patch("aqueduct_dagster.sources.bernco_manual.dlt_pipeline._fetch_locations")
-    def test_returns_bernco_manual_readings(
-        self, mock_fetch_locations, mock_fetch_readings, mock_state
-    ):
-        mock_fetch_locations.return_value = (LOCATIONS_PROCESSED, None)
+    def test_returns_bernco_manual_readings(self, mock_fetch_readings, mock_state):
         mock_fetch_readings.return_value = (READINGS_PROCESSED, None)
-        results = list(bernco_manual_readings(client=DUMMY_CLIENT, start_ts=1000))
-        assert mock_fetch_locations.called
+        results = list(
+            bernco_manual_readings(
+                client=DUMMY_CLIENT, locations=LOCATIONS_PROCESSED, start_ts=1000
+            )
+        )
         assert mock_fetch_readings.called
         assert mock_fetch_readings.call_args.args.__contains__(
             "4f92c895-6b41-42d6-be6b-508ee44812fa"
@@ -186,49 +185,48 @@ class TestCabqReadings:
 
     @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
     @patch("aqueduct_dagster.sources.bernco_manual.dlt_pipeline._fetch_readings_for_location")
-    @patch("aqueduct_dagster.sources.bernco_manual.dlt_pipeline._fetch_locations")
-    def test_real_error_increments_errored_count(
-        self, mock_fetch_locations, mock_fetch_readings, mock_state
-    ):
-        mock_fetch_locations.return_value = (LOCATIONS_PROCESSED, None)
+    def test_real_error_increments_errored_count(self, mock_fetch_readings, mock_state):
         mock_fetch_readings.return_value = (None, "HTTP 500")
         stats: dict = {}
-        list(bernco_manual_readings(client=DUMMY_CLIENT, start_ts=1000, _stats=stats))
+        list(
+            bernco_manual_readings(
+                client=DUMMY_CLIENT, locations=LOCATIONS_PROCESSED, start_ts=1000, _stats=stats
+            )
+        )
         assert stats["locations_errored"] == 1
 
     @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
     @patch("aqueduct_dagster.sources.bernco_manual.dlt_pipeline._fetch_readings_for_location")
-    @patch("aqueduct_dagster.sources.bernco_manual.dlt_pipeline._fetch_locations")
-    def test_404_does_not_increment_errored_count(
-        self, mock_fetch_locations, mock_fetch_readings, mock_state
-    ):
-        mock_fetch_locations.return_value = (LOCATIONS_PROCESSED, None)
+    def test_404_does_not_increment_errored_count(self, mock_fetch_readings, mock_state):
         mock_fetch_readings.return_value = (None, None)
         stats: dict = {}
-        list(bernco_manual_readings(client=DUMMY_CLIENT, start_ts=1000, _stats=stats))
+        list(
+            bernco_manual_readings(
+                client=DUMMY_CLIENT, locations=LOCATIONS_PROCESSED, start_ts=1000, _stats=stats
+            )
+        )
         assert stats["locations_errored"] == 0
         assert stats["locations_no_data"] == 1
         assert stats["failed_location_ids"] == []
 
     @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
     @patch("aqueduct_dagster.sources.bernco_manual.dlt_pipeline._fetch_readings_for_location")
-    @patch("aqueduct_dagster.sources.bernco_manual.dlt_pipeline._fetch_locations")
-    def test_error_does_not_advance_cursor(
-        self, mock_fetch_locations, mock_fetch_readings, mock_state
-    ):
-        mock_fetch_locations.return_value = (LOCATIONS_PROCESSED, None)
+    def test_error_does_not_advance_cursor(self, mock_fetch_readings, mock_state):
         mock_fetch_readings.return_value = (None, "HTTP 500")
         state: dict = {"location_cursors": {"4f92c895-6b41-42d6-be6b-508ee44812fa": 1000}}
         with patch("dlt.current.resource_state", return_value=state):
-            list(bernco_manual_readings(client=DUMMY_CLIENT, start_ts=1000))
+            list(
+                bernco_manual_readings(
+                    client=DUMMY_CLIENT, locations=LOCATIONS_PROCESSED, start_ts=1000
+                )
+            )
         assert state["location_cursors"] == {
             "4f92c895-6b41-42d6-be6b-508ee44812fa": 1000
         }  # unchanged
 
     @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
     @patch("aqueduct_dagster.sources.bernco_manual.dlt_pipeline._fetch_readings_for_location")
-    @patch("aqueduct_dagster.sources.bernco_manual.dlt_pipeline._fetch_locations")
-    def test_partial_failure_stats(self, mock_fetch_locations, mock_fetch_readings, mock_state):
+    def test_partial_failure_stats(self, mock_fetch_readings, mock_state):
         locations = [
             {
                 "GlobalID": "4f92c895-6b41-42d6-be6b-508ee44812fa",
@@ -245,10 +243,13 @@ class TestCabqReadings:
                 "NMT_ID": "BC-0365",
             },
         ]
-        mock_fetch_locations.return_value = (locations, None)
         mock_fetch_readings.side_effect = [(READINGS_PROCESSED, None), (None, "HTTP 500")]
         stats: dict = {}
-        list(bernco_manual_readings(client=DUMMY_CLIENT, start_ts=1000, _stats=stats))
+        list(
+            bernco_manual_readings(
+                client=DUMMY_CLIENT, locations=locations, start_ts=1000, _stats=stats
+            )
+        )
         assert stats["locations_fetched"] == 1
         assert stats["locations_errored"] == 1
         assert stats["failed_location_ids"] == ["4f92c895-6b41-42d6-be6b-508ee44812fb"]
