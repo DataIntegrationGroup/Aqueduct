@@ -7,8 +7,8 @@ grows. When you add a source, a zone, or a partitioning scheme, update the
 [Current layout](#current-layout) section and add a line to the
 [Changelog](#changelog) at the bottom.
 
-- **Status:** raw zone only, date-partitioned, 3 source keys (PVACD via HydroVu and CABQ live; BernCo via HydroVu ingest-only)
-- **Last updated:** 2026-09-02
+- **Status:** raw zone only, date-partitioned, 3 source keys (PVACD via HydroVu, BernCo via HydroVu, and CABQ, all end to end)
+- **Last updated:** 2026-09-16
 
 ---
 

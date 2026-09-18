@@ -371,9 +371,10 @@ which appear in this tenant today:
    Colorado. Reversible the moment BernCo supplies real coordinates — add the IDs to
    `location_ids` and the data starts flowing from `initial_start_date`.
 
-1. ~~**`initial_start_date` for BernCo.**~~ **Settled 2026-09-02:** `2026-05-01`, matching
-   PVACD. It also serves as the sentinel-timestamp floor, since `startTime` is applied
-   server-side and the pipeline never requests anything earlier.
+1. ~~**`initial_start_date` for BernCo.**~~ **Settled 2026-09-02** as `2026-05-01`, matching
+   PVACD. **Moved to `2026-09-09` on 2026-09-16:** a 7-day window for the first
+   end-to-end validation against local FROST. The source had never run, so no cursor
+   depended on the old value. Revisit before `bernco_hydrovu_schedule` is started.
 
    The history question is not settled, only deferred: the earliest readings go back to
    2009-05-18 (`BCFDWildlandSub-1091579`) — see `bernco_hydrovu_location_survey.md` for

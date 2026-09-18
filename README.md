@@ -196,7 +196,7 @@ To run the full HydroVu pipeline end-to-end:
 2. Select all three `pvacd_hydrovu` group assets (`raw_pvacd_hydrovu_readings`, `canonical_bundles_pvacd_hydrovu`, `frost_load_pvacd_hydrovu`)
 3. Click **Materialize selected**
 
-On first run, dlt fetches from `initial_start_date` in `.dlt/config.toml` (currently `2026-05-01`). Subsequent runs are incremental.
+On first run, dlt fetches from the source's own `initial_start_date` in `.dlt/config.toml` (set per `[sources.<name>]` block). Subsequent runs are incremental.
 
 ---
 
@@ -228,6 +228,6 @@ dlt tracks a cursor (`timestamp` field) per source. On first run it fetches from
 `FrostWatermarkStore` tracks the last observation timestamp successfully loaded into FROST per datastream. Each run skips any observation at or before the watermark — FROST has no built-in deduplication.
 
 **Independent pipelines**
-`pvacd_hydrovu_pipeline` and `cabq_pipeline` are completely independent Dagster jobs. Each has its own schedule and its own terminal load asset (`frost_load_pvacd_hydrovu` / `frost_load_cabq`). Running one never triggers or blocks the other.
+`pvacd_hydrovu_pipeline`, `bernco_hydrovu_pipeline` and `cabq_pipeline` are completely independent Dagster jobs. Each has its own schedule and its own terminal load asset (`frost_load_pvacd_hydrovu` / `frost_load_bernco_hydrovu` / `frost_load_cabq`). Running one never triggers or blocks the other.
 
 ---
