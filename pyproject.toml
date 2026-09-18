@@ -1,6 +1,6 @@
 [project]
 name = "aqueduct-poc-bravo"
-version = "0.3.0"
+version = "0.4.0"
 description = "Aqueduct POC B — Dagster + dlt + GCS + FROST SensorThings"
 readme = "README.md"
 requires-python = ">=3.13"
