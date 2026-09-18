@@ -23,14 +23,47 @@ api_base_url       = "https://www.hydrovu.com/public-api/v1"
 token_url          = "https://hydrovu.com/public-api/oauth/token"
 gcp_secret         = "hydrovu_bernco"
 initial_start_date = "2026-09-09"
-# TODO: address before the bernco_hydrovu_schedule is started.
-# BernCo has 53 locations; about 29 report parameterId="4" (depth to water) today and
-# 35 have at some point. Only the two below are named by ID in the schema doc, so the
-# rest have to come from a live GET /locations/list (see docs/sources/bernco_hydrovu.md).
-# Until then a run fetches only these two and reports the rest as locations_skipped_allowlist.
+# All 34 locations that carry parameterId="4" (depth to water) and are either
+# currently active or worth checking (not confirmed long-term dormant) — see
+# docs/sources/bernco_hydrovu_location_survey.md for the full survey and the
+# decision. Excludes the 2 confirmed-dormant DTW locations, the VuLink
+# diagnostics-only locations (no DTW at all), and the 3 factory-default
+# (Fort Collins, CO) coordinate locations.
 location_ids = [
+    4910076672737280,  # ArroyoVista-1002964 — Aqua TROLL sonde
+    5176076726042624,  # BCFD41-1091568 — Aqua TROLL sonde
+    4620410022133760,  # BCFDWildlandSub-1091579 — Aqua TROLL sonde
+    5114911035621376,  # Buckboard2-1042846 — Aqua TROLL sonde
+    4743285781692416,  # CedarHill-966586 — Aqua TROLL sonde
+    5950167649222656,  # ColumbineThompson05-375835 — level-only logger
+    4739653592547328,  # E-2034-969620 — Aqua TROLL sonde
+    6725276880732160,  # E-55-POD 15-1173850TD — Aqua TROLL sonde
+    6452475357167616,  # E-9673-969652 — Aqua TROLL sonde
+    5852074096852992,  # E-9673-969652TD — Aqua TROLL sonde
+    6623684603543552,  # EMCNW50-1093362 — Aqua TROLL sonde
+    5415858396856320,  # GrannyCanyon01-1091585 — Aqua TROLL sonde
+    4551148003983360,  # LVCC — Aqua TROLL sonde
+    4985256085422080,  # LiveOak-1092511 — Aqua TROLL sonde
+    5243580757966848,  # Los Suenos 4-636473 — level-only logger
+    6670441099886592,  # Magnum Steel — Aqua TROLL sonde
+    6714629525405696,  # Masa Del Sol — Aqua TROLL sonde
+    4569871521546240,  # McGraneRd-968485 — Aqua TROLL sonde
+    5534228269105152,  # Ojito-1002959 — Aqua TROLL sonde
+    4881147431354368,  # OsitaRanch-969626TD — Aqua TROLL sonde
+    5828859770830848,  # PinonRidge-1092457 — Aqua TROLL sonde
+    5077740153077760,  # RichyPlace-971379 — Aqua TROLL sonde
+    5002593259880448,  # SP3VuLink-457113 — level-only logger
+    5657721615810560,  # SP4VuLink-636814 — level-only logger
+    4583081054175232,  # SP5VuLink-457931 — level-only logger
+    4595206250168320,  # SP6VuLink-457971 — level-only logger
+    4640585604464640,  # SabinoSouth-1091617 — Aqua TROLL sonde
     6255051791532032,  # SierraVista-966932 — Aqua TROLL sonde
+    4535701328494592,  # Smith-1-965697TD — Aqua TROLL sonde
+    5164658647760896,  # VistaGrandeCC-586873 — level-only logger
     5617246532927488,  # WhisperingPines-1002958 — level-only logger
+    6679271820361728,  # Z - SandovalCounty 2 — level-only logger
+    6344228741185536,  # default-969622 — Aqua TROLL sonde
+    4591421252042752,  # obsoE-9477-969662 — Aqua TROLL sonde
 ]
 
 [sources.cabq]
