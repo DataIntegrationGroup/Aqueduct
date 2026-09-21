@@ -112,6 +112,42 @@ class TestHydroVuBackfillReadings:
         ]
 
     @patch("aqueduct_dagster.sources.bernco_hydrovu.backfill.fetch_location_data")
+    def test_discards_readings_outside_the_requested_window(self, mock_fetch, caplog):
+        """API is expected to honor startTime/endTime, but this is a defensive
+        check in case it ever doesn't — must not silently include a reading
+        from outside [start_ts, end_ts), which could otherwise double-post
+        across adjacent chunks."""
+        mock_fetch.return_value = (
+            {
+                "parameters": [
+                    {
+                        "parameterId": "4",
+                        "unitId": "35",
+                        "readings": [
+                            {"timestamp": 499, "value": 1.0},  # before start_ts — discard
+                            {"timestamp": 500, "value": 2.0},  # == start_ts — keep
+                            {"timestamp": 750, "value": 3.0},  # inside window — keep
+                            {"timestamp": 1000, "value": 4.0},  # == end_ts — discard (half-open)
+                        ],
+                    }
+                ]
+            },
+            None,
+        )
+        with caplog.at_level("WARNING"):
+            rows = list(
+                hydrovu_backfill_readings(
+                    client=_DUMMY_CLIENT,
+                    locations=[_LOCATIONS[0]],
+                    location_ids=[111],
+                    start_ts=500,
+                    end_ts=1000,
+                )
+            )
+        assert [r["timestamp"] for r in rows] == [500, 750]
+        assert any("2 reading(s)" in r.message for r in caplog.records)
+
+    @patch("aqueduct_dagster.sources.bernco_hydrovu.backfill.fetch_location_data")
     def test_skips_location_on_404(self, mock_fetch):
         mock_fetch.return_value = (None, None)
         rows = list(

@@ -90,16 +90,30 @@ def hydrovu_backfill_readings(
         if data is None:
             continue  # 404 — location has no data endpoint
 
+        skipped_out_of_window = 0
         for param in data.get("parameters", []):
             for reading in param.get("readings", []):
+                timestamp = reading["timestamp"]
+                if not start_ts <= timestamp < end_ts:
+                    skipped_out_of_window += 1
+                    continue
                 yield {
-                    "reading_id": f"{loc_id}_{param['parameterId']}_{reading['timestamp']}",
+                    "reading_id": f"{loc_id}_{param['parameterId']}_{timestamp}",
                     "location_id": loc_id,
-                    "timestamp": reading["timestamp"],
+                    "timestamp": timestamp,
                     "parameter_id": param["parameterId"],
                     "unit_id": param["unitId"],
                     "value": reading["value"],
                 }
+        if skipped_out_of_window:
+            logger.warning(
+                "Location %s: %d reading(s) outside [%s, %s) discarded — API returned "
+                "data outside the requested window",
+                loc_id,
+                skipped_out_of_window,
+                start_ts,
+                end_ts,
+            )
 
 
 def _locations_by_id(locations: list[dict]) -> dict[int, dict]:

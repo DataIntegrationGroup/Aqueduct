@@ -125,6 +125,9 @@ def fetch_location_data(
             Retries up to _MAX_RATE_LIMIT_RETRIES times, then returns (None, reason).
     On transient network errors: retries up to _MAX_RETRIES times with exponential
             backoff, then returns (None, reason).
+    On any other non-2xx status: fails safely, with a clear reason, but
+            with no retry — returns (None, reason) immediately rather than
+            crashing uncaught.
 
     Pagination: X-ISI-Start-Page="" on the first request, then pass the
     X-ISI-Next-Page cursor token from each response verbatim. Stop when
