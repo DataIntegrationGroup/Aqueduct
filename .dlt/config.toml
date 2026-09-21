@@ -66,6 +66,10 @@ location_ids = [
     4591421252042752,  # obsoE-9477-969662 — Aqua TROLL sonde
 ]
 
+[sources.bernco_manual]
+api_base_url = "https://services6.arcgis.com/NiLPE6S5bwjCDk9X/ArcGIS/rest/services/Monitoring_Wells/FeatureServer"
+initial_start_date = "2026-05-01"
+
 [sources.cabq]
 api_base_url = "https://services.arcgis.com/CWv1abTnC3urn4bV/ArcGIS/rest/services/All_WL_Locations/FeatureServer/25"
 initial_start_date = "2026-05-01"
