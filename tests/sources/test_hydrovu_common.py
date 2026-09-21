@@ -194,11 +194,12 @@ class TestFetchLocationData:
         fetch_location_data(client, 123, 1780704000)
         assert calls[0].url.path == "/locations/123/data"
 
-    def test_raises_on_unexpected_4xx(self):
+    def test_unexpected_4xx_returns_error_reason_not_raise(self):
         client, _ = _client_with_responses([httpx.Response(403)])
-        with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            fetch_location_data(client, 123, 1780704000)
-        assert exc_info.value.response.status_code == 403
+        data, err = fetch_location_data(client, 123, 1780704000)
+        assert data is None
+        assert err is not None
+        assert "403" in err
 
     def test_transient_error_exhausted_returns_error_reason(self):
         # Handler raises on every attempt — retry_transient exhausts its

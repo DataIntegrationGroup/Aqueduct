@@ -46,6 +46,15 @@ from aqueduct_dagster.shared.backfill import (
 )
 from aqueduct_dagster.shared.gcs import _gcs_bucket_url, _gcs_filesystem
 from aqueduct_dagster.shared.source_registry import SOURCE_REGISTRY
+from aqueduct_dagster.sources.bernco_hydrovu.backfill import (
+    default_backfill_location_ids as bernco_hydrovu_default_backfill_location_ids,
+)
+from aqueduct_dagster.sources.bernco_hydrovu.backfill import (
+    prepare_backfill as bernco_hydrovu_prepare_backfill,
+)
+from aqueduct_dagster.sources.bernco_hydrovu.backfill import (
+    run_backfill_chunk as bernco_hydrovu_run_backfill_chunk,
+)
 from aqueduct_dagster.sources.cabq.backfill import (
     default_backfill_location_ids as cabq_default_backfill_location_ids,
 )
@@ -361,4 +370,29 @@ cabq_backfill_refetch = _make_backfill_refetch_job(
     cabq_prepare_backfill,
     cabq_run_backfill_chunk,
     CabqBackfillRefetchConfig,
+)
+
+
+class BerncoHydroVuBackfillRefetchConfig(BackfillRefetchConfig[int]):
+    """bernco_hydrovu_backfill_refetch's run configuration — only overrides
+    location_ids' default, same pattern as PvacdHydroVuBackfillRefetchConfig."""
+
+    location_ids: list[int] = Field(
+        default=bernco_hydrovu_default_backfill_location_ids(),
+        description="HydroVu location IDs to backfill. Defaults to the "
+        "daily pipeline's own allowlist (.dlt/config.toml "
+        "[sources.bernco_hydrovu].location_ids). Leave empty to backfill every "
+        "location the API returns instead.",
+    )
+
+
+_bernco_hydrovu_registry_cfg = next(
+    cfg for cfg in SOURCE_REGISTRY if cfg["name"] == "bernco_hydrovu"
+)
+bernco_hydrovu_backfill_refetch = _make_backfill_refetch_job(
+    _bernco_hydrovu_registry_cfg["name"],
+    _bernco_hydrovu_registry_cfg["dataset"],
+    bernco_hydrovu_prepare_backfill,
+    bernco_hydrovu_run_backfill_chunk,
+    BerncoHydroVuBackfillRefetchConfig,
 )
