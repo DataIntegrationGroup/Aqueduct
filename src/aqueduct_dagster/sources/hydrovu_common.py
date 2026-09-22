@@ -112,7 +112,7 @@ def fetch_location_data(
       (data, None)   — success
       (None, None)   — HTTP 404: the location has no data at or after start_time
                        (expected for a dormant location, not an error)
-      (None, reason) — real error: HTTP 429, 5xx, or exhausted retries
+      (None, reason) — real error: any non-2xx status, or exhausted retries
 
     A 404 does NOT mean the location has no data endpoint: a dormant location that
     404s on a recent start_time will return its full history at start_time=0
@@ -125,6 +125,9 @@ def fetch_location_data(
             Retries up to _MAX_RATE_LIMIT_RETRIES times, then returns (None, reason).
     On transient network errors: retries up to _MAX_RETRIES times with exponential
             backoff, then returns (None, reason).
+    On any other non-2xx status: fails safely, with a clear reason, but
+            with no retry — returns (None, reason) immediately rather than
+            crashing uncaught.
 
     Pagination: X-ISI-Start-Page="" on the first request, then pass the
     X-ISI-Next-Page cursor token from each response verbatim. Stop when
@@ -195,11 +198,14 @@ def fetch_location_data(
             time.sleep(delay)
             continue
 
-        if resp.status_code >= 500:
-            logger.warning("Location %s: HTTP %s — skipping", location_id, resp.status_code)
+        if not resp.is_success:
+            logger.warning(
+                "Location %s: HTTP %s — skipping (%s)",
+                location_id,
+                resp.status_code,
+                resp.text[:200],
+            )
             return None, f"HTTP {resp.status_code}"
-
-        resp.raise_for_status()
 
         page_data = resp.json()
 

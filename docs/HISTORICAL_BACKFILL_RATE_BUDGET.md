@@ -1,6 +1,6 @@
 # BernCo HydroVu Historical Backfill — Rate Budget
 
-Status: proposal.
+Status: implemented.
 
 ## Request volume
 
@@ -25,25 +25,25 @@ Calendar-month chunking, `BackfillCheckpointStore` (resume from last
 completed chunk), `dry_run: true` by default, and per-minute 429 handling
 already cover this backfill.
 
-## Recommended change
+## Decided: use the shared factory as-is
 
-Loop one location at a time (not all requested locations together), and for
-each location, walk its history month by month, same month-sized calls as
-today. Finish one location's full history before moving to the next.
-`BackfillCheckpointStore` marks each `(month, location)` pair complete
-independently — a run interrupted at any point won't re-fetch anything
-already finished.
+Implemented as `sources/bernco_hydrovu/backfill.py`, reusing
+`shared/backfill.py`'s existing month-chunking exactly like PVACD/CABQ — one
+`run_backfill_chunk()` call per month, covering all requested locations
+(processed one at a time inside that call, still one month per location per
+API call, so the memory bound §4.3 relies on is unchanged).
 
-Each individual API call still covers one month for one location, same
-size as today's calls — so this doesn't reopen the memory concern month
-chunking exists for. That only applies to a single call spanning a whole
-location's history at once, which this design never does.
+An earlier version of this doc recommended a location-outer, bespoke-op
+design instead, mainly to avoid wasting requests if a per-run budget stopped
+a run mid-month. Since there's no request budget (see below) and no
+confirmed daily cap, that reason no longer applies — matching the existing,
+tested factory pattern is simpler and lower-risk.
 
-No changes to `shared/backfill.py`: `BackfillCheckpointStore` already accepts
-any `location_ids` list, including a single location. New code needed:
-`sources/bernco_hydrovu/backfill.py` (doesn't exist yet) and a
-BernCo-specific op — not the shared job factory CABQ/PVACD use, since their
-factory only loops over months, not locations.
+**Rate-limit hardening done as part of this:** `fetch_location_data`
+(`hydrovu_common.py`) used to only handle 404/429/5xx explicitly and crash
+uncaught on anything else. It now treats any non-2xx status the same
+graceful way — log it, return an error, fail just the current chunk. Earlier
+completed chunks stay checkpointed either way; re-launching resumes.
 
 ## Open
 
