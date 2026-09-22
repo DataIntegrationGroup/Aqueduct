@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.4.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.3.0...Aqueduct-v0.4.0) (2026-09-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* rename hydrovu source to pvacd_hydrovu for multi-tenant layout (ST2DAT-241) ([#47](https://github.com/DataIntegrationGroup/Aqueduct/issues/47))
+
+### Features
+
+* **bernco_hydrovu:** add backfill support, harden HydroVu rate-limit handling ([#58](https://github.com/DataIntegrationGroup/Aqueduct/issues/58)) ([fa81e80](https://github.com/DataIntegrationGroup/Aqueduct/commit/fa81e80227056f7cf77fdd0e61314b9b9392cc33))
+* **bernco_hydrovu:** bernCo HydroVu canonical model adapter (ST2DAT-131) ([#53](https://github.com/DataIntegrationGroup/Aqueduct/issues/53)) ([5b4bbe7](https://github.com/DataIntegrationGroup/Aqueduct/commit/5b4bbe7dad95a5c9ed60b9052f4946c774a892cb))
+* **bernco_hydrovu:** dlt pipeline for BernCo HydroVu raw ingestion (ST2DAT-130) ([#50](https://github.com/DataIntegrationGroup/Aqueduct/issues/50)) ([ca94563](https://github.com/DataIntegrationGroup/Aqueduct/commit/ca94563932771af21848ec192ca520d4d3def123))
+* **bernco_hydrovu:** expand location_ids to all 34 DTW locations and QC validate FROST load (ST2DAT-133) ([#57](https://github.com/DataIntegrationGroup/Aqueduct/issues/57)) ([22d349e](https://github.com/DataIntegrationGroup/Aqueduct/commit/22d349e9209cc5ae86062f550d8ed75b5b54d8f0))
+* **bernco_hydrovu:** wire BernCo HydroVu end-to-end pipeline with FROST load (ST2DAT-132) ([#56](https://github.com/DataIntegrationGroup/Aqueduct/issues/56)) ([6f38dd0](https://github.com/DataIntegrationGroup/Aqueduct/commit/6f38dd0040b2582901e347679072a1050108bff4))
+* **bernco_manual:** dlt pipeline for BernCo ArcREST raw ingestion ([#55](https://github.com/DataIntegrationGroup/Aqueduct/issues/55)) ([885fd80](https://github.com/DataIntegrationGroup/Aqueduct/commit/885fd80e3cc781143d2fb0178328722ab8e4244e))
+* **cabq:** cabq backfill implementation ([#48](https://github.com/DataIntegrationGroup/Aqueduct/issues/48)) ([9aa6e15](https://github.com/DataIntegrationGroup/Aqueduct/commit/9aa6e15c574861c253cd26a3426de40edce4360c))
+
+
+### Bug Fixes
+
+* also grant roles/storage.legacyBucketReader on storage buckets (ST2DAT-244) ([#49](https://github.com/DataIntegrationGroup/Aqueduct/issues/49)) ([d909f8d](https://github.com/DataIntegrationGroup/Aqueduct/commit/d909f8d9edd07f1e3ee1923bf7003a6afbe1220f))
+* **gcs:** log and surface malformed parquet filenames instead of silently dropping them(ST2DAT-116) ([#52](https://github.com/DataIntegrationGroup/Aqueduct/issues/52)) ([7cd3b4f](https://github.com/DataIntegrationGroup/Aqueduct/commit/7cd3b4fde207f2d504fefacf7ced01d22705ff96))
+
+
+### Documentation
+
+* **bernco_hydrovu:** add location survey and historical backfill rate budget(ST2DAT-243) ([#54](https://github.com/DataIntegrationGroup/Aqueduct/issues/54)) ([4cc8361](https://github.com/DataIntegrationGroup/Aqueduct/commit/4cc83610522742d63dcfaaf982fec518687479c2))
+* **bernco-manual:** document BernCo ArcREST source schema ([#51](https://github.com/DataIntegrationGroup/Aqueduct/issues/51)) ([43584a5](https://github.com/DataIntegrationGroup/Aqueduct/commit/43584a52b827bcb23f5a883ff4c37c5a6e0e244a))
+* document BernCo HydroVu source schema (ST2DAT-129) ([#46](https://github.com/DataIntegrationGroup/Aqueduct/issues/46)) ([afd8391](https://github.com/DataIntegrationGroup/Aqueduct/commit/afd8391faf1597fb05ad259da324c2af21887f6c))
+* document EBID source mapping (ST2DAT-135) ([#44](https://github.com/DataIntegrationGroup/Aqueduct/issues/44)) ([500b288](https://github.com/DataIntegrationGroup/Aqueduct/commit/500b28807ee9b5fdcc802c37ab906cb701b9005d))
+
+
+### Code Refactoring
+
+* rename hydrovu source to pvacd_hydrovu for multi-tenant layout (ST2DAT-241) ([#47](https://github.com/DataIntegrationGroup/Aqueduct/issues/47)) ([f590f70](https://github.com/DataIntegrationGroup/Aqueduct/commit/f590f70a28bf5e21ffc8d2e767c56043586911d6))
+
 ## [0.3.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.2.0...Aqueduct-v0.3.0) (2026-08-19)
 
 
