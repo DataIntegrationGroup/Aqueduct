@@ -36,6 +36,7 @@ def _group_rows_by_location(rows: list[dict]) -> list[dict]:
                 "location_name": row["location_name"],
                 "latitude": row["latitude"],
                 "longitude": row["longitude"],
+                "alternate_id": row["alternate_id"],
                 "readings": [],
             }
             if groups[loc_id]["location_name"] is None:
