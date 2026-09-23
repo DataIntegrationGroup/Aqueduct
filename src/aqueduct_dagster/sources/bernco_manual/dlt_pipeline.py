@@ -347,7 +347,7 @@ def bernco_manual_readings(
 
 
 def build_pipeline() -> dlt.Pipeline:
-    return build_source_pipeline("pvacd_bernco_manual", "raw_bernco_manual")
+    return build_source_pipeline("bernco_manual", "raw_bernco_manual")
 
 
 def run_pipeline() -> None:
