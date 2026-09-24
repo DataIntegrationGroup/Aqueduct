@@ -7,7 +7,7 @@ _record = {
     "location_name": "9-Mile Hill LF",
     "latitude": 35.071526,
     "longitude": -106.778477,
-    "alternate_id": {"id": "BC-0364", "agency": "BERNCO"},
+    "alternate_id": [{"id": "BC-0364", "agency": "BERNCO"}],
     "readings": [{"timestamp": 1573689600, "value": 711.11}],
 }
 
@@ -15,6 +15,11 @@ _record = {
 def test_to_thing_produces_correct_key():
     thing = BerncoManualAdapter([_record]).to_thing(_record)
     assert thing.external_key == "bernco-4f92c895-6b41-42d6-be6b-508ee44812fa"
+    assert thing.location.external_key == "bernco-4f92c895-6b41-42d6-be6b-508ee44812fa"
+    assert thing.properties["alternate_id"][0] == {"id": "BC-0364", "agency": "BERNCO"}
+    assert thing.location.properties["alternate_id"][0] == {"id": "BC-0364", "agency": "BERNCO"}
+    assert thing.location.name == "9-Mile Hill LF"
+    assert thing.location.geometry["coordinates"] == [-106.778477, 35.071526]
 
 
 def test_to_observations_returns_canonical_obs():

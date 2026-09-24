@@ -160,7 +160,7 @@ BERNCO_MANUAL_RESULTS = {
     "longitude": -106.778477,
     "timestamp": 1573689600000,
     "value": 711.11,
-    "alternate_id": {"id": "BC-0364", "agency": "BERNCO"},
+    "alternate_id": [{"id": "BC-0364", "agency": "BERNCO"}],
 }
 
 DUMMY_CLIENT = MagicMock(spec=Client)
