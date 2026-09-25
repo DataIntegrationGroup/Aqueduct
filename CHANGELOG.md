@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.4.0...Aqueduct-v0.5.0) (2026-09-25)
+
+
+### Features
+
+* **bernco_manual:** bernco ArcREST canonical model adapter ([#59](https://github.com/DataIntegrationGroup/Aqueduct/issues/59)) ([ab6982d](https://github.com/DataIntegrationGroup/Aqueduct/commit/ab6982d8b50cc60e818b2db70dc7d949af58eb92))
+
 ## [0.4.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.3.0...Aqueduct-v0.4.0) (2026-09-22)
 
 
