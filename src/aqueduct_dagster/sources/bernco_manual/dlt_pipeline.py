@@ -246,7 +246,7 @@ def bernco_manual_locations(locations: list[dict]) -> Iterator[dict]:
             "description": "Location of well where measurements are made",
             "latitude": location["Well_Location_Latitude"],
             "longitude": location["Well_Location_Longitude"],
-            "alternate_id": [{"id": location["NMT_ID"], "agency": "BERNCO"}],
+            "alternate_id": location["NMT_ID"],
         }
 
 
@@ -326,7 +326,7 @@ def bernco_manual_readings(
                     "longitude": location["Well_Location_Longitude"],
                     "timestamp": measurement["MSRMNT_Date"],
                     "value": measurement["Depth_To_Water_At_Msrmnt_Point"],
-                    "alternate_id": [{"id": location["NMT_ID"], "agency": "BERNCO"}],
+                    "alternate_id": location["NMT_ID"],
                 }
             cursors[str(location_id)] = max_timestamp
         logger.info(
