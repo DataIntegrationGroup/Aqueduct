@@ -41,11 +41,11 @@ def _group_rows_by_location(rows: list[dict]) -> list[dict]:
             }
             if groups[loc_id]["location_name"] is None:
                 groups[loc_id]["location_name"] = loc_id
-            if row["alternate_id"] is not None:
+        if row["alternate_id"] is not None:
+            if row["alternate_id"] not in [item["id"] for item in groups[loc_id]["alternate_id"]]:
                 groups[loc_id]["alternate_id"].append(
                     {"id": row["alternate_id"], "agency": "BERNCO"}
                 )
-            print(groups[loc_id])
         groups[loc_id]["readings"].append(
             {"timestamp": row["timestamp"] / 1000, "value": row["value"]}
         )
