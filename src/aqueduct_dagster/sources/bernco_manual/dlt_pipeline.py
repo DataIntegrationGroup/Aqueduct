@@ -304,7 +304,7 @@ def bernco_manual_readings(
                 errored += 1
                 failed_ids.append(location_id)
                 continue
-            if data is None:
+            if data is None or len(data) == 0:
                 logger.warning(
                     "Location %s (%s): no data (404)", location_id, location["Well_Name"]
                 )
