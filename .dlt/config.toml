@@ -23,18 +23,17 @@ api_base_url       = "https://www.hydrovu.com/public-api/v1"
 token_url          = "https://hydrovu.com/public-api/oauth/token"
 gcp_secret         = "hydrovu_bernco"
 initial_start_date = "2026-09-09"
-# All 34 locations that carry parameterId="4" (depth to water) and are either
-# currently active or worth checking (not confirmed long-term dormant) — see
-# docs/sources/bernco_hydrovu_location_survey.md for the full survey and the
-# decision. Excludes the 2 confirmed-dormant DTW locations, the VuLink
-# diagnostics-only locations (no DTW at all), and the 3 factory-default
-# (Fort Collins, CO) coordinate locations.
+# All 35 locations that carry parameterId="4" (depth to water) — see
+# docs/sources/bernco_hydrovu_location_survey.md for the full survey. 
+# Excludes the VuLink diagnostics-only locations (no DTW at all) and the 3
+# factory-default (Fort Collins, CO) coordinate locations.
 location_ids = [
     4910076672737280,  # ArroyoVista-1002964 — Aqua TROLL sonde
     5176076726042624,  # BCFD41-1091568 — Aqua TROLL sonde
     4620410022133760,  # BCFDWildlandSub-1091579 — Aqua TROLL sonde
     5114911035621376,  # Buckboard2-1042846 — Aqua TROLL sonde
     4743285781692416,  # CedarHill-966586 — Aqua TROLL sonde
+    4728230513278976,  # Carlito Springs Well — surface-water/barometric cluster
     5950167649222656,  # ColumbineThompson05-375835 — level-only logger
     4739653592547328,  # E-2034-969620 — Aqua TROLL sonde
     6725276880732160,  # E-55-POD 15-1173850TD — Aqua TROLL sonde
