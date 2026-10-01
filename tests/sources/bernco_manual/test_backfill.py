@@ -6,11 +6,15 @@ from httpx import Client, ReadError
 
 from aqueduct_dagster.loader import LoadResult
 from aqueduct_dagster.sources.bernco_manual.backfill import (
+    BACKFILL_PIPELINE_NAME,
+    BACKFILL_TABLE_NAME,
     _locations_by_id,
     bernco_manual_backfill_readings,
     default_backfill_location_ids,
     prepare_backfill,
+    run_backfill_chunk,
 )
+from aqueduct_dagster.sources.bernco_manual.transform import GCS_DATASET
 
 _Dummy_Client = MagicMock(spec=Client)
 
@@ -218,46 +222,99 @@ class _StubFrostLoader:
 CHUNK_START = datetime(2026, 1, 1, tzinfo=UTC)
 CHUNK_END = datetime(2026, 2, 1, tzinfo=UTC)
 
-# TODO this test is failing for reasons I am as of yet unable to fathom
-# class TestBerncoManualBackfillChunk:
-#    @patch("aqueduct_dagster.sources.bernco_manual.backfill.read_parquet_rows_for_load_id")
-#    @patch("aqueduct_dagster.sources.bernco_manual.backfill.run_backfill_chunk")
-#    def test_run_backfill_chunk_reads_by_exact_load_id_and_loads_bundles(
-#        self, mock_run_ingest, mock_read_rows
-#    ):
-#        mock_run_ingest.return_value = 1781192390.555875
-#        mock_read_rows.return_value = (
-#            [BERNCO_MANUAL_RESULTS],
-#            frozenset({"bad1.parquet", "bad2.parquet"}),
-#        )
-#        loader = _StubFrostLoader()
-#        result = run_backfill_chunk(
-#            client=_Dummy_Client,
-#            locations=_LOCATIONS,
-#            locations_by_id=_locations_by_id(_LOCATIONS),
-#            location_ids=["4f92c895-6b41-42d6-be6b-508ee44812fa"],
-#            chunk_start=CHUNK_START,
-#            chunk_end=CHUNK_END,
-#            loader=loader,  # type: ignore[arg-type]
-#            bucket="my-bucket",
-#            fs=MagicMock(),
-#            run_key="test-run",
-#        )
-#        ingest_kwargs = mock_run_ingest.call_args.kwargs
-#        assert ingest_kwargs["pipeline_name_prefix"] == BACKFILL_PIPELINE_NAME
-#        assert ingest_kwargs["dataset"] == GCS_DATASET
-#        assert ingest_kwargs["run_key"] == "test-run"
-#        args, kwargs = mock_read_rows.call_args
-#        assert args[0] == "my-bucket"
-#        assert args[1] == f"{GCS_DATASET}/{BACKFILL_TABLE_NAME}/**/*.parquet"
-#        assert args[2] == 1781192390.555875
-#        assert result.rows_ingested == 1
-#        assert result.bundles_loaded == 1
-#        assert result.observations_posted == 1
-#        assert result.observations_deleted == 1
-#        assert result.files_skipped_bad_name == frozenset({"bad1.parquet", "bad2.parquet"})
-#        assert len(loader.ensure_calls) == 1
-#        assert len(loader.load_window_calls) == 1
-#        ds_key, ds_id, records = loader.load_window_calls[0]
-#        assert ds_id == "ds-1"
-#        assert len(records) == 1
+
+class TestBerncoManualBackfillChunk:
+    @patch("aqueduct_dagster.sources.bernco_manual.backfill.read_parquet_rows_for_load_id")
+    @patch("aqueduct_dagster.sources.bernco_manual.backfill.run_backfill_ingest")
+    def test_run_backfill_chunk_reads_by_exact_load_id_and_loads_bundles(
+        self, mock_run_ingest, mock_read_rows
+    ):
+        mock_run_ingest.return_value = 1781192390.555875
+        mock_read_rows.return_value = (
+            [BERNCO_MANUAL_RESULTS],
+            frozenset({"bad1.parquet", "bad2.parquet"}),
+        )
+        loader = _StubFrostLoader()
+        result = run_backfill_chunk(
+            client=_Dummy_Client,
+            locations=_LOCATIONS,
+            locations_by_id=_locations_by_id(_LOCATIONS),
+            location_ids=["4f92c895-6b41-42d6-be6b-508ee44812fa"],
+            chunk_start=CHUNK_START,
+            chunk_end=CHUNK_END,
+            loader=loader,  # type: ignore[arg-type]
+            bucket="my-bucket",
+            fs=MagicMock(),
+            run_key="test-run",
+        )
+        ingest_kwargs = mock_run_ingest.call_args.kwargs
+        assert ingest_kwargs["pipeline_name_prefix"] == BACKFILL_PIPELINE_NAME
+        assert ingest_kwargs["dataset"] == GCS_DATASET
+        assert ingest_kwargs["run_key"] == "test-run"
+        args, kwargs = mock_read_rows.call_args
+        assert args[0] == "my-bucket"
+        assert args[1] == f"{GCS_DATASET}/{BACKFILL_TABLE_NAME}/**/*.parquet"
+        assert args[2] == 1781192390.555875
+        assert result.rows_ingested == 1
+        assert result.bundles_loaded == 1
+        assert result.observations_posted == 1
+        assert result.observations_deleted == 1
+        assert result.files_skipped_bad_name == frozenset({"bad1.parquet", "bad2.parquet"})
+        assert len(loader.ensure_calls) == 1
+        assert len(loader.load_window_calls) == 1
+        ds_key, ds_id, records = loader.load_window_calls[0]
+        assert ds_id == "ds-1"
+        assert len(records) == 1
+
+    @patch("aqueduct_dagster.sources.bernco_manual.backfill.read_parquet_rows_for_load_id")
+    @patch("aqueduct_dagster.sources.bernco_manual.backfill.run_backfill_ingest")
+    def test_run_backfill_chunk_with_no_rows_loads_nothing(self, mock_run_ingest, mock_read_rows):
+        mock_run_ingest.return_value = 100.0
+        mock_read_rows.return_value = (
+            [],
+            frozenset(),
+        )
+        loader = _StubFrostLoader()
+        result = run_backfill_chunk(
+            client=_Dummy_Client,
+            locations=_LOCATIONS,
+            locations_by_id=_locations_by_id(_LOCATIONS),
+            location_ids=["4f92c895-6b41-42d6-be6b-508ee44812fa"],
+            chunk_start=CHUNK_START,
+            chunk_end=CHUNK_END,
+            loader=loader,  # type: ignore[arg-type]
+            bucket="my-bucket",
+            fs=MagicMock(),
+            run_key="test-run",
+        )
+        assert result.rows_ingested == 0
+        assert result.bundles_loaded == 0
+        assert result.observations_posted == 0
+        assert result.observations_deleted == 0
+        assert loader.ensure_calls == []
+
+    @patch("aqueduct_dagster.sources.bernco_manual.backfill.read_parquet_rows_for_load_id")
+    @patch("aqueduct_dagster.sources.bernco_manual.backfill.run_backfill_ingest")
+    def test_run_backfill_chunk_handles_empty_loads_ids_without_crashing(
+        self, mock_run_ingest, mock_read_rows
+    ):
+        mock_run_ingest.return_value = None
+        loader = _StubFrostLoader()
+        result = run_backfill_chunk(
+            client=_Dummy_Client,
+            locations=_LOCATIONS,
+            locations_by_id=_locations_by_id(_LOCATIONS),
+            location_ids=[""],
+            chunk_start=CHUNK_START,
+            chunk_end=CHUNK_END,
+            loader=loader,  # type: ignore[arg-type]
+            bucket="my-bucket",
+            fs=MagicMock(),
+            run_key="test-run",
+        )
+        assert result.rows_ingested == 0
+        assert result.bundles_loaded == 0
+        assert result.observations_posted == 0
+        assert result.observations_deleted == 0
+        assert loader.ensure_calls == []
+        mock_read_rows.assert_not_called()
