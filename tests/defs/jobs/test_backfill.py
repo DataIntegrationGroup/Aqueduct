@@ -354,6 +354,37 @@ def test_real_run_forwards_python_logs_from_every_emitting_package(
 @patch("aqueduct_dagster.defs.jobs.backfill.BackfillCheckpointStore")
 @patch("aqueduct_dagster.defs.jobs.backfill._gcs_filesystem")
 @patch("aqueduct_dagster.defs.jobs.backfill._gcs_bucket_url")
+def test_bad_filename_seen_in_multiple_chunks_is_logged_once(
+    mock_bucket_url, mock_fs, mock_checkpoint_cls, mock_build_loader, capsys
+):
+    """Both chunks report the same bad filename (re-globbing repeats it) — must log once, not twice."""
+    mock_bucket_url.return_value = "gs://bucket"
+    mock_checkpoint_cls.return_value.is_complete.return_value = False
+
+    prepare_fn = _prepare_fn()
+    bad_file = "bucket/raw/ds/not-a-load-id.0.parquet"
+    run_chunk_fn = MagicMock(
+        side_effect=[
+            _stub_chunk_result(files_skipped_bad_name=frozenset({bad_file})),
+            _stub_chunk_result(files_skipped_bad_name=frozenset({bad_file})),
+        ]
+    )
+
+    job = _make_backfill_refetch_job("test", "test_dataset", prepare_fn, run_chunk_fn)
+    result = job.execute_in_process(run_config=_run_config(dry_run=False))
+
+    assert result.success
+    assert run_chunk_fn.call_count == 2  # 2 calendar-month chunks in [Jan 1, Mar 1)
+    captured = capsys.readouterr()
+    occurrences = captured.err.count("Skipping parquet file with unrecognized name")
+    assert occurrences == 1
+    assert bad_file in captured.err
+
+
+@patch("aqueduct_dagster.defs.jobs.backfill.build_frost_loader")
+@patch("aqueduct_dagster.defs.jobs.backfill.BackfillCheckpointStore")
+@patch("aqueduct_dagster.defs.jobs.backfill._gcs_filesystem")
+@patch("aqueduct_dagster.defs.jobs.backfill._gcs_bucket_url")
 def test_already_checkpointed_chunk_is_skipped(
     mock_bucket_url, mock_fs, mock_checkpoint_cls, mock_build_loader
 ):
