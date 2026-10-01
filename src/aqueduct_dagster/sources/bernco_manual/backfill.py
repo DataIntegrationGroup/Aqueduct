@@ -72,6 +72,7 @@ def bernco_manual_backfill_readings(
 def _locations_by_id(locations: list[dict]) -> dict[str, dict]:
     return {
         location["GlobalID"]: {
+            "name": location["Well_Name"],
             "description": "Location of well where measurements are made",
             "latitude": location["Well_Location_Latitude"],
             "longitude": location["Well_Location_Longitude"],
@@ -81,7 +82,7 @@ def _locations_by_id(locations: list[dict]) -> dict[str, dict]:
     }
 
 
-def default_backfill_locations() -> list[str]:
+def default_backfill_location_ids() -> list[str]:
     return list(load_source_config("bernco_manual").get("location_ids", []))
 
 

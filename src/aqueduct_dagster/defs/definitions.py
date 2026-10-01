@@ -26,6 +26,7 @@ from aqueduct_dagster import sources as sources_pkg
 from aqueduct_dagster.defs import assets as shared_assets_pkg
 from aqueduct_dagster.defs.jobs.backfill import (
     bernco_hydrovu_backfill_refetch,
+    bernco_manual_backfill_refetch,
     cabq_backfill_refetch,
     pvacd_hydrovu_backfill_refetch,
 )
@@ -70,6 +71,7 @@ for _cfg in SOURCE_REGISTRY:
 _jobs.append(pvacd_hydrovu_backfill_refetch)
 _jobs.append(cabq_backfill_refetch)
 _jobs.append(bernco_hydrovu_backfill_refetch)
+_jobs.append(bernco_manual_backfill_refetch)
 
 # ── Definitions ───────────────────────────────────────────────────────────────
 
