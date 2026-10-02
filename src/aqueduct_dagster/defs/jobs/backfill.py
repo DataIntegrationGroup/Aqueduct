@@ -44,7 +44,7 @@ from aqueduct_dagster.shared.backfill import (
     sum_chunk_results,
     validate_date_order,
 )
-from aqueduct_dagster.shared.gcs import _gcs_bucket_url, _gcs_filesystem
+from aqueduct_dagster.shared.gcs import BAD_FILENAME_WARNING, _gcs_bucket_url, _gcs_filesystem
 from aqueduct_dagster.shared.source_registry import SOURCE_REGISTRY
 from aqueduct_dagster.sources.bernco_hydrovu.backfill import (
     default_backfill_location_ids as bernco_hydrovu_default_backfill_location_ids,
@@ -240,6 +240,10 @@ def _make_backfill_refetch_op(
                 # never revisits a window it has already moved past.
                 loader = build_frost_loader(context, f"{dataset}_backfill")
 
+                # Each chunk re-globs the whole table, so a bad filename can
+                # repeat across chunks — dedupe so it's logged once per run.
+                bad_filenames_already_logged: set[str] = set()
+
                 chunks_processed = 0
                 chunks_skipped = 0
                 chunk_results: list[ChunkResult] = []
@@ -268,6 +272,13 @@ def _make_backfill_refetch_op(
                     checkpoints.mark_complete(chunk_start, chunk_end, location_ids)
                     chunks_processed += 1
                     chunk_results.append(result)
+
+                    newly_seen_bad_filenames = (
+                        result.files_skipped_bad_name - bad_filenames_already_logged
+                    )
+                    for f in newly_seen_bad_filenames:
+                        context.log.warning(BAD_FILENAME_WARNING, f)
+                    bad_filenames_already_logged |= newly_seen_bad_filenames
                     context.log.info(
                         "chunk [%s, %s) complete: rows_ingested=%d bundles_loaded=%d "
                         "observations_posted=%d observations_deleted=%d adapter_failures=%d "
