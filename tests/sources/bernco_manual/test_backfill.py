@@ -183,7 +183,7 @@ class TestBerncoManualBackfillPreparation:
     @patch("aqueduct_dagster.sources.bernco_manual.backfill._fetch_locations")
     @patch("aqueduct_dagster.sources.bernco_manual.backfill.build_bernco_manual_client")
     @patch("aqueduct_dagster.sources.bernco_manual.backfill.load_source_config")
-    def test_prepare_backfill_closes_client_if_fetch_locations_faile(
+    def test_prepare_backfill_closes_client_if_fetch_locations_failed(
         self, mock_cfg, mock_build_client, mock_fetch_locations
     ):
         mock_cfg.return_value = {"api_base_url": "https://api"}
