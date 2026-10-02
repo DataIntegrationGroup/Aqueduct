@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.4.0...Aqueduct-v0.5.0) (2026-10-02)
+
+
+### Features
+
+* **bernco_manual:** bernco ArcREST canonical model adapter ([#59](https://github.com/DataIntegrationGroup/Aqueduct/issues/59)) ([ab6982d](https://github.com/DataIntegrationGroup/Aqueduct/commit/ab6982d8b50cc60e818b2db70dc7d949af58eb92))
+* **bernco_manual:** wire BernCo ArcREST end to end pipeline with FROST load ([#61](https://github.com/DataIntegrationGroup/Aqueduct/issues/61)) ([bbf5920](https://github.com/DataIntegrationGroup/Aqueduct/commit/bbf592014252c564987807a3688f3e9488564449))
+
+
+### Bug Fixes
+
+* **bernco_hydrovu:** add missing Carlito Springs Well to location_ids allowlist(ST2DAT-134) ([#62](https://github.com/DataIntegrationGroup/Aqueduct/issues/62)) ([aa5a064](https://github.com/DataIntegrationGroup/Aqueduct/commit/aa5a064188c629bc6130cdb3bf6e606cc640e447))
+* **shared:** log malformed parquet filenames once per backfill run, not once per chunk(ST2DAT-248) ([#64](https://github.com/DataIntegrationGroup/Aqueduct/issues/64)) ([ea4582c](https://github.com/DataIntegrationGroup/Aqueduct/commit/ea4582ca3346b126f56c26c7fc9e7bc620dbc258))
+
 ## [0.4.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.3.0...Aqueduct-v0.4.0) (2026-09-22)
 
 
