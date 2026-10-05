@@ -1,17 +1,9 @@
 """
-sources/hydrovu_transform_common.py
-
 Vendor-level HydroVu transform layer, shared by every HydroVu tenant.
 
-What lives here:
-  HydroVuDtwAdapter           the DTW mapping. Subclasses set AGENCY
-  read_locations_from_gcs()   reads a tenant's hydrovu_locations parquet
-  group_readings_by_location() flat reading rows -> one record per location
-  transform_metadata()        the shape of a transform asset's output metadata
-
-What stays in each tenant's sources/<name>/: its GCS dataset, its watermark path,
-its own transform result dataclass, and any hazard specific to that tenant (BernCo's
-sentinel-timestamp floor is passed in as min_timestamp rather than assumed here).
+What stays in each tenant's sources/<name>/: its GCS dataset, watermark path,
+transform result dataclass, and tenant-specific hazards (e.g. BernCo's
+sentinel-timestamp floor, passed in as min_timestamp rather than assumed here).
 """
 
 from __future__ import annotations
@@ -48,38 +40,20 @@ DTW_PARAMETER_ID = "4"
 
 
 class HydroVuDtwAdapter(BaseAdapter):
-    """
-    Depth-to-water mapping for a HydroVu tenant.
+    """Depth-to-water mapping for a HydroVu tenant. Converts metres to feet and
+    builds one DTW CanonicalBundle per pre-grouped location record. Subclasses
+    supply AGENCY.
 
-    Receives pre-grouped records (one per location) from a transform asset,
-    converts metres to feet, and builds one DTW CanonicalBundle per location.
-    Subclasses supply AGENCY.
+    external_key: str(location_id). location_description is NOT part of the
+    key — it's under properties.source_specific.hydrovu_description.
 
-    external_key convention:
-      - Always str(location_id) ( )the HydroVu integer location ID, cast to str).
-      - location_description (the well/permit number, e.g. "827276") is NOT part of
-        the key. It is stored under properties.source_specific.hydrovu_description.
-      - Location and Thing share f"{agency_lower}-{source_id}"; the datastream is
-        that plus "-dtw".
+    Record shape (from group_readings_by_location()):
+      {"location_id": int, "location_name": str, "location_description": str,
+       "latitude": float, "longitude": float,
+       "readings": [{"parameter_id": "4", "unit_id": "35", "timestamp": int, "value": float}, ...]}
 
-    Record shape expected (one per location), as produced by
-    group_readings_by_location():
-      {
-        "location_id":          int    HydroVu integer ID
-        "location_name":        str    e.g. "SierraVista-966932"
-        "location_description": str    well number, or "" if unset
-        "latitude":             float
-        "longitude":            float
-        "readings": [
-          {"parameter_id": "4", "unit_id": "35", "timestamp": int, "value": float},
-          ...
-        ]
-      }
-
-    min_timestamp: readings stamped before this Unix second are dropped as bad device
-      clocks rather than history. None disables the floor entirely. A caller that
-      fetches older history (a backfill) must pass its own floor.
-    """
+    min_timestamp: readings before this Unix second are dropped as bad device
+      clocks; None disables it. A backfill fetching older history passes its own."""
 
     #: Agency code seeding every external_key. Set by each tenant's subclass.
     AGENCY: str = ""
@@ -180,11 +154,8 @@ class HydroVuDtwAdapter(BaseAdapter):
 def read_locations_from_gcs(
     bucket_url: str, dataset: str, fs: gcsfs.GCSFileSystem
 ) -> dict[int, dict]:
-    """
-    Reads a tenant's hydrovu_locations parquet (write_disposition="replace", so it
-    is always a single up-to-date file).
-    Returns a dict keyed by location_id for an O(1) join with readings rows.
-    """
+    """Reads a tenant's hydrovu_locations parquet (write_disposition="replace",
+    always a single up-to-date file) into a dict keyed by location_id."""
     bucket = bucket_url.replace("gs://", "")
     pattern = f"{bucket}/{dataset}/hydrovu_locations/**/*.parquet"
     files = fs.glob(pattern)
@@ -212,14 +183,10 @@ def read_locations_from_gcs(
 
 
 def group_readings_by_location(rows: list[dict], locations: dict[int, dict]) -> list[dict]:
-    """
-    Groups flat readings rows into one record per location, joining location
-    metadata (name, description, lat, lon) from the locations reference dict.
-
-    A location missing from `locations` still produces a record, with empty name and
-    description and None coordinates. HydroVuDtwAdapter then fails that one record
-    and BaseAdapter.run() counts it, rather than the whole run dying on a KeyError.
-    """
+    """Groups flat reading rows into one record per location, joined with
+    location metadata. A location missing from `locations` still produces a
+    record (empty name/description, None coordinates) — HydroVuDtwAdapter fails
+    just that one record rather than the whole run dying on a KeyError."""
     groups: dict[int, dict] = {}
     for row in rows:
         loc_id = row["location_id"]

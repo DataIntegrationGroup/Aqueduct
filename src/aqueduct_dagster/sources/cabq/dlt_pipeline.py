@@ -1,17 +1,10 @@
 """
-sources/cabq/dlt_pipeline.py
-
 dlt pipeline for CABQ raw ingestion.
 
-Follows the same pattern as pvacd_hydrovu/dlt_pipeline.py.
   - @dlt.source: reads config from dlt.config under [cabq]
-  - @dlt.resource: per-location incremental cursor via dlt.current.resource_state()  - build_pipeline(): filesystem destination → GCS under raw_cabq/
-  - run_pipeline(): convenience entry point (mirrors pvacd_hydrovu/dlt_pipeline.py run_pipeline)
-
-Add CABQ config block to .dlt/config.toml when wiring up:
-  [cabq]
-  api_base_url       = "https://..."   # CABQ CKAN base URL
-  initial_start_date = "2026-05-01"    # match HydroVu start date
+  - @dlt.resource: per-location incremental cursor via dlt.current.resource_state()
+  - build_pipeline(): filesystem destination → GCS under raw_cabq/
+  - run_pipeline(): convenience entry point
 """
 
 from __future__ import annotations
@@ -37,30 +30,8 @@ _MAX_RATE_LIMIT_RETRIES = 3
 
 
 def _transform_result(data: dict) -> list[dict]:
-    """
-    The structure of data we get back from CABQ is:
-    {
-        "objectIdFieldName": "OBJECTID",
-        "uniqueIdField": {
-            "name": "OBJECTID",
-            "isSystemMaintained": true
-        },
-        "globalIdFieldName": "",
-        "fields": [ list of fields in attributes ... ],
-        "exceededTransferLimit": true,
-        "features": [
-            {
-                "attributes": { ... }
-            },{
-                "attributes": { ... }
-            },{
-                ...
-            }
-        ]
-    }
-    The content of "attributes" in each entry of "features" list is what we actually want.
-    This function simply reads in the response from CABQ and returns a list the JSON objects in each "attributes" field.
-    """
+    """Extracts the "attributes" dict from each entry in the CABQ response's
+    "features" list — the only part of the response actually used."""
     all_attributes: list[dict] = []
     for feature in data["features"]:
         all_attributes.append(feature["attributes"])
@@ -68,16 +39,9 @@ def _transform_result(data: dict) -> list[dict]:
 
 
 def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | None]:
-    """
-    get location information from CABQ
-    format of location:
-    {
-        "sys_loc_code": str,    *string code for identifying location
-        "loc_name": str,        *full human-readable name of location
-        "latitude": num,        *latitude coordinate for location
-        "longitude": num        *longitude coordinate for location
-    }
-    """
+    """Fetches location info from CABQ.
+
+    Location shape: sys_loc_code, loc_name, latitude, longitude."""
     path = "/query"
     params = {
         "where": "OBJECTID>0",
@@ -135,14 +99,9 @@ def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | Non
 def _fetch_readings_for_location(
     client: httpx.Client, loc_id: str, start_time: int, end_time: int | None = None
 ) -> tuple[list[dict] | None, str | None]:
-    """
-    get reading information for location from CABQ
-    format of location:
-    {
-        measurement_date: num, *timestamp of when measurement was taken in unix epoch milliseconds
-        water_depth: num, *water level in ft msl
-    }
-    """
+    """Fetches readings for one location from CABQ.
+
+    Reading shape: measurement_date (Unix epoch ms), water_depth (ft)."""
     path = "/query"
     query = (
         "sys_loc_code='"
@@ -218,14 +177,12 @@ def _fetch_readings_for_location(
 
     rows = _transform_result(result)
     if end_time is not None:
-        # The API's measurement_date query only accepts date literals (see
-        # _fetch_readings() above), so it's inclusive of the entire end date —
-        # a reading exactly at end_time's midnight instant would otherwise pass
-        # this query but violate the strict half-open [start, end) window
-        # load_window() (loader/frost_loader.py) enforces. Trim it client-side
-        # on the exact millisecond timestamp, mirroring hydrovu_dlt_pipeline's
-        # _fetch_location_data end_time handling. measurement_date is epoch
-        # milliseconds; end_time is epoch seconds (see cabq_backfill_readings).
+        # The API's measurement_date query only accepts date literals, so it's
+        # inclusive of the entire end date — a reading exactly at end_time's
+        # midnight instant would otherwise pass this query but violate the
+        # strict half-open [start, end) window load_window() enforces. Trim it
+        # client-side, mirroring hydrovu_common.py's fetch_location_data()
+        # end_time handling. measurement_date is epoch ms; end_time is epoch s.
         rows = [row for row in rows if row["measurement_date"] < end_time * 1000]
     return rows, None
 
@@ -245,6 +202,8 @@ def cabq_source(
     initial_start_date: str = dlt.config.value,
     _stats: dict | None = None,
 ) -> Any:
+    """dlt source: computes start_ts from initial_start_date and returns the
+    cabq_readings resource (which fetches locations itself)."""
     start_ts = int(
         datetime.strptime(initial_start_date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
     )
@@ -261,25 +220,15 @@ def cabq_readings(
     start_ts: int,
     _stats: dict | None = None,
 ) -> Iterator[dict]:
-    """
-    Yields one flat record per reading per location.
-    Per-location incremental cursor via dlt.current.resource_state() — same pattern as
-    hydrovu_readings. Each station has its own cursor; a failed station retries from the
-    same point next run rather than being skipped permanently.
+    """Yields one flat record per reading per location.
 
-    On first run: fetches from start_ts (derived from initial_start_date in config).
-    On subsequent runs: fetches only records newer than each station's cursor.
+    Per-location incremental cursor via dlt.current.resource_state() — same
+    pattern as hydrovu_readings. Each station has its own cursor; a failed
+    station retries from the same point next run rather than being skipped
+    permanently.
 
-    Record shape (to define when implementing):
-      reading_id   — unique key e.g. "{location_id}_{timestamp}"
-      location_id  — CABQ station identifier
-      location_name — human-readable name of the location
-      latitude     — latitude in decimal degrees
-      longitude    — longitude in decimal degrees
-      timestamp    — Unix epoch milliseconds
-      value        — float measurement
-      # add other fields as needed
-    """
+    First run fetches from start_ts (initial_start_date); later runs fetch
+    only what's newer than each station's cursor."""
     cursors: dict[str, int] = dlt.current.resource_state().setdefault("location_cursors", {})
     locations, err = _fetch_locations(client)
     if locations is None:

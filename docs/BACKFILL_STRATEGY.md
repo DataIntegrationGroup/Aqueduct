@@ -5,7 +5,9 @@ and backfill in production, as the pipeline scales from 2 sources to 10+.
 This is a **design proposal**, not yet implemented — written for team review
 before implementation begins.
 
-- **Status:** proposal, open for feedback
+- **Status:** Mode A (refetch) is implemented — see `shared/backfill.py`,
+  `defs/jobs/backfill.py`, and each source's `backfill.py`. Mode B (replay)
+  below is still a proposal; not decided or implemented.
 - **Last updated:** 2026-07-14
 
 ---
@@ -325,10 +327,11 @@ automatically, with no operator involvement:
 
 ### 5.2 Launching a backfill job
 
-Two additional jobs are generated per source and appear in the Dagster
-UI's Jobs list alongside the existing pipeline jobs: `<source>_backfill_refetch`
-and `<source>_backfill_replay`. Neither has a schedule attached — both are
-launched manually, on demand:
+Each source with Mode A implemented gets a `<source>_backfill_refetch` job,
+appearing in the Dagster UI's Jobs list alongside the existing pipeline jobs.
+A `<source>_backfill_replay` job would be added per source once Mode B is
+built. No backfill job has a schedule attached — all are launched manually,
+on demand:
 
 1. Open the Dagster UI and select **Jobs**.
 2. Select the relevant job (for example, `pvacd_hydrovu_backfill_refetch`).

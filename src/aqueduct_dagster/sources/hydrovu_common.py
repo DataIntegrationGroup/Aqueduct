@@ -1,20 +1,14 @@
 """
-sources/hydrovu_common.py
+Vendor-level HydroVu API client, shared by every HydroVu tenant. Tenant-agnostic —
+takes tenant-specific values as arguments.
 
-Vendor-level HydroVu API client, shared by every HydroVu tenant.
-
-Endpoints, OAuth flow, pagination and error handling are the same across HydroVu sources.
-
-Everything in this module is tenant-agnostic and takes its tenant-specific values as arguments
-
-API endpoints confirmed:
+API endpoints:
   - Auth:      POST https://hydrovu.com/public-api/oauth/token
   - Locations: GET  https://www.hydrovu.com/public-api/v1/locations/list
   - Readings:  GET  https://www.hydrovu.com/public-api/v1/locations/{id}/data?startTime={unix_ts}
-  - Pagination: X-ISI-Start-Page="" on first request; response carries X-ISI-Next-Page opaque
-                cursor token; pass it verbatim on the next request; stop when absent or empty
-  - Token refresh: client credentials tokens have a finite TTL; BearerAuth (shared/http.py)
-                refreshes and retries once automatically on a 401 — no per-call-site handling needed.
+  - Pagination: X-ISI-Start-Page="" on the first request; X-ISI-Next-Page response
+                header carries the next cursor; stop when absent or empty.
+  - Token refresh: BearerAuth (shared/http.py) handles a 401 automatically.
 """
 
 from __future__ import annotations
@@ -94,46 +88,19 @@ def fetch_locations(client: httpx.Client) -> list[dict]:
 def fetch_location_data(
     client: httpx.Client, location_id: int, start_time: int, end_time: int | None = None
 ) -> tuple[dict | None, str | None]:
-    """
-    Fetches all readings for one location, walking cursor-based pages.
+    """Fetches all readings for one location, walking cursor-based pages.
 
-    end_time: if given, readings with timestamp >= end_time are dropped from
-      the result, and pagination stops as soon as a page contains one — pages
-      are chronological, so a later page would only contain data further
-      beyond the window. Used by backfill's windowed chunk fetch
-      (sources/<name>/backfill.py). Production's normal ingest always calls with
-      end_time=None — unbounded, fetch-to-present.
+    end_time, if given, stops pagination once a page's readings reach it —
+    used by backfill's windowed chunk fetch. Production's normal ingest always
+    passes None (unbounded, fetch-to-present).
 
-      The published OpenAPI spec does list a server-side endTime parameter on
-      /locations/{id}/data, which would make this client-side cutoff unnecessary;
-      it has not been tested. See docs/sources/bernco_hydrovu.md Open Questions.
+    A 404 does NOT mean the location has no data endpoint: a dormant location
+    that 404s on a recent start_time returns its full history at start_time=0.
+    Skip it without advancing the cursor; it recovers on its own if the logger
+    comes back.
 
-    Returns:
-      (data, None)   — success
-      (None, None)   — HTTP 404: the location has no data at or after start_time
-                       (expected for a dormant location, not an error)
-      (None, reason) — real error: any non-2xx status, or exhausted retries
-
-    A 404 does NOT mean the location has no data endpoint: a dormant location that
-    404s on a recent start_time will return its full history at start_time=0
-    (verified across BernCo's 14 dormant locations — 13 hold history). Skipping it
-    without advancing its cursor is therefore the right handling, and it will start
-    returning data again on its own if the logger comes back.
-
-    On 401: BearerAuth (shared/http.py) refreshes the token and retries the request.
-    On 429: respects Retry-After header; falls back to _429_BACKOFF seconds.
-            Retries up to _MAX_RATE_LIMIT_RETRIES times, then returns (None, reason).
-    On transient network errors: retries up to _MAX_RETRIES times with exponential
-            backoff, then returns (None, reason).
-    On any other non-2xx status: fails safely, with a clear reason, but
-            with no retry — returns (None, reason) immediately rather than
-            crashing uncaught.
-
-    Pagination: X-ISI-Start-Page="" on the first request, then pass the
-    X-ISI-Next-Page cursor token from each response verbatim. Stop when
-    X-ISI-Next-Page is absent or empty (each page covers roughly 2 days, so the row
-    count per page varies with logger cadence).
-    """
+    Returns (data, None) on success, (None, None) on 404 (not an error), or
+    (None, reason) on a real error (non-2xx status, or exhausted retries)."""
     all_data: dict | None = None
     page_cursor: str = ""
     page_num = 0
@@ -248,14 +215,10 @@ def fetch_location_data(
 def resolve_hydrovu_credentials(
     client_id: str, client_secret: str, gcp_secret: str
 ) -> tuple[str, str]:
-    """
-    Returns (client_id, client_secret), fetching from GCP Secret Manager when
-    client_id is not already supplied (the normal case in production — tests
-    and local overrides can pass both explicitly instead).
-
-    gcp_secret names the tenant's secret ("hydrovu_pvacd", "hydrovu_bernco"); every
-    tenant's payload is the same {"id": ..., "secret": ...} JSON object.
-    """
+    """Returns (client_id, client_secret) — fetches from Secret Manager if
+    client_id isn't already supplied (tests/local overrides can pass both
+    explicitly). gcp_secret names the tenant's secret; payload is always
+    {"id": ..., "secret": ...}."""
     if client_id:
         return client_id, client_secret
 
@@ -278,12 +241,8 @@ def build_hydrovu_client(
     api_base_url: str,
     token_url: str,
 ) -> httpx.Client:
-    """
-    Resolves credentials (Secret Manager if client_id is empty) and returns an
-    authenticated httpx.Client for the HydroVu API. Shared by each tenant's
-    @dlt.source (normal ingest) and its backfill source, so the
-    OAuth/Secret-Manager logic is written once.
-    """
+    """Resolves credentials and returns an authenticated httpx.Client, shared by
+    each tenant's normal ingest and backfill source so OAuth logic is written once."""
     client_id, client_secret = resolve_hydrovu_credentials(client_id, client_secret, gcp_secret)
     tm = TokenManager(token_url, client_id, client_secret)
     return build_authenticated_client(api_base_url, tm, timeout=_LOCATION_TIMEOUT)
@@ -297,36 +256,21 @@ def iter_location_readings(
     cursors: dict[str, int],
     stats: dict,
 ) -> Iterator[dict]:
-    """
-    Yields one flat record per (location, parameter, reading) across every
-    allowlisted location. The body of each tenant's hydrovu_readings resource.
+    """Yields one flat record per (location, parameter, reading) across every
+    allowlisted location — the body of each tenant's hydrovu_readings resource.
 
-    location_ids: allowlist of HydroVu location integer IDs to fetch. Locations
-      absent from this list are skipped to avoid slow 404s on /locations/{id}/data.
-      Managed via [sources.<name>] location_ids in .dlt/config.toml.
+    location_ids: allowlist from .dlt/config.toml; others are skipped to avoid
+      slow 404s.
+    cursors: caller's per-location Unix-second cursor dict, mutated in place —
+      only advances after a successful fetch, so a failed location retries
+      from the same point next run.
+    stats: populated at generator end — rows_yielded, locations_fetched/
+      skipped/no_data/errored, failed_location_ids.
 
-    cursors: the caller's per-location cursor dict, read and mutated in place —
-      keys are str(location_id), values Unix seconds. The caller owns where it
-      lives (dlt.current.resource_state() in a resource). A location's cursor only
-      advances after a successful fetch, so a failed location retries from the same
-      point on the next run rather than skipping the data it missed. On first run
-      (or for a new location) the fetch falls back to start_ts.
+    Record shape: reading_id, location_id, timestamp (Unix s), parameter_id,
+    unit_id, value.
 
-    stats: mutable dict populated once the generator reaches its end. Keys:
-      rows_yielded, locations_fetched, locations_skipped, locations_no_data,
-      locations_errored, failed_location_ids.
-
-    Record shape:
-      reading_id   — "{location_id}_{parameter_id}_{timestamp}"
-      location_id  — HydroVu location integer ID (FK → hydrovu_locations.id)
-      timestamp    — Unix epoch seconds
-      parameter_id — HydroVu param code (e.g. "4"=DTW, "1"=Temperature, "33"=Battery)
-      unit_id      — HydroVu unit code (e.g. "35"=metres)
-      value        — float measurement
-
-    One failing location never stops the others: fetch errors are counted and
-    logged, not raised.
-    """
+    One failing location never stops the others — errors are counted and logged."""
     _allowed: frozenset[int] = frozenset(location_ids)
 
     skipped = 0
@@ -407,15 +351,8 @@ def iter_location_readings(
 
 
 def location_row(location: dict) -> dict:
-    """
-    Flattens one /locations/list object into the hydrovu_locations record shape,
-    shared by every tenant's hydrovu_locations resource.
-
-      id          — HydroVu location integer ID (join key for hydrovu_readings)
-      name        — well name (e.g. "SierraVista-966932")
-      description — well/permit number (e.g. "1194043"), or "" when unset
-      latitude, longitude
-    """
+    """Flattens one /locations/list object into the hydrovu_locations record
+    shape shared by every tenant; id is the join key for hydrovu_readings."""
     return {
         "id": location["id"],
         "name": location["name"],

@@ -1,6 +1,4 @@
 """
-shared/gcs.py
-
 Shared GCS helpers for all source transform and load assets.
 Source-agnostic — no knowledge of HydroVu, CABQ, or any specific dataset.
 """
@@ -29,19 +27,8 @@ BAD_FILENAME_WARNING = "Skipping parquet file with unrecognized name: %s"
 
 
 def atomic_write_json_with_retry(fs: gcsfs.GCSFileSystem, path: str, data: dict, log: Any) -> None:
-    """
-    Writes `data` as JSON to `path` atomically (write to a .tmp object, then
-    rename), retrying up to _SAVE_RETRIES times with exponential backoff on
-    failure. The live file is never partially overwritten.
-
-    Shared by FrostWatermarkStore (loader/watermark_store.py) and
-    BackfillCheckpointStore (shared/backfill.py) — both need the exact same
-    durable-write mechanism against GCS.
-
-    `log` must expose .warning(msg, *args) / .error(msg, *args) — both
-    Dagster's context.log and a stdlib logging.Logger satisfy this, so
-    callers can pass either without adapting it.
-    """
+    """Writes `data` as JSON atomically (tmp + rename) with retry/backoff — the
+    live file is never partially overwritten. `log` just needs .warning()/.error()."""
     tmp_path = f"{path}.tmp"
     last_exc: Exception | None = None
     for attempt in range(_SAVE_RETRIES):
@@ -72,11 +59,7 @@ def atomic_write_json_with_retry(fs: gcsfs.GCSFileSystem, path: str, data: dict,
 
 
 def _gcs_bucket_url() -> str:
-    """Resolve the GCS bucket URL for the current run.
-
-    Prefers the GCS_BUCKET_URL env var, falling back to the committed
-    [destination.filesystem] bucket_url in .dlt/config.toml.
-    """
+    """GCS bucket URL: GCS_BUCKET_URL env var, falling back to .dlt/config.toml's bucket_url."""
     env_url = os.environ.get("GCS_BUCKET_URL")
     if env_url:
         return env_url
@@ -119,39 +102,26 @@ def commit_watermark(watermark_path: str, max_load_id: float) -> None:
 
 
 def transform_watermark_path(dataset: str, source_name: str) -> str:
-    """
-    The one place that defines the transform-watermark filename convention.
-
-    Both the read side (a source's transform.py, via read_transform_watermark)
-    and the write side (defs/assets/load.py, via commit_watermark, driven by
-    shared/source_registry.py's SOURCE_REGISTRY) must agree on this exact path —
-    call this instead of hand-typing the string in both places, so there's no
-    risk of the two drifting apart.
-    """
+    """Canonical transform-watermark filename — call this instead of hand-typing
+    the path so the read/write sides can't drift apart."""
     return f"{dataset}/_{source_name}_transform_watermark.json"
 
 
 def _load_id_from_filename(path: str) -> float | None:
-    """
-    Extracts the dlt load_id from a parquet filename dlt itself writes.
-    Expected format: .../year={YYYY}/month={MM}/day={DD}/{load_id}.{file_id}.parquet
-    e.g. raw_pvacd_hydrovu/hydrovu_readings/year=2024/month=06/day=18/1781192390.555875.0.parquet → 1781192390.555875
-    """
+    """Extracts the dlt load_id from a filename (.../{load_id}.{file_id}.parquet)."""
     name = path.split("/")[-1]
     m = re.match(r"^(\d+\.\d+)\.", name)
     return float(m.group(1)) if m else None
 
 
 def _partition_files_by_load_id(files: list[str]) -> tuple[list[tuple[float, str]], list[str]]:
-    """
-    Splits `files` into (load_id, path) pairs, returning names dlt's
+    """Splits `files` into (load_id, path) pairs, returning names dlt's
     convention doesn't recognize as skipped_paths rather than crashing.
 
     Silent by design: read_new_parquet_rows (one call per run) and
     read_parquet_rows_for_load_id (one call per backfill chunk, re-globbing
     the same files) need different logging cadences, so each caller logs
-    skipped_paths itself instead of this shared helper doing it once.
-    """
+    skipped_paths itself instead of this shared helper doing it once."""
     parsed: list[tuple[float, str]] = []
     skipped_paths: list[str] = []
     for f in files:
@@ -189,23 +159,11 @@ def read_new_parquet_rows(
     fs: gcsfs.GCSFileSystem,
     row_filter: Callable[[dict], bool] | None = None,
 ) -> tuple[list[dict], float | None, int]:
-    """
-    Reads parquet files matching {bucket}/{glob_suffix} with load_id > since_load_id,
-    keeping only rows where row_filter(row) is True (all rows if row_filter is None).
+    """Reads parquet files matching {bucket}/{glob_suffix} with load_id >
+    since_load_id, keeping rows where row_filter(row) is True. A bad filename
+    is skipped and counted, never silently dropped.
 
-    Shared by every source's transform asset for incremental reads — see
-    pvacd_hydrovu/transform.py for the reference usage.
-
-    A file whose name doesn't match dlt's expected load_id format (e.g. after a
-    dlt version upgrade changes it) is skipped rather than crashing the whole
-    read — but that must never be silent: logged here, and returned as a count
-    so a caller can surface it in Dagster asset metadata, where a non-zero
-    count is immediately visible instead of buried in a "skipped N
-    already-processed" log line.
-
-    Returns (rows, max_load_id_seen_this_run, files_skipped_bad_name) —
-    max_load_id is None if no new files.
-    """
+    Returns (rows, max_load_id_seen_this_run, files_skipped_bad_name)."""
     pattern = f"{bucket}/{glob_suffix}"
     all_files = fs.glob(pattern)
 
@@ -256,23 +214,16 @@ def read_parquet_rows_for_load_id(
     fs: gcsfs.GCSFileSystem,
     row_filter: Callable[[dict], bool] | None = None,
 ) -> tuple[list[dict], frozenset[str]]:
-    """
-    Reads parquet files matching {bucket}/{glob_suffix} whose filename load_id
-    is exactly `load_id` — an exact match, unlike read_new_parquet_rows's
-    "greater than a watermark" range.
-
-    Used by backfill chunk processing (sources/<name>/backfill.py): a chunk's
-    own dlt run produces one known load_id (from LoadInfo.loads_ids), so its
-    transform step reads exactly the file(s) that run wrote, rather than
-    "everything newer than some watermark" — no dependency on, or risk of
-    interference with, any watermark the normal scheduled pipeline tracks.
+    """Reads parquet files whose filename load_id exactly matches `load_id` —
+    unlike read_new_parquet_rows's "greater than a watermark" range. Used by
+    backfill: a chunk's dlt run has one known load_id, so transform reads
+    exactly those files.
 
     A file with an unrecognized name is skipped and returned in skipped_paths,
     not logged here — this re-globs the dataset every chunk, so the caller
     (defs/jobs/backfill.py's op) dedupes and logs across chunks instead.
 
-    Returns (rows, skipped_paths) — rows is empty if no file has this load_id.
-    """
+    Returns (rows, skipped_paths) — rows is empty if no file has this load_id."""
     pattern = f"{bucket}/{glob_suffix}"
     all_files = fs.glob(pattern)
 

@@ -1,28 +1,15 @@
 """
-shared/http.py
+Shared HTTP infrastructure for source ingest pipelines: a bounded retry with
+exponential backoff on transient errors, a self-refreshing OAuth2
+client-credentials token, and a way to attach it to every request without
+rebuilding headers/timeout/base-url per call site.
 
-Shared HTTP infrastructure for source ingest pipelines (dlt_pipeline.py modules).
+retry_transient() re-raises once exhausted; wrap it in `except
+transient_errors:` for a non-raising fallback (see hydrovu_common.py).
 
-Every source that fetches over HTTP needs the same shapes: a bounded retry
-with exponential backoff on transient network errors, an OAuth2
-client-credentials token that refreshes itself, and a way to attach that
-token to every request without rebuilding headers/timeout/base-url by hand
-at each call site. Without shared helpers, all three get hand-rolled per
-source — see sources/hydrovu_common.py's git history before this module
-existed, which had the retry loop alone copy-pasted three times.
-
-retry_transient() re-raises the final exception once retries are exhausted.
-Call sites that want a non-raising fallback (e.g. returning an (None, reason)
-tuple instead of propagating) wrap the call in their own
-`except transient_errors:` — see sources/hydrovu_common.py for the pattern.
-
-TokenManager + BearerAuth + build_authenticated_client() together give a
-source an httpx.Client that: sends a Bearer token on every request, and
-transparently refreshes and retries once on a 401 — see sources/hydrovu_common.py
-for the reference usage. Only the OAuth2 client-credentials flow is
-implemented; a source using a different auth scheme (API key, etc.) would
-need its own Auth subclass, but can still reuse retry_transient and
-build_authenticated_client's shape.
+TokenManager + BearerAuth + build_authenticated_client() give a client that
+attaches a Bearer token and refreshes-and-retries once on a 401. Only OAuth2
+client-credentials is implemented; other schemes need their own Auth subclass.
 """
 
 from __future__ import annotations
@@ -50,16 +37,12 @@ def retry_transient[T](
     transient_errors: tuple[type[Exception], ...] = TRANSIENT_HTTP_ERRORS,
     on_retry: Callable[[Exception, int, float], None] | None = None,
 ) -> T:
-    """
-    Calls fn(), retrying up to max_retries times on transient_errors with the
-    given backoff schedule (sleeping backoff[attempt] seconds between tries).
+    """Calls fn(), retrying up to max_retries times on transient_errors with
+    the given backoff schedule, re-raising the final exception once exhausted.
 
-    on_retry(exc, attempt, delay) is called before each sleep — attempt is
-    1-indexed (the attempt that just failed). Use it to log with call-site
-    context (e.g. location id) since this helper has none.
-
-    Re-raises the final exception once max_retries is exhausted.
-    """
+    on_retry(exc, attempt, delay) fires before each sleep (attempt is
+    1-indexed) — use it to log with call-site context, since this helper has
+    none."""
     for attempt in range(max_retries):
         try:
             return fn()
@@ -120,16 +103,11 @@ class TokenManager:
 
 
 class BearerAuth(httpx.Auth):
-    """
-    httpx.Auth that attaches a Bearer token to every request and, on a 401,
-    transparently refreshes the token and retries the request exactly once.
-
-    httpx's Auth protocol cooperates with this: auth_flow() yields a request,
-    receives the response back, and can yield a second (corrected) request —
-    the Client sends it automatically. This replaces the "check status_code
-    == 401, force_refresh, manually re-issue the request" block that used to
-    be hand-written at every call site.
-    """
+    """httpx.Auth that attaches a Bearer token and, on a 401, refreshes and
+    retries exactly once. auth_flow() yields a request, gets the response
+    back, and can yield a corrected one — the Client sends it automatically,
+    replacing the hand-written "check 401, force_refresh, re-issue" block
+    every call site used to need."""
 
     def __init__(self, tm: TokenManager) -> None:
         self._tm = tm
@@ -146,15 +124,11 @@ class BearerAuth(httpx.Auth):
 def build_authenticated_client(
     base_url: str, tm: TokenManager, timeout: httpx.Timeout
 ) -> httpx.Client:
-    """
-    Returns a httpx.Client with base_url, a default Accept header, BearerAuth
-    (token attached + refreshed-on-401 automatically), and timeout all
-    configured once — call sites just do client.get("/some/path", ...).
-
-    Callers still need retry_transient() around each client.get()/post() call
-    for transient network errors (timeouts, connection resets) — that's a
-    separate concern from auth and isn't handled by the client itself.
-    """
+    """httpx.Client with base_url, Accept header, BearerAuth (token attached +
+    refreshed-on-401), and timeout preconfigured — call sites just do
+    client.get("/path", ...). Callers still need retry_transient() around
+    each call for transient network errors; that's a separate concern from
+    auth."""
     return httpx.Client(
         base_url=base_url,
         headers={"Accept": "application/json"},
@@ -164,15 +138,10 @@ def build_authenticated_client(
 
 
 def build_unauthenticated_client(base_url: str, timeout: httpx.Timeout) -> httpx.Client:
-    """
-    Returns a httpx.Client with base_url, a default Accept header, and timeout all
-    configured once — call sites just do client.get("/some/path", ...).
-    No auth handler, for sources that do not require authentication.
-
-    Callers still need retry_transient() around each client.get()/post() call
-    for transient network errors (timeouts, connection resets) — that's a
-    separate concern from auth and isn't handled by the client itself.
-    """
+    """httpx.Client with base_url, Accept header, and timeout preconfigured,
+    no auth handler — for sources that don't need authentication. Callers
+    still need retry_transient() around each call for transient network
+    errors."""
     return httpx.Client(
         base_url=base_url,
         headers={"Accept": "application/json"},

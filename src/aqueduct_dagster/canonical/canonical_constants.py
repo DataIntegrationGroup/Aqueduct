@@ -1,5 +1,4 @@
 """
-canonical_constants.py
 Shared constants for the Aqueduct canonical model.
 
 Every source adapter imports from here.

@@ -1,5 +1,4 @@
 """
-base_adapter.py
 Abstract base class for all Aqueduct source adapters.
 
 Every source adapter inherits from BaseAdapter and implements three methods:
@@ -41,33 +40,28 @@ class BaseAdapter(abc.ABC):
 
     @abc.abstractmethod
     def extract(self) -> Iterator[dict]:
-        """Pull raw records from the source (GCS).
-        Yield one raw record at a time. Do not transform here."""
+        """Yield raw records from the source. No transforming here."""
         ...
 
     @abc.abstractmethod
     def to_thing(self, record: dict) -> CanonicalThing:
-        """Map one raw record to a CanonicalThing (with its Location inside).
-        Called once per station — not once per observation.
-        properties must include {'agency': self.agency}."""
+        """One CanonicalThing per station (Location nested inside); properties must include 'agency'."""
         ...
 
     @abc.abstractmethod
     def to_observations(self, record: dict) -> list[CanonicalObservation]:
-        """Map one raw record to a list of CanonicalObservations.
-        phenomenon_time must be UTC. result must be float."""
+        """One record → CanonicalObservations; phenomenon_time UTC, result float."""
         ...
 
     @abc.abstractmethod
     def _build_datastreams(self, thing: CanonicalThing) -> list:
-        """Build CanonicalDatastreams for this Thing using canonical constants."""
+        """Build this Thing's CanonicalDatastreams from canonical constants."""
         ...
 
     # ── run() — called by the pipeline, do not override ──────────────────────
 
     def run(self) -> Iterator[CanonicalBundle]:
-        """Orchestrates extract → transform → yield bundle.
-        Bad records are logged and skipped — one failure won't stop the run."""
+        """extract → transform → yield; bad records are logged and skipped, not fatal."""
         for record in self.extract():
             try:
                 thing = self.to_thing(record)
@@ -95,13 +89,7 @@ class BaseAdapter(abc.ABC):
 
 
 def log_if_adapter_failed(adapter: BaseAdapter, log: Any, context: str = "") -> None:
-    """
-    Warns once via `log` (stdlib logger or Dagster context.log — either works,
-    only .warning() is required) if `adapter.run()` recorded any failures.
-    Call after `run()` is exhausted. `context`, if given, is prefixed to the
-    message (e.g. a chunk window description) — shared by every source's
-    transform/backfill code so the message and count logic can't drift apart.
-    """
+    """Warns via `log` if adapter.run() had failures; `context` prefixes the message."""
     if not adapter.failure_count:
         return
     prefix = f"{context}: " if context else ""

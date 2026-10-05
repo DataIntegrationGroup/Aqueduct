@@ -1,15 +1,8 @@
 """
-sources/cabq/ingest.py
+Dagster asset: raw_cabq_readings — runs the CABQ dlt pipeline, fetching from
+the CABQ CKAN API incrementally and writing raw parquet to GCS.
 
-Dagster asset: raw_cabq_readings
-  - Runs the CABQ dlt pipeline
-  - Fetches from CABQ CKAN API (incrementally, cursor-based)
-  - Writes raw parquet to GCS under gs://<bucket>/raw_cabq/cabq_readings/year={YYYY}/month={MM}/day={DD}/
-  - dlt handles incremental cursor, parquet serialisation, GCS write,
-    and cursor state persistence alongside the data in GCS
-
-This is the FIRST asset in the CABQ pipeline. No upstream dependencies.
-Downstream: transform_cabq (reads from GCS)
+First asset in the pipeline. Downstream: canonical_bundles_cabq.
 """
 
 import logging
@@ -29,19 +22,8 @@ logger = logging.getLogger(__name__)
     compute_kind="dlt",
 )
 def raw_cabq_readings(context: AssetExecutionContext) -> MaterializeResult:
-    """
-    Runs the dlt pipeline to incrementally fetch CABQ readings and
-    write them as parquet to the GCS raw zone.
-
-    dlt handles:
-      - Incremental cursor (only fetches new data since last run)
-      - Parquet serialisation
-      - GCS write
-      - Cursor state persistence (stored in GCS next to the data)
-
-    On first run: fetches from initial_start_date (set in dlt config).
-    On subsequent runs: fetches only records newer than the last cursor value.
-    """
+    """Incrementally fetches CABQ readings into GCS — first run from
+    initial_start_date, later runs from the last cursor value."""
     pipeline = build_pipeline()
     stats: dict = {}
     with forward_python_logs_to_dagster(context, "aqueduct_dagster.sources.cabq", "dlt"):

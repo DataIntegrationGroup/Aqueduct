@@ -1,28 +1,9 @@
 """
-sources/pvacd_hydrovu/transform.py
+Dagster asset: canonical_bundles_pvacd_hydrovu — reads new hydrovu_readings
+parquet since the last watermark, filters to DTW rows, joins to the latest
+hydrovu_locations, and runs PvacdHydroVuAdapter to produce CanonicalBundles.
 
-Dagster asset: canonical_bundles_pvacd_hydrovu
-  - Reads only NEW hydrovu_readings parquet from GCS since the last successful run
-  - Always reads the latest hydrovu_locations parquet (replace resource — one file)
-  - Filters readings to DTW rows only (parameter_id="4")
-  - Joins readings to locations on location_id to restore name/lat/lon metadata
-  - Runs PvacdHydroVuAdapter to produce CanonicalBundles (one per DTW location)
-  - Returns bundles downstream to frost_load_pvacd_hydrovu
-
-Incremental reads (readings only):
-  A watermark file (raw_pvacd_hydrovu/_pvacd_hydrovu_transform_watermark.json) in GCS tracks
-  the highest dlt load_id processed so far. On each run only readings parquet files
-  with a newer load_id are read. The watermark is updated after a successful run.
-
-  load_id is the float Unix timestamp dlt embeds in every parquet filename:
-    raw_pvacd_hydrovu/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/{load_id}.{file_id}.parquet
-  e.g. raw_pvacd_hydrovu/hydrovu_readings/year=2024/month=06/day=18/1781192390.555875.0.parquet
-
-Locations parquet (hydrovu_locations/) uses write_disposition="replace" so it is
-always a single up-to-date file — read fresh on every run, no watermark needed.
-
-Upstream:  raw_pvacd_hydrovu_readings
-Downstream: frost_load_pvacd_hydrovu
+Upstream: raw_pvacd_hydrovu_readings. Downstream: frost_load_pvacd_hydrovu.
 """
 
 import logging
@@ -54,11 +35,8 @@ from aqueduct_dagster.sources.pvacd_hydrovu.adapter import PvacdHydroVuAdapter
 @dataclass
 class HydroVuTransformResult:
     """Carries CanonicalBundles and the GCS load_id watermark to the load step.
-
-    max_load_id is None when there were no new parquet files this run.
-    The load step writes the watermark only after FROST confirms success,
-    so a FROST failure leaves max_load_id unwritten and the next run retries.
-    """
+    max_load_id is None when there were no new parquet files; the load step
+    writes the watermark only after FROST confirms success."""
 
     bundles: list[CanonicalBundle]
     max_load_id: float | None
@@ -80,14 +58,9 @@ WATERMARK_PATH = transform_watermark_path(GCS_DATASET, "pvacd_hydrovu")
 def canonical_bundles_pvacd_hydrovu(
     context: AssetExecutionContext,
 ) -> HydroVuTransformResult:
-    """
-    Reads only new HydroVu parquet from GCS (since last run), filters to DTW
-    readings, groups by location, and runs PvacdHydroVuAdapter to produce CanonicalBundles.
-
-    Does NOT write the watermark — that happens in frost_load_pvacd_hydrovu after FROST
-    confirms success, so a FROST failure leaves the watermark unadvanced and the
-    next run retries the same data.
-    """
+    """Does NOT write the watermark — that happens in frost_load_pvacd_hydrovu
+    after FROST confirms success, so a failure there leaves it unadvanced and
+    the next run retries the same data."""
     bucket_url = _gcs_bucket_url()
     bucket = bucket_url.replace("gs://", "")
 

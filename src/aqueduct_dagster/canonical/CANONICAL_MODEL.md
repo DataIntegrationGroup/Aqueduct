@@ -5,11 +5,10 @@
 The canonical model is the fixed shape that all source data must be converted to before it reaches FROST. It does not change when a new source is added. Every source writes an adapter that maps its raw data to this shape.
 
 ```
-Sources                  Adapter            Canonical Model        FROST
-──────────────────────   ───────────────    ───────────────────    ──────────────────────
-PVACD HydroVu        →                  →                      →  SensorThings API
-CABQ CKAN            →   one per source  →   (never changes)    →  (only sees canonical
-Source C, D …        →                  →                      →   shape)
+Sources            Adapter            Canonical Model        FROST
+────────────────   ───────────────    ───────────────────    ──────────────────────
+Each source     →   one per source  →   (never changes)    →  SensorThings API
+                                                                (only sees canonical shape)
 ```
 
 ---
@@ -40,7 +39,7 @@ properties: {
     "source_id": "...",       # always a str — never leave as source's native int/float
 
     # ── Optional, standardized ──────────────────────────────────
-    "agency": "...",          # required on Thing. uppercase agency code, e.g. PVACD, CABQ, EBID
+    "agency": "...",          # required on Thing. uppercase agency code, e.g. PVACD, CABQ, BERNCO
     "geoconnex": "...",       # geoconnex.us linked-data URI
     "alternate_id": [{"id": "...", "agency": "..."}],  # cross-reference IDs, list of dicts
 
@@ -70,12 +69,13 @@ For the full per-source, per-field breakdown, see `docs/sources/{source_key}.md`
 
 ## 4. The Three Files
 
-The canonical model lives in three Python files. Both POCs import from the same files.
+The canonical model lives in three Python files. Every source adapter imports
+from the same files.
 
 | File | What it contains | Who uses it |
 |------|-----------------|-------------|
-| `canonical_model.py` | The 7 dataclasses — one per SensorThings entity. The shape every adapter must produce. | Both POC adapters import from here. `frost_loader.py` also imports from here. This file has no source-specific code — it is purely the shape definition. |
-| `canonical_constants.py` | Shared values — units (feet, metres), sensor types (`MANUAL_SENSOR`, `CONTINUOUS_LOGGER`), observed properties (`DTW_OBS_PROP`, `ELEV_OBS_PROP`), and key-building functions. | Both POC adapters import from here. If a constant is missing, add it here — never define a constant inside an adapter. |
+| `canonical_model.py` | The 7 dataclasses — one per SensorThings entity. The shape every adapter must produce. | Every source adapter imports from here. `frost_loader.py` also imports from here. This file has no source-specific code — it is purely the shape definition. |
+| `canonical_constants.py` | Shared values — units (feet, metres), sensor types (`MANUAL_SENSOR`, `HYDROVU_SENSOR`), observed properties (`DTW_OBS_PROP`, `ELEV_OBS_PROP`), and key-building functions. | Every source adapter imports from here. If a constant is missing, add it here — never define a constant inside an adapter. |
 | `base_adapter.py` | Abstract base class. Defines the interface every adapter must implement: `extract()`, `to_thing()`, `to_observations()`. | Every source adapter inherits from `BaseAdapter`. The pipeline calls `adapter.run()` — the same call regardless of source. |
 
 ### How the files relate
@@ -86,9 +86,7 @@ canonical_constants.py      ← defines shared values (units, sensors, obs prope
 base_adapter.py             ← defines the interface every adapter must follow
 
 # Each source adapter imports all three:
-sources/cabq/adapter.py     → inherits BaseAdapter → produces CanonicalBundle
-sources/pvacd_hydrovu/adapter.py  → inherits BaseAdapter → produces CanonicalBundle
-sources/source_c/adapter.py → inherits BaseAdapter → produces CanonicalBundle  (future)
+sources/<name>/adapter.py   → inherits BaseAdapter → produces CanonicalBundle
 
 # The loader imports canonical_model.py only:
 frost_loader.py     → consumes CanonicalBundle → writes to FROST

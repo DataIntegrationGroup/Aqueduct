@@ -7,7 +7,9 @@ grows. When you add a source, a zone, or a partitioning scheme, update the
 [Current layout](#current-layout) section and add a line to the
 [Changelog](#changelog) at the bottom.
 
-- **Status:** raw zone only, date-partitioned, 3 source keys (PVACD via HydroVu, BernCo via HydroVu, and CABQ, all end to end)
+- **Status:** raw zone only, date-partitioned. Source keys are listed in
+  `shared/source_registry.py`'s `SOURCE_REGISTRY` — see each source's own code
+  for ingest/transform completeness.
 - **Last updated:** 2026-09-16
 
 ---
@@ -37,53 +39,47 @@ Three guiding rules that cover almost everything:
 The standard layout — date-partitioned, built by dlt from `.dlt/config.toml`
 and the pipeline factories:
 
+Every source in `SOURCE_REGISTRY` gets the same shape, keyed on its own
+`raw_<name>/` dataset so adding one is purely additive. `pvacd_hydrovu` below
+is the reference — the fullest-featured instance (backfill, both watermark
+sidecars):
+
 ```
 gs://nmwdi-aqueduct-production/          # the raw-zone bucket (one per environment)
-├── raw_pvacd_hydrovu/                   # PVACD's HydroVu feed — source key `pvacd_hydrovu`
-│   ├── hydrovu_locations/               # HydroVu source: reference table (write_disposition="replace")
+├── raw_pvacd_hydrovu/                   # source key `pvacd_hydrovu`
+│   ├── hydrovu_locations/               # reference table (write_disposition="replace")
 │   │   └── year=2024/month=06/day=18/
 │   │       └── <load_id>.<file_id>.parquet
-│   ├── hydrovu_readings/                # HydroVu source: fact table (append, incremental)
+│   ├── hydrovu_readings/                # fact table (append, incremental)
 │   │   └── year=2024/month=06/day=18/
 │   │       └── <load_id>.<file_id>.parquet   # e.g. 1781192390.555875.0.parquet
-│   ├── hydrovu_backfill_readings/       # HydroVu Mode A backfill: separate table, own dlt
+│   ├── hydrovu_backfill_readings/       # Mode A backfill: separate table, own dlt
 │   │   └── year=2024/month=06/day=18/   #   pipeline_name — never read by the normal scheduled
 │   │       └── <load_id>.<file_id>.parquet   #   transform, so it can't interfere with production
 │   ├── _pvacd_hydrovu_transform_watermark.json    # app sidecar: highest load_id transformed
+│   ├── _frost_watermarks.json           # per-datastream last phenomenonTime loaded into FROST
 │   ├── _backfill_checkpoints/           # one file per backfill run_key — completed chunks
 │   │   └── pvacd_hydrovu-jan2026-repair.json  #   e.g. {"completed_chunks": ["<start>_<end>", ...]}
 │   └── _dlt_*                           # dlt control tables (state, loads, version)
-├── raw_pvacd_hydrovu_backfill/          # NOT a real dlt dataset — just the isolated FROST
-│   └── _frost_watermarks.json           #   watermark file backfill jobs read/write, kept fully
-│                                        #   separate from raw_pvacd_hydrovu/_frost_watermarks.json
-├── raw_bernco_hydrovu/                  # BernCo's HydroVu feed. Same table names as PVACD's —
-│   ├── hydrovu_locations/               #   the dataset is what separates them.
-│   │   └── year=2024/month=06/day=18/
-│   │       └── <load_id>.<file_id>.parquet
-│   ├── hydrovu_readings/
-│   │   └── year=2024/month=06/day=18/
-│   │       └── <load_id>.<file_id>.parquet
-│   ├── _bernco_hydrovu_transform_watermark.json   # highest dlt load_id the transform has processed
-│   ├── _frost_watermarks.json           # per-datastream last phenomenonTime loaded into FROST
-│   └── _dlt_*                           # dlt control tables — separate state from PVACD's,
-│                                        #   so each tenant's cursors advance independently
-├── raw_pvacd_metermanager/              # ← example: a 2nd PVACD source system (not built yet)
-│   └── metermanager_readings/
-│       └── year=2024/month=06/day=18/
-│           └── <load_id>.<file_id>.parquet
-└── raw_cabq/                            # CABQ, which exposes its data directly (scaffolded)
-    └── cabq_readings/
-        └── year=2024/month=06/day=18/
-            └── <load_id>.<file_id>.parquet
+└── raw_pvacd_hydrovu_backfill/          # NOT a real dlt dataset — just the isolated FROST
+    └── _frost_watermarks.json           #   watermark file backfill jobs read/write, kept fully
+                                          #   separate from raw_pvacd_hydrovu/_frost_watermarks.json
 ```
+
+Every other source follows the same pattern under its own `raw_<name>/`
+dataset — same table-naming, sidecar, and date-partitioning rules — but may
+be missing a piece this reference has (no backfill, no transform watermark
+yet, etc.) depending on how far that source's pipeline is built out. Check
+`sources/<name>/dlt_pipeline.py` for its actual table names and
+`shared/source_registry.py` for which sources exist.
 
 dlt builds these paths from two settings:
 
 - `bucket_url` and the date-partitioned `layout` (see
   [Date partitioning](#date-partitioning)) in `.dlt/config.toml`. 
   `bucket_url` can be overridden by setting a `GCS_BUCKET_URL` env var
-- `dataset_name=` in each `build_pipeline()` (`raw_pvacd_hydrovu`, `raw_bernco_hydrovu`,
-  `raw_cabq`), which dlt prepends as the top-level folder.
+- `dataset_name=` in each source's `build_pipeline()` call, which dlt prepends
+  as the top-level folder — one per `SOURCE_REGISTRY` entry.
 
 So every object lands at:
 `gs://<bucket>/<dataset_name>/<table_name>/year=<y>/month=<m>/day=<d>/<load_id>.<file_id>.<ext>`.

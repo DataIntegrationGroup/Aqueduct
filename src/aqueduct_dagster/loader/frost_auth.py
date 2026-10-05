@@ -1,32 +1,24 @@
 """
-loader/frost_auth.py
-
 Resolves the FROST service root URL and, when that URL is remote, authenticates
 to it with a Google-signed OIDC ID token.
 
-Why this exists: the production FROST runs on Cloud Run behind IAM
-(`--no-allow-unauthenticated`), so every request needs an `Authorization: Bearer
-<id_token>` header minted for the service's own URL. Developers, meanwhile, run an
-unauthenticated FROST locally via `docker compose`. Both cases go through the same
-loader, so the auth decision is derived from the resolved host rather than from a
-separate mode flag that could drift out of sync with the URL: **localhost gets no
-auth, anything else gets a token.**
+Why: production FROST runs on Cloud Run behind IAM, requiring an
+`Authorization: Bearer <id_token>` header; local `docker compose` FROST has no
+auth. Both go through this loader, so the auth decision derives from the
+resolved host, not a separate mode flag that could drift from the URL:
+**localhost gets no auth, anything else gets a token.**
 
-The credentials come from ADC, which `shared/gcp_auth.py` already bootstraps from
-`GCP_SERVICE_ACCOUNT_KEY_B64`. So connecting to FROST introduces no new secret —
-the same service account key that reaches GCS and Secret Manager reaches FROST,
-and the only extra provisioning is a `roles/run.invoker` binding.
+Credentials come from ADC (bootstrapped by shared/gcp_auth.py from
+GCP_SERVICE_ACCOUNT_KEY_B64) — no new secret, just a `roles/run.invoker`
+binding added to the same service account that already reaches GCS and
+Secret Manager.
 
-Two library constraints shape the code below:
-
-  * `SensorThingsService.auth_handler`'s setter rejects anything that is not an
-    `AuthHandler` instance, so `IdTokenAuthHandler` must subclass it even though it
-    shares none of its behaviour. Its `add_auth_header()` return value is handed
-    straight to `requests.request(auth=...)`, which accepts any `AuthBase` — that
-    is the seam this module uses.
-  * `shared/http.py` already has a `BearerAuth`, but it is an `httpx.Auth` and
-    `frost_sta_client` is built on `requests`. The two protocols are not
-    interchangeable, hence a second, smaller implementation here.
+Two library constraints:
+  * `SensorThingsService.auth_handler` requires an `AuthHandler` instance, so
+    `IdTokenAuthHandler` subclasses it despite sharing none of its behavior —
+    `add_auth_header()`'s return value just needs to satisfy `requests`' `AuthBase`.
+  * `shared/http.py`'s `BearerAuth` is `httpx.Auth`; `frost_sta_client` uses
+    `requests`. Incompatible protocols, hence a second implementation here.
 """
 
 from __future__ import annotations
@@ -64,13 +56,10 @@ class FrostAuthError(RuntimeError):
 
 
 def service_root_url() -> str:
-    """
-    Returns the FROST service root URL, `/v1.1` included.
-
-    The env var wins over `.dlt/config.toml` so the committed default can stay
-    pointed at local docker compose while a deployment overrides it, without
-    anyone editing (and risking committing) the tracked config file.
-    """
+    """Returns the FROST service root URL, `/v1.1` included. The env var wins
+    over .dlt/config.toml, so a deployment can override the committed
+    local-docker-compose default without anyone editing (and risking
+    committing) the tracked file."""
     url = os.environ.get(ENV_FROST_URL) or load_config()["destination"]["frost"]["service_root_url"]
     url = url.rstrip("/")
     if not url.endswith(f"/{_API_VERSION}"):
@@ -83,26 +72,19 @@ def _is_local(url: str) -> bool:
 
 
 def _audience(url: str) -> str:
-    """
-    The `aud` claim Cloud Run expects: the service origin, with no path.
-
-    Including `/FROST-Server/v1.1` here produces a token Cloud Run rejects, and the
-    resulting 403 is indistinguishable from a missing IAM binding — so it is worth
-    deriving rather than hand-writing.
-    """
+    """The `aud` claim Cloud Run expects — service origin, no path. Including
+    `/FROST-Server/v1.1` produces a token Cloud Run rejects with a 403
+    indistinguishable from a missing IAM binding, so derive it, don't hand-write it."""
     parts = urlparse(url)
     return f"{parts.scheme}://{parts.netloc}"
 
 
 class _IdTokenBearerAuth(requests.auth.AuthBase):
-    """
-    Attaches a Google ID token, refreshing it when it has expired.
-
-    Refresh matters here: ID tokens last an hour and a backfill can post for
-    longer, so a token fetched once at service construction would start failing
-    mid-run. `credentials.valid` is False both before the first refresh and once
-    the token is within google-auth's expiry threshold, so one check covers both.
-    """
+    """Attaches a Google ID token, refreshing when expired. ID tokens last an
+    hour and a backfill can post longer, so a token fetched once at
+    construction would fail mid-run. `credentials.valid` is False both
+    pre-first-refresh and once within google-auth's expiry threshold, so one
+    check covers both."""
 
     def __init__(self, credentials: object, request: GoogleAuthRequest) -> None:
         self._credentials = credentials
@@ -116,13 +98,9 @@ class _IdTokenBearerAuth(requests.auth.AuthBase):
 
 
 class IdTokenAuthHandler(AuthHandler):
-    """
-    AuthHandler subclass that supplies ID-token auth instead of BasicAuth.
-
-    Subclassing is required, not stylistic: SensorThingsService's auth_handler
-    setter does an isinstance check against AuthHandler. The inherited
-    username/password fields are unused.
-    """
+    """AuthHandler subclass supplying ID-token auth instead of BasicAuth.
+    Subclassing is required (auth_handler's setter does an isinstance check),
+    not stylistic — the inherited username/password fields go unused."""
 
     def __init__(self, credentials: object, request: GoogleAuthRequest) -> None:
         super().__init__()
@@ -133,14 +111,9 @@ class IdTokenAuthHandler(AuthHandler):
 
 
 def attach_id_token_auth(service: object, url: str) -> bool:
-    """
-    Gives `service` an ID-token auth handler, unless `url` is local.
-
-    Returns True if auth was attached, so callers can log which mode they are in.
-    Raises FrostAuthError when a remote URL is configured but no ID token can be
-    minted — failing here names the cause, whereas letting it through surfaces as
-    an opaque 403 from Cloud Run much later in the run.
-    """
+    """Gives `service` an ID-token auth handler, unless `url` is local. Returns
+    True if attached. Raises FrostAuthError when a remote URL has no mintable
+    ID token — failing here names the cause, instead of an opaque 403 later."""
     if _is_local(url):
         logger.info("FROST at %s is local — no authentication attached.", url)
         return False

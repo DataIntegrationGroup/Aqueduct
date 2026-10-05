@@ -1,24 +1,11 @@
 """
-sources/cabq/transform.py
+Dagster asset: canonical_bundles_cabq — reads raw cabq_readings parquet from
+GCS, groups rows by location, and runs CabqAdapter to produce CanonicalBundles.
 
-Dagster asset: canonical_bundles_cabq
-  - Reads raw cabq_readings parquet from GCS (written by raw_cabq_readings)
-  - Groups flat rows by location_id into one record per location
-  - Runs CabqAdapter to produce CanonicalBundles (one per location)
-  - Returns bundles downstream to frost_load_cabq
+Follows the same load_id watermark pattern as pvacd_hydrovu/transform.py —
+watermark is written in frost_load_cabq, after FROST confirms success, not here.
 
-Incremental reads:
-  Follow the same load_id watermark pattern as pvacd_hydrovu/transform.py, using the
-  shared helpers in shared/gcs.py / defs/dagster_logging.py — no need to duplicate this logic:
-    - read_transform_watermark(fs, bucket, WATERMARK_PATH) for since_load_id
-    - read_new_parquet_rows_for_asset(...) to read only new parquet files, with
-      any files_skipped_bad_name warning forwarded into this run's log stream
-    - Watermark must be written in frost_load_cabq (after FROST success), not here
-    - Return a CabqTransformResult dataclass carrying (bundles, max_load_id) so
-      the load step can call commit_watermark only on success
-
-Upstream:  raw_cabq_readings
-Downstream: frost_load_cabq
+Upstream: raw_cabq_readings. Downstream: frost_load_cabq.
 """
 
 import logging
@@ -49,10 +36,8 @@ WATERMARK_PATH = transform_watermark_path(GCS_DATASET, "cabq")
 @dataclass
 class CabqTransformResult:
     """Carries CanonicalBundles and the GCS load_id watermark to the load step.
-
-    max_load_id is None when there were no new parquet files this run.
-    The load step writes the watermark only after FROST confirms success.
-    """
+    max_load_id is None when there were no new parquet files; the load step
+    writes the watermark only after FROST confirms success."""
 
     bundles: list[CanonicalBundle]
     max_load_id: float | None
@@ -86,10 +71,7 @@ def _group_rows_by_location(rows: list[dict]) -> list[dict]:
     deps=["raw_cabq_readings"],
 )
 def canonical_bundles_cabq(context: AssetExecutionContext) -> CabqTransformResult:
-    """
-    Reads raw CABQ parquet from GCS, groups rows by location, and runs
-    CabqAdapter to produce CanonicalBundles — one per location.
-    """
+    """Returns an empty result (watermark unchanged) if there are no new rows."""
     bucket = _gcs_bucket_url().replace("gs://", "")
     fs = _gcs_filesystem()
     since_load_id = read_transform_watermark(fs, bucket, WATERMARK_PATH)

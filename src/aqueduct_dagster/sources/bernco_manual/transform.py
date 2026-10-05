@@ -1,3 +1,8 @@
+"""
+Dagster asset: canonical_bundles_bernco_manual — transform stage for BernCo
+manual readings. Stub: always returns an empty result; not yet implemented.
+"""
+
 from dataclasses import dataclass
 
 from dagster import AssetExecutionContext, MetadataValue, asset

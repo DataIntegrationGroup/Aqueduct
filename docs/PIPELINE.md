@@ -163,9 +163,8 @@ is the single source of truth per source:
 
 ```python
 SOURCE_REGISTRY: list[SourceConfig] = [
-    {"name": "pvacd_hydrovu", "dataset": "raw_pvacd_hydrovu", "cron": "0 6 * * *"},
-    {"name": "bernco_hydrovu", "dataset": "raw_bernco_hydrovu", "cron": "0 7 * * *"},
-    {"name": "cabq", "dataset": "raw_cabq", "cron": "0 8 * * *"},
+    {"name": "<name>", "dataset": "raw_<name>", "cron": "<cron>"},
+    ...
 ]
 ```
 
