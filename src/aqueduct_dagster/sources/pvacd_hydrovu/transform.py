@@ -35,8 +35,7 @@ from aqueduct_dagster.sources.pvacd_hydrovu.adapter import PvacdHydroVuAdapter
 @dataclass
 class HydroVuTransformResult:
     """Carries CanonicalBundles and the GCS load_id watermark to the load step.
-    max_load_id is None when there were no new parquet files; the load step
-    writes the watermark only after FROST confirms success."""
+    max_load_id is None when there were no new parquet files."""
 
     bundles: list[CanonicalBundle]
     max_load_id: float | None

@@ -20,6 +20,4 @@ from aqueduct_dagster.sources.hydrovu_transform_common import HydroVuDtwAdapter
 
 
 class BerncoHydroVuAdapter(HydroVuDtwAdapter):
-    """Adapter for BernCo HydroVu groundwater level data."""
-
     AGENCY = "BERNCO"

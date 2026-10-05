@@ -43,8 +43,7 @@ WATERMARK_PATH = transform_watermark_path(GCS_DATASET, "bernco_hydrovu")
 @dataclass
 class BerncoHydroVuTransformResult:
     """Carries CanonicalBundles + GCS load_id watermark to the load step.
-    max_load_id is None if no new files; watermark is written only after
-    FROST confirms success."""
+    max_load_id is None if no new files."""
 
     bundles: list[CanonicalBundle]
     max_load_id: float | None

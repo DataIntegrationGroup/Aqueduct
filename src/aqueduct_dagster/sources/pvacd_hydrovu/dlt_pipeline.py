@@ -39,9 +39,7 @@ def pvacd_hydrovu_source(
     location_ids: list[int] = dlt.config.value,  # noqa: B008
     _stats: dict | None = None,
 ) -> Any:
-    """Reads config from [sources.pvacd_hydrovu]; builds one client and fetches
-    the location list once, shared by both resources. location_ids comes from
-    .dlt/config.toml; _stats is populated with extraction counts after run()."""
+    """_stats is populated with extraction counts as the resources run."""
     # Credentials are resolved inside build_hydrovu_client() → resolve_hydrovu_credentials(),
     # so this source does not fetch them itself.
     start_ts = int(
@@ -72,8 +70,7 @@ def pvacd_hydrovu_source(
     write_disposition="replace",
 )
 def hydrovu_locations(locations: list[dict]) -> Iterator[dict]:
-    """Yields one record per location (location_row() shape); full replace
-    every run, so HydroVu renames/removals show up immediately."""
+    """Full replace every run, so HydroVu renames/removals show up immediately."""
     logger.info("Extracting hydrovu_locations (full replace)")
     for location in locations:
         yield location_row(location)
@@ -91,9 +88,8 @@ def hydrovu_readings(
     location_ids: list[int],
     _stats: dict | None = None,
 ) -> Iterator[dict]:
-    """One flat record per (location, parameter, reading); location metadata
-    NOT embedded — join on location_id. Per-location cursor in
-    dlt.current.resource_state() advances only after a successful fetch.
+    """Per-location cursor in dlt.current.resource_state() advances only
+    after a successful fetch.
 
     Closes the shared client in a finally block — the only resource doing I/O
     with it, so its lifetime ends here (runs even if dlt abandons the generator)."""
@@ -116,7 +112,6 @@ def build_pipeline() -> dlt.Pipeline:
 
 
 def run_pipeline() -> None:
-    """Convenience entry point: builds and runs the pipeline with parquet output."""
     pipeline = build_pipeline()
     load_info = pipeline.run(pvacd_hydrovu_source(), loader_file_format="parquet")
     logger.info("Load complete: %s", load_info)

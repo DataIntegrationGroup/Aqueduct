@@ -29,12 +29,8 @@ AGENCY = "CABQ"
 
 
 class CabqAdapter(BaseAdapter):
-    """Adapter for CABQ groundwater level data. Receives pre-grouped records
-    (one per location) — cabq/transform.py owns GCS reading, this only maps.
-
-    Record shape (one per location):
-      {"location_id": str, "location_name": str, "latitude": float,
-       "longitude": float, "readings": [{"timestamp": int, "value": float}, ...]}"""
+    """Receives pre-grouped records (one per location) — cabq/transform.py
+    owns GCS reading, this only maps."""
 
     def __init__(self, records: list[dict]) -> None:
         super().__init__(agency=AGENCY)

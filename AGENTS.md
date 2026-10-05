@@ -69,7 +69,7 @@ src/aqueduct_dagster/
 │       ├── dlt_pipeline.py  # dlt source/resource/pipeline factory
 │       ├── ingest.py        # Dagster asset: raw_<name>_readings
 │       ├── transform.py     # Dagster asset: canonical_bundles_<name>
-│       └── backfill.py      # Mode A refetch job body (pvacd_hydrovu, bernco_hydrovu, cabq only)
+│       └── backfill.py      # Mode A refetch job body
 ├── defs/
 │   ├── assets/
 │   │   └── load.py         # Dagster assets: frost_load_<name>, generated per source from one factory

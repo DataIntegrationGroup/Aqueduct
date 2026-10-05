@@ -67,7 +67,6 @@ def hydrovu_backfill_readings(
     start_ts: int,
     end_ts: int,
 ) -> Iterator[dict]:
-    """One flat row per (location, parameter, reading) in [start_ts, end_ts)."""
     allowed = frozenset(location_ids)
     for location in locations:
         loc_id = location["id"]

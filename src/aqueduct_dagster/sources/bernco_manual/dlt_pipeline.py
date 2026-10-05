@@ -230,9 +230,7 @@ def bernco_manual_readings(
     start_ts: int,
     _stats: dict | None = None,
 ) -> Iterator[dict]:
-    """Yields one flat record per reading per location.
-
-    Per-location incremental cursor via dlt.current.resource_state() — same
+    """Per-location incremental cursor via dlt.current.resource_state() — same
     pattern as hydrovu_readings. Each station has its own cursor; a failed
     station retries from the same point next run rather than being skipped
     permanently.

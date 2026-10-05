@@ -13,6 +13,4 @@ from aqueduct_dagster.sources.hydrovu_transform_common import HydroVuDtwAdapter
 
 
 class PvacdHydroVuAdapter(HydroVuDtwAdapter):
-    """Adapter for PVACD HydroVu groundwater level data."""
-
     AGENCY = "PVACD"

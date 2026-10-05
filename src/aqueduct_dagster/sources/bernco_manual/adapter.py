@@ -1,3 +1,5 @@
+"""Mapping-only adapter for BernCo's ArcREST manual readings."""
+
 import logging
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -20,6 +22,9 @@ AGENCY = "BERNCO"
 
 
 class BerncoManualAdapter(BaseAdapter):
+    """Receives pre-grouped records (one per location) from
+    bernco_manual/transform.py."""
+
     def __init__(self, records: list[dict]) -> None:
         super().__init__(agency=AGENCY)
         self._records = records

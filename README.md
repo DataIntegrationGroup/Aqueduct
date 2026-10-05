@@ -72,7 +72,7 @@ Aqueduct/
 │   │   │   └── backfill.py         # Mode A refetch: isolated ingest + transform + load per chunk
 │   │   ├── bernco_hydrovu/         # BernCo's HydroVu tenant — same shape as pvacd_hydrovu/
 │   │   ├── cabq/                   # same shape as pvacd_hydrovu/
-│   │   └── bernco_manual/          # same shape, minus backfill.py (not yet implemented)
+│   │   └── bernco_manual/          # BernCo's ArcREST feed — same shape as pvacd_hydrovu/
 │   ├── defs/
 │   │   ├── assets/
 │   │   │   └── load.py             # Dagster assets: frost_load_<name>, generated per source from one factory

@@ -1,3 +1,10 @@
+"""
+Backfill for BernCo manual — own isolated GCS table
+(bernco_manual_backfill_readings) and dlt pipeline state, separate from
+production. Not a Dagster asset/op; called per-chunk by defs/jobs/backfill.py's
+factory.
+"""
+
 import logging
 from collections.abc import Iterator
 from datetime import UTC, datetime
