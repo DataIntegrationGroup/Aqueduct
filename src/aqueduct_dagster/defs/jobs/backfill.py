@@ -55,6 +55,15 @@ from aqueduct_dagster.sources.bernco_hydrovu.backfill import (
 from aqueduct_dagster.sources.bernco_hydrovu.backfill import (
     run_backfill_chunk as bernco_hydrovu_run_backfill_chunk,
 )
+from aqueduct_dagster.sources.bernco_manual.backfill import (
+    default_backfill_location_ids as bernco_manual_default_backfill_location_ids,
+)
+from aqueduct_dagster.sources.bernco_manual.backfill import (
+    prepare_backfill as bernco_manual_prepare_backfill,
+)
+from aqueduct_dagster.sources.bernco_manual.backfill import (
+    run_backfill_chunk as bernco_manual_run_backfill_chunk,
+)
 from aqueduct_dagster.sources.cabq.backfill import (
     default_backfill_location_ids as cabq_default_backfill_location_ids,
 )
@@ -406,4 +415,21 @@ bernco_hydrovu_backfill_refetch = _make_backfill_refetch_job(
     bernco_hydrovu_prepare_backfill,
     bernco_hydrovu_run_backfill_chunk,
     BerncoHydroVuBackfillRefetchConfig,
+)
+
+
+class BerncoManualBackfillRefetchConfig(BackfillRefetchConfig[str]):
+    location_ids: list[str] = Field(
+        default=bernco_manual_default_backfill_location_ids(),
+        description="Bernco Manual location IDs to backfill. Leave empty to backfill every location the API returns instead.",
+    )
+
+
+_bernco_manual_registry_cfg = next(cfg for cfg in SOURCE_REGISTRY if cfg["name"] == "bernco_manual")
+bernco_manual_backfill_refetch = _make_backfill_refetch_job(
+    _bernco_manual_registry_cfg["name"],
+    _bernco_manual_registry_cfg["dataset"],
+    bernco_manual_prepare_backfill,
+    bernco_manual_run_backfill_chunk,
+    BerncoManualBackfillRefetchConfig,
 )
