@@ -14,7 +14,8 @@ levels collected by Sandia National Labs (2007 to 2009), HydroResolutions (2009 
 Shomaker & Associates (2021-12 to present). Transducer data were drift-corrected against hand
 measurements every 6 to 12 months.
 
-Platform-level research (why the Action API plus file download, the Cloudflare block, Plan A/B) lives in
+Platform-level research (why the Action API plus file download, the Cloudflare exception, the Plan B
+fallback) lives in
 [`ckan_water_data_catalog.md`](ckan_water_data_catalog.md). This doc covers EBWPC only.
 
 **At a glance**
@@ -28,13 +29,17 @@ Platform-level research (why the Action API plus file download, the Cloudflare b
 
 ## API Access
 
-**Credentials: none.** The catalog is public CKAN and every read is unauthenticated.
+**Credentials: one header.** The catalog is public CKAN, so there are no CKAN credentials. But Cloudflare
+blocks scripts unless every request carries the `x-cf-bypass` header with the value datHere issued. Keep
+the value in GCP Secret Manager, like the HydroVu credentials, and never put it in code, config or docs.
 
-**Blocked for scripts.** Cloudflare challenges every non-browser client on every path, while browsers get
-through. Until datHere grants the exception described in
-[The Cloudflare Challenge](ckan_water_data_catalog.md#the-cloudflare-challenge), use
-[Plan B](ckan_water_data_catalog.md#plan-b-without-an-exception): save the files below from a browser into
-GCS. The live examples in this doc were saved that way.
+**With the header, everything EBWPC needs works.** `package_show` and all 22 resource downloads return
+200. Without the header, every request gets a Cloudflare 403 challenge. The header hasn't yet been
+confirmed from Dagster+. If it fails there, fall back to
+[Plan B](ckan_water_data_catalog.md#plan-b-without-an-exception) (browser pull into GCS). Details are in
+[The exception](ckan_water_data_catalog.md#the-exception).
+
+Every call below needs the header.
 
 | Endpoint | URL |
 |---|---|
@@ -53,8 +58,11 @@ GCS. The live examples in this doc were saved that way.
 
 **`package_show` notes.**
 
-- `last_modified`, `size` and `hash` (32 hex characters) are populated on every resource, so all three
-  can feed the change fingerprint.
+- `last_modified` and `size` are populated on every resource. Fingerprint on those two.
+- **Don't trust `hash`.** It is populated, but it matches the downloaded file's MD5 for only 9 of 22
+  resources: the eight created in August 2024 and the never-reuploaded XLSX. The resources created from
+  October 2024 on carry a `hash` that matches nothing, probably left over from an earlier upload. Treat it
+  as opaque, and hash the downloaded body yourself.
 - `total_record_count` is the DataStore row count (75,660 for `E-8428`, matching the file).
 - `spatial_full` is ~346 KB of GeoJSON, most of the 390 KB response. Ignore it.
 - The dataset's `metadata_modified` (2026-03-18) moved during a catalog upgrade with no data change, so
@@ -257,17 +265,17 @@ def manual_gwl_datastream_meta(agency: str, location_name: str) -> dict:
 
 **How many datastreams per station?** Up to two. Create a datastream only when the well has at least one
 usable reading of that type. Old FROST created both for every well and left many empty (`E-2043`,
-`E-50-4`, `E-9673`).
+`E-50-4`, `E-9673`, and `E-00428`'s transducer stream).
 
 | Wells | Transducer | Manual |
 |---|---|---|
-| `E-1639-POD1`, `E-2034`, `E-2298`, `E-50-4`, `E-7545`, `E-8428`, `E-94077`, `E-9673`, `Smith-1`, `T-6363` | yes | yes |
-| `Osita Ranch`, `E-10652` (files not archived; per old FROST) | yes | yes |
-| `E-00428` (file not archived; per old FROST) | no | yes |
+| `E-00428`, `E-10652`, `E-1639-POD1`, `E-2034`, `E-2298`, `E-50-4`, `E-7545`, `E-8428`, `E-94077`, `E-9673`, `Osita Ranch`, `Smith-1`, `T-6363` | yes | yes |
 | `Magnum Steel`, `E-50-1` (archived) | no | yes |
 | `Greene-4`, `Lujan-1` (archived) | yes | no |
 | `Hagerman HQ`, `Ruby Shaw WM`, `E-6385` (archived; TOC readings only) | no | no |
-| `E-9407` (archived; XLSX) | unknown | unknown |
+| `E-9407` (archived; XLSX raw logger export, not depth to water) | no | no |
+
+`E-00428` has 3,408 transducer readings (2022-03-30 to 2024-04-25) that old FROST never loaded.
 
 ---
 
@@ -278,7 +286,7 @@ usable reading of that type. Old FROST created both for every well and left many
 | Canonical Field | Type | Status | Source Field | Notes |
 |---|---|---|---|---|
 | `phenomenonTime` | datetime (UTC) | Required | `measurement_date` + `measurement_time` | Naive local strings in several formats; add 7 hours for UTC. See [Timestamps and timezone](#timestamps-and-timezone). |
-| `result` | float | Required | `transducer_depth_bgs` or `manual_depth_bgs` | Feet below ground surface, no conversion. One CSV row can yield two observations: 207 of the 335 manual readings share a row with a transducer reading. |
+| `result` | float | Required | `transducer_depth_bgs` or `manual_depth_bgs` | Feet below ground surface, no conversion. One CSV row can yield two observations: 237 of the 419 manual readings share a row with a transducer reading. |
 | `resultTime` | datetime | Optional | *(not in source)* | Set equal to `phenomenonTime`, as old FROST did |
 | `resultQuality` | str \| None | Optional | *(not in source)* | `None` |
 | `validTime` | period | Optional | *(not in source)* | Not applicable |
@@ -298,9 +306,9 @@ usable reading of that type. Old FROST created both for every well and left many
 
 | Source Field | Type | Notes |
 |---|---|---|
-| `time_missing` | bool | Set `true` on readings whose `measurement_time` is `N/A` or blank, which get 00:00 local. 33 manual readings. Omit otherwise. |
+| `time_missing` | bool | Set `true` on readings whose `measurement_time` is `N/A` or blank, which get 00:00 local. 39 manual readings. Omit otherwise. |
 
-**Rows to drop**, counted in asset metadata. Figures are from the 17 archived well files.
+**Rows to drop**, counted in asset metadata. Figures are from all 20 CSV well files.
 
 - **No usable depth:** `N/A`, `#REF!`, `#VALUE!` or blank in the depth column. `N/A` runs from 1 row in
   some files up to 168 in `smith-1`.
@@ -315,15 +323,15 @@ usable reading of that type. Old FROST created both for every well and left many
 
 ### Timestamps and timezone
 
-**Formats.** Dates come as `M/D/YYYY` or `M/D/YY` (two-digit years are 20xx), and `e-1639-pod1` mixes
-both. Times come as `H:MM` (24-hour) or `h:mm:ss AM/PM`, or `N/A`/blank for date-only manual readings.
+**Formats.** Dates come as `M/D/YYYY` or `M/D/YY` (two-digit years are 20xx), and `e-1639-pod1` and
+`e-10652` mix both. Times come as `H:MM` (24-hour) or `h:mm:ss AM/PM`, or `N/A`/blank for date-only manual readings.
 Parse the date and time separately, then combine.
 
 **The clock is a fixed UTC−07:00 (MST), not America/Denver.**
 
-- **The loggers ignore daylight saving.** All 12 archived files with transducer data have readings at
-  02:xx on every spring-forward date covered: 77 dates. That hour doesn't exist on an America/Denver
-  clock. None of the 84 fall-back dates repeats an 01:xx hour.
+- **The loggers ignore daylight saving.** Across the 15 files with transducer data, every spring-forward
+  date with a full day of readings has readings at 02:xx: 87 dates. That hour doesn't exist on an
+  America/Denver clock. None of the 94 fall-back dates repeats an 01:xx hour.
 - **Manual readings are local daytime on the same clock.** Manual times cluster between 09:00 and 16:00,
   and most sit on logger rows.
 - **Conversion:** attach `timezone(timedelta(hours=-7))` and convert to UTC, i.e. add 7 hours. Don't use
@@ -332,9 +340,9 @@ Parse the date and time separately, then combine.
   Confirm with John Shomaker & Associates (see Open Questions).
 
 **Manual times are approximate.**
-- 157 of the 302 manual readings that have a time are stamped exactly 00:00 or 12:00, which look like
+- 174 of the 380 manual readings that have a time are stamped exactly 00:00 or 12:00, which look like
   placeholders.
-- 33 more have no time at all.
+- 39 more have no time at all.
 - Keep them as published, flagging only the missing-time ones.
 
 **Old FROST EBWPC times are 7 hours off.** The legacy loader stamped these naive local times as UTC. For
@@ -361,7 +369,8 @@ example, E-8428's last transducer reading is `2024-04-26T08:18:00Z` in old FROST
 
 ### `package_show` (live, trimmed)
 
-Saved from a browser. This is a sanitised version of the live response. Removed:
+Saved from a browser. A scripted request with the `x-cf-bypass` header returns the same 390,194-byte
+response. This is a sanitised version of it. Removed:
 - the contact person's name, email and phone, and `creator_user_id`
 - `author`, `maintainer`, `spatial`, `spatial_full`, `tags`, `groups` and other unused dataset fields
 - 19 of the 22 resources
@@ -500,9 +509,8 @@ Hagerman HQ-archived,426891,3889512,NAD83
 
 ### Well files (excerpts)
 
-From the Internet Archive's January 2026 copies. Their sizes match the live `package_show` `size`, and
-every `last_modified` predates the capture, so they are the current files. All have CRLF line endings.
-Rows are copied verbatim.
+Fetched live with the bypass header. They are byte-identical to the Internet Archive's January 2026
+copies. All have CRLF line endings. Rows are copied verbatim.
 
 `e-8428.csv`, an active well with both depth columns and 24-hour times. The first two rows are manual only,
 the third has both readings on one row, and the last is the newest reading in the dataset:
@@ -557,8 +565,11 @@ E-6385-archived,4/15/2009,16:06,136.16
 4. **Archived wells.** Proposal: load them like the rest, with `is_archived` set. Three have usable
    readings (`E-50-1`, `Greene-4`, `Lujan-1`), three have only TOC readings, and `E-9407` is XLSX. See
    the datastream table.
-5. **`E-9407-Archived` is XLSX.** Proposal: skip it and log it, and ask EBWPC to re-upload it as CSV
-   per the WDI best practices. Its contents are unknown because the file wasn't archived.
+5. **`E-9407-Archived` is XLSX, and not depth to water.** It's a raw logger export: one sheet
+   (`E-9407-all`) with `Date`, `Time`, `Transducer Read`, `ET (min)`, `PSI`, `Ft Head conv`, `Delta`,
+   `Celsius` and `?-change`, and 19,109 readings from 2012-10-10 to 2014-12-15. Proposal: skip it and log
+   it. Ask EBWPC whether `?-change` or a hang depth gives depth to water, and to republish it as CSV in
+   the standard columns.
 6. **`measuring_agency`.** Derive it from the dataset's contractor periods, or leave it `None`
    (proposed)? The periods overlap in 2009 and miss 2021-02 to 2021-12.
 7. **`alternate_id`.** Are the `E-nnnn`/`T-nnnn` IDs OSE file numbers? If so, emit
