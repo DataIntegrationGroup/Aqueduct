@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 _SAVE_RETRIES = 3
 _SAVE_BACKOFF = (1.0, 2.0, 4.0)
 
+# Shared with defs/jobs/backfill.py so the wording can't drift between them.
+BAD_FILENAME_WARNING = "Skipping parquet file with unrecognized name: %s"
+
 
 def atomic_write_json_with_retry(fs: gcsfs.GCSFileSystem, path: str, data: dict, log: Any) -> None:
     """
@@ -141,24 +144,19 @@ def _load_id_from_filename(path: str) -> float | None:
 
 def _partition_files_by_load_id(files: list[str]) -> tuple[list[tuple[float, str]], list[str]]:
     """
-    Splits `files` into (load_id, path) pairs for names dlt's convention
-    recognizes, skipping — and logging — any that don't.
+    Splits `files` into (load_id, path) pairs, returning names dlt's
+    convention doesn't recognize as skipped_paths rather than crashing.
 
-    Shared by read_new_parquet_rows and read_parquet_rows_for_load_id so a
-    malformed filename (e.g. after a dlt version upgrade changes the naming
-    format) is detected identically by both read paths, instead of the two
-    copies risking drifting apart.
-
-    Returns (parsed, skipped_paths) — actual bad filenames, not a count, so a
-    caller re-globbing the same path repeatedly (e.g. per backfill chunk) can
-    dedupe across calls instead of recounting.
+    Silent by design: read_new_parquet_rows (one call per run) and
+    read_parquet_rows_for_load_id (one call per backfill chunk, re-globbing
+    the same files) need different logging cadences, so each caller logs
+    skipped_paths itself instead of this shared helper doing it once.
     """
     parsed: list[tuple[float, str]] = []
     skipped_paths: list[str] = []
     for f in files:
         load_id = _load_id_from_filename(f)
         if load_id is None:
-            logger.warning("Skipping parquet file with unrecognized name: %s", f)
             skipped_paths.append(f)
             continue
         parsed.append((load_id, f))
@@ -212,6 +210,8 @@ def read_new_parquet_rows(
     all_files = fs.glob(pattern)
 
     parsed, skipped_paths = _partition_files_by_load_id(all_files)
+    for f in skipped_paths:
+        logger.warning(BAD_FILENAME_WARNING, f)
     files_skipped_bad_name = len(skipped_paths)
     new_files = [
         (load_id, f) for load_id, f in parsed if since_load_id is None or load_id > since_load_id
@@ -267,12 +267,9 @@ def read_parquet_rows_for_load_id(
     "everything newer than some watermark" — no dependency on, or risk of
     interference with, any watermark the normal scheduled pipeline tracks.
 
-    A file whose name doesn't match dlt's expected load_id format is skipped
-    rather than crashing the whole read — logged here, and returned as the
-    actual skipped paths, not a count: this re-globs the whole dataset every
-    chunk, so paths let the caller dedupe a persistently-bad file across
-    chunks (ChunkResult/sum_chunk_results in shared/backfill.py) before it's
-    ever turned into a count.
+    A file with an unrecognized name is skipped and returned in skipped_paths,
+    not logged here — this re-globs the dataset every chunk, so the caller
+    (defs/jobs/backfill.py's op) dedupes and logs across chunks instead.
 
     Returns (rows, skipped_paths) — rows is empty if no file has this load_id.
     """

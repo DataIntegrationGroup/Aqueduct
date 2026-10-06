@@ -289,9 +289,8 @@ class TestReadParquetRowsForLoadId:
             )
         assert rows == [{"parameter_id": "4", "value": 10.0}]
 
-    def test_bad_name_file_is_logged_and_counted_alongside_matching_file(self, caplog):
-        """Same malformed-filename guarantee as read_new_parquet_rows, for the
-        exact-load_id backfill read path."""
+    def test_bad_name_file_is_counted_but_not_logged_here(self, caplog):
+        """Unlike read_new_parquet_rows, must stay silent — the caller logs instead."""
         files = [
             "bucket/ds/year=2024/month=01/day=01/100.0.0.parquet",
             "bucket/ds/not-a-load-id.0.parquet",
@@ -309,8 +308,7 @@ class TestReadParquetRowsForLoadId:
             )
         assert rows == [{"v": 1}]
         assert files_skipped_bad_name == frozenset({files[1]})
-        assert "Skipping parquet file with unrecognized name" in caplog.text
-        assert files[1] in caplog.text
+        assert "unrecognized name" not in caplog.text
 
     def test_bad_name_file_counted_even_when_no_match_found(self):
         """The count must still surface even when the empty-result warning fires."""
