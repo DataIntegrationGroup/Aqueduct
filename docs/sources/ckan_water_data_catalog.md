@@ -63,7 +63,7 @@ File downloads are served directly, with no redirect.
 
 | Endpoint | Use | Gotchas |
 |---|---|---|
-| `GET /api/3/action/package_show?id={uuid}` | **Discovery and change detection.** One call returns every resource with `id`, `name`, `url`, `format`, `last_modified`, `size`, `hash`, `datastore_active`. | Configure the dataset UUID, not the renamable slug. UUIDs survived the catalog upgrade around 2026-03-19. `hash` is the file's MD5 (verified on EBWPC's `E-8428`) and is populated on every EBWPC resource, so it can join the fingerprint. `format` is free text (`CSV` and `.csv` both appear), so normalise it. |
+| `GET /api/3/action/package_show?id={uuid}` | **Discovery and change detection.** One call returns every resource with `id`, `name`, `url`, `format`, `last_modified`, `size`, `hash`, `datastore_active`. | Configure the dataset UUID, not the renamable slug. UUIDs survived the catalog upgrade around 2026-03-19. Don't trust `hash`: it matches the downloaded file's MD5 for only 9 of EBWPC's 22 resources (the eight created in August 2024 and one XLSX), so hash the body yourself. `format` is free text (`CSV` and `.csv` both appear), so normalise it. |
 | `GET /api/3/action/package_search?fq=organization:{org}&rows=1000` | Optional: detect new datasets from an organization. | Not needed for a fixed dataset list. |
 | `GET {resource.url}`, i.e. `/dataset/{package_id}/resource/{resource_id}/download/{filename}` | **The data.** Exactly the bytes the agency uploaded. | `{filename}` changes when the agency re-uploads under a new name or format. Always take the URL from `package_show`, never from config. |
 | `GET /api/3/action/datastore_search?resource_id={id}&limit={n}&offset={n}` | Typed JSON rows, if the resource was pushed. | **Default `limit` is 100**, so you must paginate. Types are inferred at push time. Exists only if `datastore_active`. |
@@ -94,7 +94,7 @@ the file has none of B's failure modes. The legacy loader
 ```
 package_show(dataset_id)                       one API call per dataset
   └─ for each resource matching the agency's selector (name / normalised format):
-       fingerprint = (resource.id, last_modified, size, hash, url)
+       fingerprint = (resource.id, last_modified, size, url)
        unchanged vs dlt resource state?  -> skip                (the normal case)
        changed   -> GET resource.url      -> sha256(body)
                    body hash unchanged?  -> update state, skip  (re-upload of the same file)
@@ -195,8 +195,8 @@ HydroVu credentials, and never put it in code, config or docs.
 
 - **Paths tested:** `status_show`, `package_show` (EBWPC and OSE), `datastore_search` and resource
   downloads all return 200 with the header.
-- **Downloads are complete and come straight from the catalog.** The EBWPC `E-8428` download matched
-  its `size`, and its MD5 matched the resource `hash`.
+- **Downloads are complete and come straight from the catalog.** All 22 EBWPC downloads match their
+  `size`, and the 17 that the Internet Archive also holds are byte-identical to its copies.
 - **Only the header matters.** `User-Agent` and `Accept` make no difference.
 - **Not yet confirmed from Dagster+.** It has only been tested from a developer machine. If datHere also
   scoped the exception to IP addresses, Dagster+ would still be blocked.
