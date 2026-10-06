@@ -17,14 +17,13 @@ last re-uploaded 2025-03-12.
 
 **Decision path**
 
-1. **Ask datHere for an exception.** The catalog currently challenges every non-browser client, so no
-   pipeline can reach it. The request goes through WDI. See
-   [The Cloudflare Challenge](#the-cloudflare-challenge).
-2. **Granted -> [Plan A](#plan-a-automated-ingest-with-a-dathere-exception):** a weekly automated
-   pipeline over the CKAN Action API.
-3. **Refused, or no answer within an agreed time box -> [Plan B](#plan-b-without-an-exception):** a
-   person pulls the files with a browser into GCS, and the same pipeline reads them from there.
-4. **Either way, start building now.** Only the fetch step differs between the two plans.
+1. **Access: granted.** datHere added a Cloudflare exception keyed on a request header, so scripts can
+   reach the catalog again. See [The Cloudflare Challenge](#the-cloudflare-challenge).
+2. **Build [Plan A](#plan-a-automated-ingest-with-a-dathere-exception):** a weekly automated pipeline
+   over the CKAN Action API.
+3. **Keep [Plan B](#plan-b-without-an-exception) as the fallback** if the exception stops working or
+   fails from Dagster+: a person pulls the files with a browser into GCS, and the same pipeline reads
+   them from there. Only the fetch step differs.
 
 **Plan A in brief**
 
@@ -43,27 +42,28 @@ last re-uploaded 2025-03-12.
 - **"Less robust" is fine here and is designed in:** a weekly schedule, no pagination, cursor or
   rate-limit machinery, a changed file simply lands again in full, and the first run *is* the backfill.
 
-**The blocker in brief.** Cloudflare returns `403` to every scripted client on every path, including the
-API and file downloads, while browsers get through unchallenged. Only datHere can change it. If the cause
-is Bot Fight Mode, a WAF skip rule won't work, so the request covers both cases.
+**Access in brief.** Cloudflare returns `403` to every scripted client unless the request carries the
+`x-cf-bypass` header with the value datHere issued. With it, the API and file downloads all work. Keep
+the value in GCP Secret Manager, never in code or docs, and confirm it works from Dagster+.
 
 ---
 
 ## Plan A: Automated Ingest (with a datHere Exception)
 
-This is the target design. It assumes datHere exempts our requests from the Cloudflare challenge (see
-[The Cloudflare Challenge](#the-cloudflare-challenge)). Everything after the fetch step is also what
-[Plan B](#plan-b-without-an-exception) uses.
+This is the design to build. datHere has exempted requests that carry the bypass header from the
+Cloudflare challenge (see [The Cloudflare Challenge](#the-cloudflare-challenge)). Everything after the
+fetch step is also what [Plan B](#plan-b-without-an-exception) uses.
 
 ### Platform and Endpoints
 
 A standard CKAN instance with FileStore uploads, the DataStore extension (populated by the catalog's
-pusher, most likely datHere's DataPusher+) and ckanext-dcat. All read endpoints are unauthenticated
-apart from the Cloudflare issue.
+pusher, most likely datHere's DataPusher+) and ckanext-dcat. All read endpoints are unauthenticated, but
+every request must carry the `x-cf-bypass` header (value from Secret Manager) to get past Cloudflare.
+File downloads are served directly, with no redirect.
 
 | Endpoint | Use | Gotchas |
 |---|---|---|
-| `GET /api/3/action/package_show?id={uuid}` | **Discovery and change detection.** One call returns every resource with `id`, `name`, `url`, `format`, `last_modified`, `size`, `hash`, `datastore_active`. | Configure the dataset UUID, not the renamable slug. UUIDs survived the catalog upgrade around 2026-03-19. `hash` (32 hex characters) is populated on all of EBWPC's resources, so it can join the fingerprint. `format` is free text (`CSV` and `.csv` both appear), so normalise it. |
+| `GET /api/3/action/package_show?id={uuid}` | **Discovery and change detection.** One call returns every resource with `id`, `name`, `url`, `format`, `last_modified`, `size`, `hash`, `datastore_active`. | Configure the dataset UUID, not the renamable slug. UUIDs survived the catalog upgrade around 2026-03-19. `hash` is the file's MD5 (verified on EBWPC's `E-8428`) and is populated on every EBWPC resource, so it can join the fingerprint. `format` is free text (`CSV` and `.csv` both appear), so normalise it. |
 | `GET /api/3/action/package_search?fq=organization:{org}&rows=1000` | Optional: detect new datasets from an organization. | Not needed for a fixed dataset list. |
 | `GET {resource.url}`, i.e. `/dataset/{package_id}/resource/{resource_id}/download/{filename}` | **The data.** Exactly the bytes the agency uploaded. | `{filename}` changes when the agency re-uploads under a new name or format. Always take the URL from `package_show`, never from config. |
 | `GET /api/3/action/datastore_search?resource_id={id}&limit={n}&offset={n}` | Typed JSON rows, if the resource was pushed. | **Default `limit` is 100**, so you must paginate. Types are inferred at push time. Exists only if `datastore_active`. |
@@ -73,7 +73,7 @@ apart from the Cloudflare issue.
 
 | | **A. Action API + file download** (recommended) | **B. DataStore API** | **C. Hardcoded spreadsheet URLs** |
 |---|---|---|---|
-| **Fidelity** | Exact agency bytes. | Types inferred at push time. OSE's `Time` comes back as `1899-12-30T00:00:00` (Excel epoch), and mixed `N/A`/number columns get coerced. | Exact bytes. |
+| **Fidelity** | Exact agency bytes. | Types inferred at push time, so mixed `N/A`/number columns get coerced. | Exact bytes. |
 | **Finds new wells and resources** | Yes: `package_show` lists them. | Only with `package_show`. | **No**. |
 | **Survives re-uploads and renames** | Yes: the URL is read fresh every run. | Yes (keyed by resource ID). | **No**. EBWPC's XLSX->CSV switch changed every URL. |
 | **Change detection, fit for rare updates** | `last_modified` / `size` per resource, so a weekly run is nearly always a no-op. | Same metadata, but a changed resource must be re-paged. | None: re-downloads unchanged data forever. |
@@ -94,7 +94,7 @@ the file has none of B's failure modes. The legacy loader
 ```
 package_show(dataset_id)                       one API call per dataset
   └─ for each resource matching the agency's selector (name / normalised format):
-       fingerprint = (resource.id, last_modified, size, url)
+       fingerprint = (resource.id, last_modified, size, hash, url)
        unchanged vs dlt resource state?  -> skip                (the normal case)
        changed   -> GET resource.url      -> sha256(body)
                    body hash unchanged?  -> update state, skip  (re-upload of the same file)
@@ -115,8 +115,8 @@ package_show(dataset_id)                       one API call per dataset
   - Snapshots are small (EBWPC's whole dataset is ~35 MB), so keeping every version is cheap and gives
     an audit trail.
 - Keep fingerprints in `dlt.current.resource_state()`, as `cabq` and `bernco_manual` do for their cursors.
-- Select resources per agency by name and normalised format, never by a hardcoded ID list. IDs are
-  stable only between re-uploads (OSE's changed when its dataset was rebuilt; see
+- Select resources per agency by name and normalised format, never by a hardcoded ID list. Agencies don't
+  always update in place: OSE published revised files as new resources alongside the old ones (see
   [OSE Roswell](#ose-roswell-district-2)). Surface added and removed resources in asset metadata so a
   person notices.
 
@@ -156,7 +156,7 @@ FROST**. EBWPC says its transducer data is drift-corrected, so such corrections 
 
 | Module | Owns |
 |---|---|
-| `sources/ckan_common.py` | httpx client (`build_unauthenticated_client`, overriding `Accept` for file downloads), `package_show`, fingerprinting, download, CSV -> string rows, provenance columns. Keep "get the `package_show` JSON and the file bytes" behind one function, so [Plan B](#plan-b-without-an-exception) can feed the same pipeline from GCS. |
+| `sources/ckan_common.py` | httpx client (`build_unauthenticated_client` plus the `x-cf-bypass` header from Secret Manager, overriding `Accept` for file downloads), `package_show`, fingerprinting, download, CSV -> string rows, provenance columns. Keep "get the `package_show` JSON and the file bytes" behind one function, so [Plan B](#plan-b-without-an-exception) can feed the same pipeline from GCS. |
 | `sources/wdi_transform_common.py` | The WDI location + measurement -> `CanonicalBundle` adapter and its validation rules |
 | `sources/<agency>_ckan/` | Dataset UUID, resource selector, agency shim, `raw_<key>` dataset, dlt resource names. One `SourceConfig` entry each. |
 
@@ -182,30 +182,33 @@ per-resource failure, and every date format and junk value listed in the survey.
 
 ## The Cloudflare Challenge
 
-**Blocked for scripts, open to browsers.** Every scripted request returns `HTTP/2 403` with
-`cf-mitigated: challenge` and Cloudflare's "Just a moment..." page. The page source sets
-`cType: 'managed'`, i.e. a Cloudflare **managed challenge**, which a Dagster+ run can't pass. A normal
-browser gets the JSON with no challenge at all (see below).
+**Status: resolved by a header exception.** datHere added a Cloudflare exception for requests that carry
+the `x-cf-bypass` header with the value it issued. Store the value in GCP Secret Manager, like the
+HydroVu credentials, and never put it in code, config or docs.
 
-| Path | Result |
+| Request | Result |
 |---|---|
-| `/api/3/action/status_show`, `package_show?id=ebwpc-gw-monitoring`, `datastore_search?resource_id=75b89cfc-...` | 403 challenge |
-| `/dataset/719844ad-.../resource/0c5ca378-.../download/e-1639-pod1.csv` | 403 challenge |
-| `/`, `/robots.txt` | 403 challenge |
-| `/cdn-cgi/trace` (answered by Cloudflare itself) | 200 |
+| No header, or a wrong `x-cf-bypass` value | 403, Cloudflare challenge |
+| Browser User-Agent and `Accept`, no `x-cf-bypass` | 403, Cloudflare challenge |
+| `x-cf-bypass` only, curl's default User-Agent | **200** |
+| `x-cf-bypass` through `build_unauthenticated_client` (`httpx`) | **200** |
 
-Tried with curl using a browser User-Agent, a `python-requests` User-Agent and `Accept: application/json`,
-and from a separate cloud-hosted fetcher. Python `httpx` (the pipeline's client) and stdlib `urllib` get
-the same 403. `http://` redirects to `https://` and is then challenged. The legacy NMWDI loaders and DIE's
-CKAN connector (see [Prior Art](#prior-art)) are presumably broken the same way.
+- **Paths tested:** `status_show`, `package_show` (EBWPC and OSE), `datastore_search` and resource
+  downloads all return 200 with the header.
+- **Downloads are complete and come straight from the catalog.** The EBWPC `E-8428` download matched
+  its `size`, and its MD5 matched the resource `hash`.
+- **Only the header matters.** `User-Agent` and `Accept` make no difference.
+- **Not yet confirmed from Dagster+.** It has only been tested from a developer machine. If datHere also
+  scoped the exception to IP addresses, Dagster+ would still be blocked.
 
-**Browser check.** In a fresh private window, on the same machine and IP where curl gets 403,
-`package_show?id=ebwpc-gw-monitoring` returned the full JSON on the first request. There was one
-navigation, no challenge page or reload, and no Cloudflare cookies. So Cloudflare challenges only clients
-that look automated, and the trigger is something about the client itself (its connection fingerprint or
-the headers it sends), not its IP or User-Agent.
+### Background: why it was needed
 
-### What we know about the rule
+Without the header, every scripted request returns `HTTP/2 403` with `cf-mitigated: challenge` and
+Cloudflare's "Just a moment..." page, a **managed challenge** (`cType: 'managed'`) that a Dagster+ run
+can't pass. This happens on every path, including file downloads and `/robots.txt`; only `/cdn-cgi/trace`
+(answered by Cloudflare itself) returns 200. Browsers get the JSON with no challenge at all, so the rule
+targets clients that look automated, not an IP or User-Agent. The legacy NMWDI loaders and DIE's CKAN
+connector (see [Prior Art](#prior-art)) are presumably broken the same way.
 
 - **It is a datHere platform setting, not a New Mexico one.** Every hostname found in datHere's
   `opendataportal.us` Cloudflare zone is challenged on every path: `newmexico.` (the catalog's CNAME
@@ -215,47 +218,30 @@ the headers it sends), not its IP or User-Agent.
 - **Cloudflare isn't new, but the challenge is.** The hostname's certificate history shows Cloudflare in
   front since spring 2024, and the Internet Archive got normal `200` pages through it until its last
   capture on 2026-04-19. So the challenge was switched on some time after that.
-- **It targets non-browser clients, and two kinds of setting fit.** An unchallenged browser rules out
-  "I'm Under Attack" mode and any rule that challenges every visitor. Browser-User-Agent curl being
-  challenged rules out a User-Agent rule. Two explanations are left, and only datHere can tell them apart
-  from the Ray ID:
-  - **A Cloudflare bot product:** Bot Fight Mode (any plan), Super Bot Fight Mode (Pro and up) or
-    Enterprise Bot Management. The browser got no `__cf_bm` cookie, which Cloudflare
-    [says](https://developers.cloudflare.com/fundamentals/reference/policies-compliances/cloudflare-cookies/)
-    it places on sites protected by Bot Management or Bot Fight Mode. That weakens this explanation but
-    doesn't rule it out.
-  - **A WAF custom rule** keyed on something browsers send and scripts don't, such as browser-only
-    headers.
-- **Which one it is decides the fix.** "You cannot bypass or skip Bot Fight Mode using WAF custom rules or
-  Page Rules" ([Cloudflare docs](https://developers.cloudflare.com/bots/get-started/bot-fight-mode/)). If
-  that is the cause, datHere must turn it off for the zone or move to Super Bot Fight Mode, which supports
-  skip rules. Everything else can be exempted with a skip rule.
+- **It isn't Bot Fight Mode.** Bot Fight Mode can't be skipped by a WAF rule
+  ([Cloudflare docs](https://developers.cloudflare.com/bots/get-started/bot-fight-mode/)), so a working
+  header exception means the challenge comes from a setting datHere can exempt.
 
-### What to ask for
+### The exception
 
 datHere runs the catalog for NMBGMR/WDI under an NMT
 [sole-source contract](https://www.nmt.edu/finance/purchasing/Dathere_Sole%20Source%20Justification.pdf),
-so the request goes through WDI to datHere. Agree a time box (e.g. two weeks) after which
-[Plan B](#plan-b-without-an-exception) starts by default.
+so changes to the exception go through WDI to datHere.
 
-1. Send the `cf-ray` value from a blocked request made the same day (e.g. `a4481169bdccf051-SJC`).
-   datHere can look it up in Cloudflare's Security Events to see which feature issued the challenge.
-2. Ask for an exception scoped to host `catalog.newmexicowaterdata.org` and to:
-   - `/api/3/action/*` (read actions only: `package_show`, `package_search`, `datastore_search`,
-     `status_show`)
-   - `/dataset/*/resource/*/download/*`
-3. Match it on a request header that only we send. A CKAN API token in the `Authorization` header is the
-   natural choice, since CKAN accepts one even for public reads. Egress-IP allowlisting is the
-   alternative, but a Dagster+ deployment may not have a stable egress IP range. Store the token in GCP
-   Secret Manager like the HydroVu credentials.
-4. If a Cloudflare change isn't possible, ask for one of the
-   [middle-ground options](#middle-ground-options-dathere-could-offer) instead.
+- **Header:** `x-cf-bypass`. The value lives in Secret Manager and is added by `ckan_common`'s client.
+- **Covers:** the read API (`/api/3/action/*`) and resource downloads (`/dataset/*/resource/*/download/*`),
+  the only paths the pipeline needs.
+- **Still to do:**
+  - confirm it works from a Dagster+ run
+  - ask datHere whether it is also scoped by path or IP address
+  - ask datHere to warn WDI before changing or rotating it, since the pipeline fails closed without it
 
 ---
 
 ## Plan B: Without an Exception
 
-Use this if datHere declines, or doesn't act within the time box. Only the fetch step changes.
+Fallback only: use this if the header exception stops working, or doesn't work from Dagster+. Only the
+fetch step changes.
 Fingerprinting, the raw layer, the shims, the WDI adapter and the FROST load are the same as
 [Plan A](#plan-a-automated-ingest-with-a-dathere-exception), and the [Reference](#reference-both-plans)
 material applies unchanged.
@@ -267,7 +253,7 @@ Browsers aren't challenged, so a person can fetch exactly what the pipeline woul
 1. **Save the `package_show` JSON** for each dataset from the browser, e.g.
    `.../api/3/action/package_show?id=719844ad-46bf-46cf-a781-a111f114fe38`. It lists every resource with
    its `last_modified`, `size` and URL, so discovery and change detection still work.
-2. **Download each resource file** from the dataset page (EBWPC has 22 resources, OSE 3). Save the file
+2. **Download each resource file** from the dataset page (EBWPC has 22 resources, OSE 3 CSVs). Save the file
    itself, not the link the browser ends up on: the catalog may redirect downloads to a signed S3 link
    that expires.
 3. **Upload both to a GCS landing prefix**, e.g. `landing/<source_key>/<YYYY-MM-DD>/`. This is an input
@@ -278,9 +264,6 @@ Browsers aren't challenged, so a person can fetch exactly what the pipeline woul
 **Costs.** A person has to notice updates and repeat the pull. Checking each dataset page's "Last Updated"
 date now and then is enough, given how rarely the data moves. New wells appear only when someone pulls.
 It is a stopgap, not the long-term answer.
-
-**Do one pull now regardless.** It gives real, current EBWPC and OSE files to build and test the shims
-and the adapter while the exception is pending.
 
 ### Middle-ground options datHere could offer
 
@@ -314,12 +297,10 @@ blocked outright.
 
 The WDI shape both plans map to, what each source looks like today, and the legacy code.
 
-EBWPC has been checked against its live `package_show`
-and locations file, saved from a browser. Confirm the rest once access works or after the first browser
-pull. Because of the Cloudflare block, additional catalog facts below come from three
+EBWPC and OSE have both been checked against the live catalog. The other facts below come from three
 sources, each dated where quoted: Internet Archive snapshots (the EBWPC dataset page, its RDF metadata and
 17 of its files from 2026-01-06; catalog pages up to 2026-04-19), the legacy NMWDI loader code, and the old
-FROST server `st2.newmexicowaterdata.org`. 
+FROST server `st2.newmexicowaterdata.org`.
 
 ### WDI Best Practices and What They Mean for Ingest
 
@@ -450,40 +431,58 @@ e-1639-pod1,4/25/2024,3:12:00 PM,,68.61
 |---|---|
 | **Dataset** | `pecos_region_manual_groundwater_levels` / `e2cdb9aa-dc39-45bc-afaf-0c7849452065` ("Pecos Region Groundwater Levels"), org `nm-ose-isc` |
 | **Description** | "Manual, discrete groundwater level measurements from a regional well network around the lower Pecos Valley ... collected annually in winter by Office of State Engineer, District 2 Office. Data here begin in 2011." |
-| **Resources (legacy loaders)** | Roswell `75b89cfc-f28c-4b95-b477-09272a2e47d2`, Fort Sumner `3fa1cd2c-be33-4bba-a65b-bbc786dcbd39`, Hondo `ce18fbb9-296d-4b40-ba66-f81a061051ac` |
-| **Compliance** | **No.** Location and measurement are in one table, headers are capitalized, and there is no unit column. |
+| **Resources to ingest** | `Roswell_waterlevels` (`roswell_wl_r2.csv`), `Hondo_waterlevels` (`hondo_wl_r2.csv`), `Ft_Summner_waterlevels` (`ft_sumner_wl_r2.csv`), all uploaded 2025-03-20 |
+| **Compliance** | **No.** Location and measurement are in one table, headers are capitalized, there is no unit column, and revisions were added as new resources. |
 
-**Resource IDs have changed.** The 2021 snapshot listed GeoJSON and zipped-shapefile resources
-(`roswell_wl.geojson`, `Roswel_wl.zip`, ...) and a tabular resource `5f64d411-...`, none matching the IDs
-the 2022–2025 legacy loaders read. The dataset was rebuilt at least once, so match on name and format,
-not IDs.
+**Revisions arrive as new resources.** The live dataset has 16 resources:
+- **The legacy loaders' three CSVs** (`roswell_wl.csv` `75b89cfc-...`, `hondo_wl.csv` `ce18fbb9-...`,
+  `ft_sumner.csv` `3fa1cd2c-...`, from 2021–2022) are still there.
+- **The revised `*_r2.csv` files** were uploaded next to them in 2025 instead of replacing them, against
+  the WDI "same resource" rule.
+- **Everything else:** GeoJSON and zipped shapefiles (including a 2025 `ose_roswell_wl_201110_202003_v2.geojson`),
+  an HTML page, and an "OSE Roswell SensorThings API" link that points at old FROST.
 
-**Columns**, from the 2021 DataStore dump (the same schema the legacy loaders read):
-`Site_ID, Date, Time, Location, DD_lat, DD_lon, DMS_lat, DMS_lon, DTWGS, Basin, Comment, UTM_East,
-UTM_North`.
+Select the three `*_waterlevels` CSVs by name, and surface any new resource so a person can decide
+whether it supersedes them. The 2021 snapshot's tabular resource `5f64d411-...` no longer exists.
+
+**Columns** (the live `_r2` files): `Site_ID, Date, Time, Location, DD_lat, DD_lon, DMS_lat, DMS_lon,
+DTWGS, Basin, Comment, UTM_East, UTM_North` for Roswell. Hondo and Ft Sumner lack `Basin` and `Comment`.
 
 | Column | Notes |
 |---|---|
 | `Site_ID` | USGS-style 15-digit site number with a space, e.g. `"323405 104242601"`. Use as `source_id`, and as a candidate `alternate_id` with agency USGS. |
-| `Date`, `Time` | Through the DataStore, `Time` comes back as `1899-12-30T00:00:00` (an Excel time cell typed as a timestamp) with no real time. Read from the file instead. Some rows' `Comment` says "Date and time approximate." |
+| `Date`, `Time` | `Date` is ISO in the `_r2` files. **There is no real time anywhere:** every `_r2` `Time` is `12:00:00`, and the legacy file's is `1899/12/30` (Excel's epoch). Treat readings as date-only. 32 Roswell rows have a `Comment` saying "Date and time approximate." |
 | `Location` | PLSS township/range string, e.g. `20S.26E.17.34331`. Goes in `source_specific`. |
-| `DD_lat`, `DD_lon` | Decimal degrees. The legacy loader **swaps them when `lat < 0`**, implying some uploads had them reversed. None are reversed in the 2021 dump, but keep the guard. |
+| `DD_lat`, `DD_lon` | Decimal degrees. The legacy loader **swaps them when `lat < 0`**, implying some uploads had them reversed. None are reversed in the `_r2` files, but keep the guard. |
 | `DTWGS` | Depth to water below ground surface, in feet. |
-| `Basin` | `Roswell`, `Hondo` or `Ft Sumner`. |
+| `Basin` | `Roswell` (Roswell file only). Derive it from the resource for Hondo and Ft Sumner. |
 
-Each site appears once per measurement, so the shim derives the location file from the distinct
-`Site_ID` rows. The 2021 Roswell-basin table held 1,003 rows, which matters because DIE's
-`datastore_search` call without `limit`/`offset` returns only the first 100.
+**Coverage.** 222 sites, matching old FROST:
+- **Roswell:** 196 sites, 2011-01-14 to 2020-03-06.
+- **Hondo:** 14 sites, 2004 to 2015.
+- **Ft Sumner:** 12 sites, 2011 to 2020-02-24.
+
+Nothing newer than early 2020 has been published. Each site appears once per measurement, so the shim
+derives the location file from the distinct `Site_ID` rows.
+
+**Data-quality issues** (live `_r2` files):
+- **Undatable rows:** 4 Roswell rows have an empty `Date`.
+- **A year typo:** one row is dated `2316-03-02` (site `330509 104 360901`, whose ID also has a stray
+  space).
+- **Repeated values:** 21 consecutive readings across 19 sites repeat the previous year's depth exactly.
+  For example, `323405 104242601` reads 11.1 ft in 2018, 2019 and 2020, where USGS has different values.
+  Possibly carried forward; flag rather than drop.
 
 **Old FROST footprint (`st2`):** 222 Locations and 222 `Manual Groundwater Levels` Datastreams
 (Sensor `Manual`), 2011 to about 2020-02. Agency code: `OSE-Roswell`, with `properties.basin`.
 
-**Sample** (2021 DataStore dump, Roswell basin table):
+**Sample** (`roswell_wl_r2.csv`, live; CRLF line endings):
 
-```json
-{"Site_ID": "323405 104242601", "Date": "2020-02-17T00:00:00", "Time": "1899-12-30T00:00:00",
- "Location": "20S.26E.17.34331", "DD_lat": 32.566778, "DD_lon": -104.408167, "DTWGS": 11.1,
- "Basin": "Roswell", "Comment": "Date and time approximate. Season range from Jan 21 to March 4, 2020."}
+```csv
+Site_ID,Date,Time,Location,DD_lat,DD_lon,DMS_lat,DMS_lon,DTWGS,Basin,Comment,UTM_East,UTM_North
+323405 104242601,2019-01-22,12:00:00,20S.26E.17.34331,32.566778,-104.408167,32 34 00.4,104 24 29.4,11.1,Roswell,,555556,3603420
+323405 104242601,2020-02-17,12:00:00,20S.26E.17.34331,32.566778,-104.408167,32 34 00.4,104 24 29.4,11.1,Roswell,"Date and time approximate. Season range from Jan 21 to March 4, 2020.",555556,3603420
+324752 104243201,,12:00:00,17S.26E.32.11223,32.798056,-104.408611,32 47 53,104 24 31,73.52,Roswell,,555371,3629050
 ```
 
 #### City of Roswell
@@ -519,7 +518,7 @@ Datastream (Sensor `Bubbler`, continuous), 2024-06-03 to 2025-03-15. Agency code
 |---|---|---|
 | [NMWDI/CloudFunctions `stao/ckan_stao.py`](https://github.com/NMWDI/CloudFunctions/blob/main/stao/ckan_stao.py) | `package_show`, filter resources by name, `httpx.get(resource.url)`, `csv.DictReader`. | The recommended pattern already worked in production, after the 2025-03-19 move off the DataStore. No change detection or provenance. |
 | [`stao/ebwpc/entities.py`](https://github.com/NMWDI/CloudFunctions/blob/main/stao/ebwpc/entities.py) | EBWPC locations from `EBWPC Well Locations` (UTM->lat/lon), manual + transducer datastreams per well, four hardcoded `strptime` formats. | Its comments list every known per-well quirk. Don't repeat its UTC stamping of local times. |
-| [`stao/ose_roswell_basin/entities.py`](https://github.com/NMWDI/CloudFunctions/blob/main/stao/ose_roswell_basin/entities.py) | Three resource IDs, dedupes sites, swaps lat/lon when `lat < 0`. | Keep the lat/lon guard. |
+| [`stao/ose_roswell_basin/entities.py`](https://github.com/NMWDI/CloudFunctions/blob/main/stao/ose_roswell_basin/entities.py) | Three resource IDs, dedupes sites, swaps lat/lon when `lat < 0`. | Keep the lat/lon guard. Its IDs point at the pre-2025 files, not the `_r2` revisions. |
 | [`stao/croswell/entities.py`](https://github.com/NMWDI/CloudFunctions/blob/main/stao/croswell/entities.py) | Local locations CSV plus the `roswellbubbler` GCS bucket. | City of Roswell was never a CKAN source in the legacy system. |
 | [DataIntegrationEngine `backend/connectors/ckan/source.py`](https://github.com/DataIntegrationGroup/DataIntegrationEngine/blob/main/backend/connectors/ckan/source.py) | OSE Roswell via `datastore_search?resource_id=...` with no `limit`/`offset`. | Silent truncation at CKAN's 100-row default. |
 
@@ -530,13 +529,12 @@ which fits how rarely the data moves.
 
 ## Open Questions
 
-1. **Cloudflare exception.** Who at WDI owns the datHere relationship and files the request? How long is
-   the time box before Plan B starts? Which Cloudflare feature issues the challenge (datHere can tell
-   from a Ray ID)? If it is Bot Fight Mode, will datHere disable it or move to Super Bot Fight Mode?
-   Should the exception match an API-token header (preferred) or egress IPs?
-2. **Live re-verification** once access works (Plan A) or after the first browser pull (Plan B): each
-   dataset's current resource list, format, `last_modified`, `size` and `datastore_active`. Done for
-   EBWPC from a browser pull; OSE remains.
+1. **Exception durability.** Does the header work from Dagster+? Is the exception also scoped by path
+   or IP address? Who at WDI owns the datHere relationship and gets told before the value changes or is
+   rotated?
+2. **OSE revisions as new resources.** OSE added its 2025 revisions (`*_r2.csv`) next to the old files
+   instead of replacing them. Proposal: select the three `*_waterlevels` CSVs by name, and ask OSE to
+   update resources in place from now on, per the WDI best practices.
 3. **EBWPC's one XLSX resource** (`E-9407-Archived`). Proposal: select CSV only and log skipped resources
    in metadata, and ask EBWPC to re-upload it as CSV per the best practices. Add `openpyxl` only if the
    well is needed sooner.
@@ -568,13 +566,10 @@ which fits how rarely the data moves.
 
 ## Proposed Follow-Up Tickets
 
-1. **Access request (decides Plan A vs B):** through WDI, send datHere a Ray ID and request the exception
-   described in [What to ask for](#what-to-ask-for), with an agreed time box. Once access works, run the
-   live checks in Open Question 2 and update this doc.
-1. **One-time browser pull:** save the EBWPC and OSE `package_show` JSON and resource files to a GCS
-   landing prefix, for development now and as Plan B's first run if needed.
-1. **`ckan_common` + `wdi_transform_common`:** shared discover/fingerprint/parse with a swappable fetch
-   step (HTTP for Plan A, GCS landing for Plan B), and the WDI -> canonical adapter. Offline unit tests
-   against a synthetic WDI-template fixture. No agency yet.
-1. **Feedback to WDI** on the best-practices document: add a timezone field, and ask providers to keep
-   resource IDs stable across updates (OSE's resources were recreated).
+1. **Access (exception granted):** store the `x-cf-bypass` value in GCP Secret Manager and confirm it
+   works from a Dagster+ run. See [The exception](#the-exception) and Open Question 1.
+1. **`ckan_common` + `wdi_transform_common`:** shared discover/fingerprint/parse, with the bypass header
+   on the client and a swappable fetch step (HTTP for Plan A, GCS landing for Plan B), and the WDI ->
+   canonical adapter. Offline unit tests against a synthetic WDI-template fixture. No agency yet.
+1. **Feedback to WDI** on the best-practices document: add a timezone field, and ask providers to update
+   resources in place instead of adding new ones (OSE added `_r2` copies next to its old files).
