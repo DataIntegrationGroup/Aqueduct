@@ -63,7 +63,7 @@ apart from the Cloudflare issue.
 
 | Endpoint | Use | Gotchas |
 |---|---|---|
-| `GET /api/3/action/package_show?id={uuid}` | **Discovery and change detection.** One call returns every resource with `id`, `name`, `url`, `format`, `last_modified`, `size`, `hash`, `datastore_active`. | Configure the dataset UUID, not the renamable slug. UUIDs survived the catalog upgrade around 2026-03-19. `hash` is often empty for uploads. `format` is free text (`CSV` and `.csv` both appear), so normalise it. |
+| `GET /api/3/action/package_show?id={uuid}` | **Discovery and change detection.** One call returns every resource with `id`, `name`, `url`, `format`, `last_modified`, `size`, `hash`, `datastore_active`. | Configure the dataset UUID, not the renamable slug. UUIDs survived the catalog upgrade around 2026-03-19. `hash` (32 hex characters) is populated on all of EBWPC's resources, so it can join the fingerprint. `format` is free text (`CSV` and `.csv` both appear), so normalise it. |
 | `GET /api/3/action/package_search?fq=organization:{org}&rows=1000` | Optional: detect new datasets from an organization. | Not needed for a fixed dataset list. |
 | `GET {resource.url}`, i.e. `/dataset/{package_id}/resource/{resource_id}/download/{filename}` | **The data.** Exactly the bytes the agency uploaded. | `{filename}` changes when the agency re-uploads under a new name or format. Always take the URL from `package_show`, never from config. |
 | `GET /api/3/action/datastore_search?resource_id={id}&limit={n}&offset={n}` | Typed JSON rows, if the resource was pushed. | **Default `limit` is 100**, so you must paginate. Types are inferred at push time. Exists only if `datastore_active`. |
@@ -125,7 +125,7 @@ package_show(dataset_id)                       one API call per dataset
 Two layers, so agency-specific mess stays in one small place.
 
 **1. Agency shim**, the only per-agency code. It coerces raw rows into the WDI location + measurement
-columns ([field mapping](#field-mapping-wdi--canonical)): lower-case and strip headers, drop empty trailing
+columns ([field mapping](#field-mapping-wdi---canonical)): lower-case and strip headers, drop empty trailing
 columns, parse the agency's date/time formats to ISO, unpivot split depth columns (`transducer_depth_bgs`,
 `manual_depth_bgs`) into `depth_to_water` + `measurement_type`, null junk values (`N/A`, `#VALUE!`,
 `#REF!`, `<Null>`, blank), drop exact-duplicate rows, swap reversed lat/lon, convert UTM to lat/lon.
@@ -314,10 +314,12 @@ blocked outright.
 
 The WDI shape both plans map to, what each source looks like today, and the legacy code.
 
-**Not re-verified live.** Because of the Cloudflare block, the catalog facts below come from three
+EBWPC has been checked against its live `package_show`
+and locations file, saved from a browser. Confirm the rest once access works or after the first browser
+pull. Because of the Cloudflare block, additional catalog facts below come from three
 sources, each dated where quoted: Internet Archive snapshots (the EBWPC dataset page, its RDF metadata and
 17 of its files from 2026-01-06; catalog pages up to 2026-04-19), the legacy NMWDI loader code, and the old
-FROST server `st2.newmexicowaterdata.org`. Confirm them once access works or after the first browser pull.
+FROST server `st2.newmexicowaterdata.org`. 
 
 ### WDI Best Practices and What They Mean for Ingest
 
@@ -374,7 +376,7 @@ gets a shim.
 
 | | |
 |---|---|
-| **Dataset** | `ebwpc-gw-monitoring` / `719844ad-46bf-46cf-a781-a111f114fe38` ("EBWPC Monitoring Wells"), org `estancia-basin-water-planning-committee` |
+| **Dataset** | `ebwpc-gw-monitoring` / `719844ad-46bf-46cf-a781-a111f114fe38` ("EBWPC Monitoring Well Measurements"), org `estancia-basin-water-planning-committee` |
 | **Collection** | Transducer and hand-measured water levels, measured semi-annually, by Sandia National Labs (2007 to 2009), HydroResolutions (2009 to 2021-02) and John Shomaker & Associates (2021-12 to present) |
 | **QC note** | Transducer data checked for drift and corrected, and matched every 6 to 12 months to hand measurements |
 | **Compliance** | **Partial.** Per-well files and a separate locations resource are the right idea, but the column names, split depth columns, date and time formats, missing unit columns and UTM-only locations all deviate. |
@@ -386,9 +388,8 @@ wells are suffixed `-Archived`.
   resource IDs but are now CSV with new download URLs. 20 of the well resources are CSV. `E-9407-Archived`
   is still XLSX. `EBWPC Well Locations` is a CSV (763 bytes, 2024-12-04). `format` reads `CSV` on most
   and `.csv` on two.
-- **Locations:** per the legacy loader, `EBWPC Well Locations` holds `NMBG_ID`, `UTM_Zone13N_Easting` and
-  `UTM_Zone13N_Northing` (NAD83 / GRS80, zone 13N). Its file was not archived, so the columns are
-  unconfirmed.
+- **Locations:** `EBWPC Well Locations` has `NMBG_ID`, `UTM_Zone13N_Easting`, `UTM_Zone13N_Northing` and
+  `Datum` (`NAD83` on every row). It covers all 21 wells, the 14 active ones and the 7 archived ones.
 - **Size:** ~35 MB in total. The 17 archived CSVs hold ~29 MB / ~762k rows. The largest, `e-2034.csv`,
   has 123k rows. The newest reading in any of them is 2024-04-26.
 
@@ -408,20 +409,26 @@ The legacy loader skipped them because the `KeyError` on `manual_depth_bgs` bail
 **Data-quality issues**, from profiling the 17 archived CSVs (Jan 2026):
 - **Dates:** `M/D/YY` in some files, `M/D/YYYY` in others. `e-1639-pod1` mixes both.
 - **Times:** `h:mm:ss AM/PM` in some files, `H:MM` 24-hour in others, plus `N/A`. In 4 `e-9673` rows
-  both date and time are `#VALUE!`.
+  both date and time are `#VALUE!`, and 7 manual readings in `e-8428` are dated `1/0/1900` (Excel's
+  zero date).
 - **Junk depth values:** `N/A`, from 1 row in some files up to 168 (`smith-1`). The legacy loader also
   filtered `#REF!`.
 - **Trailing empty columns** in the header (`...,manual_depth_bgs,,,,,`), and blank trailing rows (51 in
   `e-2034`, 49 in `e-94077`).
-- **Exact-duplicate rows:** 533 in `e-2034`, and 1 in `e-50-1` (whose 4 rows are 3 distinct readings).
-- **Stray values in unnamed trailing columns:** `e-94077` repeats a date in column 6 on 21 rows, all
-  of them manual readings.
+- **Exact-duplicate rows:** 533 in `e-2034`, none of which has a depth value, and 1 duplicated reading
+  in `e-50-1` (whose 4 rows are 3 distinct readings).
+- **Stray values in unnamed trailing columns:** `e-94077` has stray values, mostly a repeated date, in
+  column 6 on 21 rows, all of them manual readings.
 - **Inconsistent `site_id`:** `e-1639-pod1` (resource `E-1639-POD1`), `Hagerman HQ-archived`,
   `e-50-1 archived` (space-separated), `E-6385-archived`, `Magnum Steel`.
-- **Missing locations:** the legacy loader notes "no location" for `E-2034`, `E-9673`, `E-50-1`,
-  `Greene-4`, `Lujan-1`. Under the WDI rule their measurements are dropped until locations appear.
-- **No timezone.** The legacy loader stamped naive local times as UTC, so old-FROST EBWPC times are
-  probably off by the MST/MDT offset.
+- **IDs that don't match, not missing locations.** Every well the legacy loader marked "no location" has
+  one. `E-2034` is listed as `E-2043` (transposed digits), `E-9673` has a trailing space, and the loader
+  skipped rows ending in `archived` (`E-50-1`, `Greene-4`, `Lujan-1`). Normalise IDs and alias `E-2043`
+  to `E-2034`; see `ebwpc_ckan.md`.
+- **Timezone: fixed UTC−07:00.** No timezone is stated, but the transducer logs
+  ignore daylight saving: they have readings at 02:xx on every spring-forward date and no repeated hour
+  in the fall. The clock is fixed, most likely MST. The legacy loader stamped these times as UTC, so
+  old-FROST EBWPC times are 7 hours off.
 
 **Old FROST footprint (`st2`):** 14 Locations and 28 Datastreams, each well having one
 `Manual Groundwater Levels` (Sensor `Manual`) and one `Groundwater Levels` (Sensor `Transducer`).
@@ -528,22 +535,24 @@ which fits how rarely the data moves.
    from a Ray ID)? If it is Bot Fight Mode, will datHere disable it or move to Super Bot Fight Mode?
    Should the exception match an API-token header (preferred) or egress IPs?
 2. **Live re-verification** once access works (Plan A) or after the first browser pull (Plan B): each
-   dataset's current resource list, format, `last_modified`, `size` and `datastore_active`, and the
-   columns of `EBWPC Well Locations`.
+   dataset's current resource list, format, `last_modified`, `size` and `datastore_active`. Done for
+   EBWPC from a browser pull; OSE remains.
 3. **EBWPC's one XLSX resource** (`E-9407-Archived`). Proposal: select CSV only and log skipped resources
    in metadata, and ask EBWPC to re-upload it as CSV per the best practices. Add `openpyxl` only if the
    well is needed sooner.
 4. **Is City of Roswell on CKAN now?** If not, it is out of scope for the CKAN pipeline. Who owns the
    legacy `roswellbubbler` GCS bucket, and can we read it directly?
 5. **Source timezone.** No source or WDI guidance states one, and the legacy loaders' UTC assumption is
-   almost certainly wrong for field times. Proposal: treat naive times as `America/Denver` (DST-aware),
-   record the assumption in `parameters.source_specific`, and suggest WDI add a timezone field (NMBGMR's
-   own data dictionary has `TimeDatum`).
+   almost certainly wrong for field times. Don't assume `America/Denver`: EBWPC's loggers run on a fixed
+   UTC−07:00 with no daylight saving (see [EBWPC](#ebwpc-estancia-basin-water-planning-committee)).
+   Before choosing a zone for each source, check its timestamps for missing or repeated hours on DST
+   dates. Record the assumption, and suggest WDI add a timezone field (NMBGMR's own data dictionary has
+   `TimeDatum`).
 6. **TOC readings** (EBWPC `hagerman`, `rubyshaw`, `e-6385`) need a measuring-point height to become BGS.
    Skip them (proposed), ask EBWPC for stick-up heights, or load them under a separate "below top of
    casing" observed property.
 7. **Corrections older than the FROST watermark** are silently dropped (see
-   [Transform](#transform-raw--wdi-shape--canonical)). Is that acceptable for sources that re-upload
+   [Transform](#transform-raw---wdi-shape---canonical)). Is that acceptable for sources that re-upload
    drift-corrected history? If not, the fix belongs in the loader, e.g. a per-source "reload datastream
    when the snapshot changed" mode.
 8. **"Archived" wells.** Proposal: strip the `archived` suffix to get the `source_id`, record
@@ -562,17 +571,10 @@ which fits how rarely the data moves.
 1. **Access request (decides Plan A vs B):** through WDI, send datHere a Ray ID and request the exception
    described in [What to ask for](#what-to-ask-for), with an agreed time box. Once access works, run the
    live checks in Open Question 2 and update this doc.
-2. **One-time browser pull:** save the EBWPC and OSE `package_show` JSON and resource files to a GCS
+1. **One-time browser pull:** save the EBWPC and OSE `package_show` JSON and resource files to a GCS
    landing prefix, for development now and as Plan B's first run if needed.
-3. **`ckan_common` + `wdi_transform_common`:** shared discover/fingerprint/parse with a swappable fetch
+1. **`ckan_common` + `wdi_transform_common`:** shared discover/fingerprint/parse with a swappable fetch
    step (HTTP for Plan A, GCS landing for Plan B), and the WDI -> canonical adapter. Offline unit tests
    against a synthetic WDI-template fixture. No agency yet.
-4. **Canonical constants:** add transducer and bubbler `CanonicalSensor` constants (canonical-model
-   change, reviewed on its own).
-5. **EBWPC:** a mapping doc (`docs/sources/ebwpc_ckan.md` from `_mapping_template.md`), the shim, and the
-   pipeline.
-6. **OSE Roswell:** a mapping doc, the shim, and the pipeline.
-7. **City of Roswell:** through CKAN if Open Question 4 confirms it is there, otherwise from the
-   `roswellbubbler` bucket if NMBGMR owns it.
-8. **Feedback to WDI** on the best-practices document: add a timezone field, and ask providers to keep
+1. **Feedback to WDI** on the best-practices document: add a timezone field, and ask providers to keep
    resource IDs stable across updates (OSE's resources were recreated).
