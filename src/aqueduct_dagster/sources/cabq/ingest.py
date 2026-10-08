@@ -1,6 +1,6 @@
 """
 Dagster asset: raw_cabq_readings — runs the CABQ dlt pipeline, fetching from
-the CABQ CKAN API incrementally and writing raw parquet to GCS.
+the CABQ ArcGIS FeatureServer incrementally and writing raw parquet to GCS.
 
 First asset in the pipeline. Downstream: canonical_bundles_cabq.
 """

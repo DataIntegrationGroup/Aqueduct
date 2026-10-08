@@ -1,7 +1,7 @@
 """
 dlt pipeline for CABQ raw ingestion.
 
-  - @dlt.source: reads config from dlt.config under [cabq]
+  - @dlt.source: reads config from dlt.config under [sources.cabq]
   - @dlt.resource: per-location incremental cursor via dlt.current.resource_state()
   - build_pipeline(): filesystem destination → GCS under raw_cabq/
   - run_pipeline(): convenience entry point

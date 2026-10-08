@@ -70,9 +70,7 @@ Aqueduct/
 │   │   │   ├── ingest.py           # Dagster asset: raw_pvacd_hydrovu_readings
 │   │   │   ├── transform.py        # Dagster asset: canonical_bundles_pvacd_hydrovu
 │   │   │   └── backfill.py         # Mode A refetch: isolated ingest + transform + load per chunk
-│   │   ├── bernco_hydrovu/         # BernCo's HydroVu tenant — same shape as pvacd_hydrovu/
-│   │   ├── cabq/                   # same shape as pvacd_hydrovu/
-│   │   └── bernco_manual/          # BernCo's ArcREST feed — same shape as pvacd_hydrovu/
+│   │   └── <name>/                 # every other source — same shape as pvacd_hydrovu/
 │   ├── defs/
 │   │   ├── assets/
 │   │   │   └── load.py             # Dagster assets: frost_load_<name>, generated per source from one factory
@@ -87,7 +85,7 @@ Aqueduct/
 └── tests/                          # mirrors src/aqueduct_dagster/'s layout above
     ├── conftest.py                 # cross-file test helpers (e.g. httpx.MockTransport/BearerAuth builders)
     ├── canonical/
-    ├── sources/{pvacd_hydrovu,bernco_hydrovu,cabq,bernco_manual}/
+    ├── sources/<name>/
     ├── shared/
     ├── defs/{assets,jobs}/
     └── loader/

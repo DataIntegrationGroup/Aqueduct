@@ -30,9 +30,10 @@ Sources are listed in `shared/source_registry.py`'s `SOURCE_REGISTRY` — the
 single source of truth for which sources exist and their config.
 Use PVACD HydroVu as the reference implementation when wiring up a new source.
 
-PVACD and BernCo are two tenants on the same platform, so vendor-level HydroVu code
-lives once and each tenant folder holds only what is genuinely its own (its dlt
-source, resources, config block, dataset, and any hazard specific to that tenant):
+Multiple tenants run on the HydroVu platform, so vendor-level HydroVu code lives
+once instead of being duplicated per tenant; each tenant folder holds only what
+is genuinely its own (its dlt source, resources, config block, dataset, and any
+hazard specific to that tenant):
 
 | Stage | Shared module                                                                                                           | What a tenant still owns |
 |---|-------------------------------------------------------------------------------------------------------------------------|---|
@@ -62,8 +63,8 @@ src/aqueduct_dagster/
 │   ├── gcp_auth.py        # ensure_adc() — bootstraps ADC from GCP_SERVICE_ACCOUNT_KEY_B64
 │   └── source_registry.py # SOURCE_REGISTRY — single per-source config, read by definitions.py and load.py
 ├── sources/        # one folder per source key (vertical slice) — see pvacd_hydrovu/ as the reference
-│   ├── hydrovu_common.py  # HydroVu API client (ingest) shared by the pvacd_hydrovu and bernco_hydrovu tenants
-│   ├── hydrovu_transform_common.py  # HydroVu DTW mapping + GCS read/group shared by those same tenants
+│   ├── hydrovu_common.py  # HydroVu API client (ingest), shared by every HydroVu tenant
+│   ├── hydrovu_transform_common.py  # HydroVu DTW mapping + GCS read/group, shared the same way
 │   └── <name>/
 │       ├── adapter.py       # raw rows → CanonicalBundle (source-specific)
 │       ├── dlt_pipeline.py  # dlt source/resource/pipeline factory

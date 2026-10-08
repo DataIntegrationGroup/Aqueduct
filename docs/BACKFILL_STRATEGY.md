@@ -1,9 +1,7 @@
 # Backfill & Initial Start Date Strategy
 
 This document describes how Aqueduct should handle the dlt initial start date
-and backfill in production, as the pipeline scales from 2 sources to 10+.
-This is a **design proposal**, not yet implemented — written for team review
-before implementation begins.
+and backfill in production, as the number of sources grows.
 
 - **Status:** Mode A (refetch) is implemented — see `shared/backfill.py`,
   `defs/jobs/backfill.py`, and each source's `backfill.py`. Mode B (replay)
@@ -14,13 +12,14 @@ before implementation begins.
 
 ## 1. Why this needs a formal design
 
-Today, `initial_start_date` is a static value per source in `.dlt/config.toml`,
-and no backfill mechanism exists at all — the only way to re-fetch older data
-is to manually clear an entity's cursor in dlt's internal state. This is
-manageable at 2 sources. It will not scale to 10+: the pipeline requires one
-uniform mechanism that any new source inherits automatically, and backfill
-must be treated as a normal, recurring operational need — not a one-time
-action that only occurs when a source is first onboarded.
+At the outset, `initial_start_date` was a static value per source in
+`.dlt/config.toml`, and no backfill mechanism existed at all — the only way
+to re-fetch older data was to manually clear an entity's cursor in dlt's
+internal state. That was manageable at a handful of sources, but not at
+scale: the pipeline needs one uniform mechanism that any new source inherits
+automatically, and backfill must be treated as a normal, recurring
+operational need — not a one-time action that only occurs when a source is
+first onboarded.
 
 This document answers two questions:
 
@@ -148,11 +147,10 @@ regardless of count.
 
 **Option 3 — Per-source generated jobs, two per source (recommended).**
 
-This follows the pattern already used in this codebase for
-`frost_load_pvacd_hydrovu` / `frost_load_cabq` and `pvacd_hydrovu_pipeline` /
-`cabq_pipeline`: one shared factory function per job type, looped over the
-source registry, so that adding a third source requires one registry entry
-and no new job-wiring code. "Which source" is determined by which job is
+This follows the pattern already used in this codebase for `frost_load_<name>`
+and `<name>_pipeline`: one shared factory function per job type, looped over
+the source registry, so that adding another source requires one registry
+entry and no new job-wiring code. "Which source" is determined by which job is
 selected in the Dagster UI, which cannot be mistyped. Each job's
 configuration schema can be typed precisely for that source. The cost of
 this option is purely cosmetic — additional entries in the Jobs list,

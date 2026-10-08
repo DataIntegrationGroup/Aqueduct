@@ -90,9 +90,9 @@ def fetch_location_data(
 ) -> tuple[dict | None, str | None]:
     """Fetches all readings for one location, walking cursor-based pages.
 
-    end_time, if given, stops pagination once a page's readings reach it —
-    used by backfill's windowed chunk fetch. Production's normal ingest always
-    passes None (unbounded, fetch-to-present).
+    end_time, if given, drops readings at or after it and stops paginating
+    once a page reaches it — used by backfill's windowed chunk fetch.
+    Production's normal ingest always passes None (unbounded, fetch-to-present).
 
     A 404 does NOT mean the location has no data endpoint: a dormant location
     that 404s on a recent start_time returns its full history at start_time=0.

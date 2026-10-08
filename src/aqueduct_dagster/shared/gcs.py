@@ -1,6 +1,6 @@
 """
 Shared GCS helpers for all source transform and load assets.
-Source-agnostic — no knowledge of HydroVu, CABQ, or any specific dataset.
+Source-agnostic — no knowledge of any specific source or dataset.
 """
 
 import json

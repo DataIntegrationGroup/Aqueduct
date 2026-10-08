@@ -50,7 +50,7 @@ def cabq_backfill_readings(
     start_ts: int,
     end_ts: int,
 ) -> Iterator[dict]:
-    """Yields one flat record per location within [start_ts, end_ts]. No
+    """Yields one flat record per location within [start_ts, end_ts). No
     persisted cursor — every call is explicit about its range. Raises
     RuntimeError on a real fetch error."""
     allowed = frozenset(location_ids)

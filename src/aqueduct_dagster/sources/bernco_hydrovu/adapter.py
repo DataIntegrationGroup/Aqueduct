@@ -1,8 +1,8 @@
 """
 BerncoHydroVuAdapter: grouped BernCo HydroVu parquet rows -> CanonicalBundles
 for FROST. The mapping lives in hydrovu_transform_common.py's HydroVuDtwAdapter,
-shared with pvacd_hydrovu; this just sets AGENCY. See docs/sources/bernco_hydrovu.md
-for mapping decisions.
+shared by every HydroVu tenant; this just sets AGENCY. See
+docs/sources/bernco_hydrovu.md for mapping decisions.
 
 external_key: "bernco-{location_id}" for Location/Thing, "bernco-{location_id}-dtw"
 for the datastream, e.g. "bernco-6255051791532032-dtw".

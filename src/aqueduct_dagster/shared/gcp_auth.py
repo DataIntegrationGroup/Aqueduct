@@ -38,8 +38,8 @@ ENV_ADC_PATH = "GOOGLE_APPLICATION_CREDENTIALS"
 #: the success log reports it.
 _REQUIRED_FIELDS = ("client_email", "private_key", "project_id", "token_uri")
 
-# Set once the current process has a usable ADC path, so the three call sites can
-# each call ensure_adc() freely without racing to write duplicate key files.
+# Set once the current process has a usable ADC path, so every call site can
+# call ensure_adc() freely without racing to write duplicate key files.
 _bootstrapped = False
 
 

@@ -17,7 +17,7 @@ from datetime import datetime
 @dataclass(frozen=True)
 class CanonicalLocation:
     """Where the Thing is (lat/lon). geometry is GeoJSON Point; elevation lives in
-    properties.source_specific, not here. external_key e.g. 'pvacd-NM-28258'."""
+    properties.source_specific, not here. external_key e.g. 'pvacd-4745648669458432'."""
 
     external_key: str
     name: str
@@ -30,7 +30,7 @@ class CanonicalLocation:
 @dataclass(frozen=True)
 class CanonicalThing:
     """The monitored object (a well). properties must include 'agency';
-    external_key e.g. 'pvacd-NM-28258'."""
+    external_key e.g. 'pvacd-4745648669458432'."""
 
     external_key: str
     name: str

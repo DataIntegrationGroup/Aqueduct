@@ -127,7 +127,7 @@ class TestSuccessfulBootstrap:
         assert json.loads(Path(os.environ[ENV_ADC_PATH]).read_text()) == _key()
 
     def test_idempotent_across_calls(self, monkeypatch):
-        """All three call sites invoke this; it must not write a new key file each time."""
+        """Every call site invokes this; it must not write a new key file each time."""
         monkeypatch.setenv(ENV_KEY_B64, _b64(_key()))
 
         ensure_adc()
