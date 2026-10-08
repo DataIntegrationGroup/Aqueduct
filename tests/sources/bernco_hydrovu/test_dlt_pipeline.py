@@ -1,21 +1,9 @@
 """
-tests/sources/bernco_hydrovu/test_dlt_pipeline.py
-
-Unit tests for BernCo's hydrovu_readings and hydrovu_locations resources.
-
-The vendor-level HTTP client these fetch through (fetch_locations,
-fetch_location_data, credential resolution, pagination, 404/429/5xx handling) is
-shared with PVACD and tested once in tests/sources/test_hydrovu_common.py. What is
-tested here is what this module owns: the allowlist that keeps the ~24 non-DTW BernCo
-locations out of the readings fetch, and the per-location cursors in dlt resource state.
-
-No real API calls — fetch_location_data is patched at the shared module, which is
-where the resource resolves it from, and dlt.current.resource_state() is patched with
-a plain dict so the generator can be driven directly.
-
-Fixtures are trimmed from the live responses captured in
-docs/sources/bernco_hydrovu.md: SierraVista-966932 (an Aqua TROLL sonde carrying
-parameterId="4") and E-94077-1193582VL (a VuLink gateway carrying only diagnostics).
+Unit tests for bernco_hydrovu_source and its two resources. hydrovu_readings
+exercises the shared iter_location_readings() (allowlist, cursors, stats)
+through this tenant — same split as PVACD's test_dlt_pipeline.py. Everything
+else here (locations table, source config binding, client lifecycle) is
+owned by this module. Fixtures are trimmed from docs/sources/bernco_hydrovu.md.
 """
 
 from __future__ import annotations
@@ -307,16 +295,11 @@ class TestBerncoReadingsClientLifetime:
 
 
 class TestBerncoSourceConfig:
-    """
-    @dlt.source(name="bernco_hydrovu") is what binds these defaults to the
-    [sources.bernco_hydrovu] block of .dlt/config.toml. Nothing cross-checks the two,
-    and getting it wrong is silent in the worst way: dlt would fall back to PVACD's
-    block, and BernCo's pipeline would authenticate against the wrong tenant and fetch
-    the wrong wells into the BernCo dataset.
-
-    Offline — no client is built and no request is made; the values are read straight
-    off the call the source makes into build_hydrovu_client.
-    """
+    """@dlt.source(name="bernco_hydrovu") binds these defaults to
+    [sources.bernco_hydrovu] in .dlt/config.toml — nothing cross-checks the
+    two, and getting it wrong silently falls back to PVACD's block,
+    authenticating against the wrong tenant. Offline: values are read off
+    the call into build_hydrovu_client, no real client/request."""
 
     @staticmethod
     def _resolved_config() -> dict:

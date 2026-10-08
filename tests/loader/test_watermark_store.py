@@ -1,6 +1,4 @@
 """
-tests/loader/test_watermark_store.py
-
 Unit tests for FrostWatermarkStore and InMemoryWatermarkStore.
 All GCS I/O is mocked — no live GCS or Dagster runtime required.
 """
@@ -24,10 +22,8 @@ from aqueduct_dagster.loader.watermark_store import (
 
 
 def _make_store(gcs_content: dict[str, str] | None = None) -> FrostWatermarkStore:
-    """
-    Build a FrostWatermarkStore with a mocked gcsfs and Dagster context.
-    gcs_content: dict to return on open() — None means FileNotFoundError.
-    """
+    """Build a FrostWatermarkStore with a mocked gcsfs/context. gcs_content is
+    the dict to return on open() — None means FileNotFoundError."""
     mock_context = MagicMock()
     mock_context.log = MagicMock()
 

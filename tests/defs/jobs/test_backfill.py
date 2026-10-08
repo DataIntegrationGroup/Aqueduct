@@ -1,15 +1,7 @@
 """
-tests/defs/jobs/test_backfill.py
-
-Unit tests for the generic backfill-refetch job factory
-(_make_backfill_refetch_job / _make_backfill_refetch_op), and for
-BackfillRefetchConfig's own validation (dates, run_key timestamping).
-
-Built and executed with stub prepare_fn/run_chunk_fn (not HydroVu's real
-ones) via Dagster's execute_in_process — no live API/GCS/FROST required.
-GCS and FROST-loader construction inside the op are mocked. prepare_fn() is
-now called even during dry_run (a read, not a write — see backfill.py), so
-every test configures a realistic return value for it, not a bare MagicMock().
+Unit tests for the generic backfill-refetch job factory and
+BackfillRefetchConfig's validation — stub prepare_fn/run_chunk_fn (not a
+real source's) via Dagster's execute_in_process, no live API/GCS/FROST required.
 """
 
 from __future__ import annotations
@@ -99,13 +91,9 @@ def test_config_prefilled_with_example_values():
 
 
 def test_default_run_key_is_timestamped_even_when_left_untouched():
-    """
-    Regression test: pydantic skips field validators on a value the caller
-    never supplied, unless validate_default=True — so an operator who leaves
-    run_key at its prefilled default (the common case) must still get a
-    timestamp attached, not silently keep the bare "example-backfill" label
-    every launch would otherwise collide on.
-    """
+    """Regression test: pydantic skips field validators on unsupplied values
+    unless validate_default=True — so the prefilled run_key default must
+    still get a timestamp, not silently collide across launches."""
     assert re.match(r"^example-backfill_\d{8}T\d{6}Z$", BackfillRefetchConfig().run_key)
 
 
@@ -132,21 +120,10 @@ def test_already_timestamped_run_key_is_left_unchanged():
 
 
 # ── per-source location_ids typing ──────────────────────────────────────────────
-#
-# Two complementary checks:
-#
-# 1. Domain-specific (below, table-driven): each source's config must accept a
-#    *realistic* id for that source (e.g. CABQ's actual "IW4"-style site codes).
-#    This is the only thing that can catch "the wrong type was chosen for this
-#    source" — it takes a human to know what a real id looks like, so a new
-#    source needs one row added here.
-#
-# 2. Generic (further below, auto-discovered): every BackfillRefetchConfig
-#    subclass, whichever they are, must reject a location_id of any *other*
-#    subclass's element type. This needs no maintenance as sources are added —
-#    it exists to catch the shared type-separation mechanism itself regressing
-#    (e.g. a future refactor accidentally merging every source back onto one
-#    shared, non-generic location_ids type).
+# Two checks: (1) table-driven below — each source's config accepts a
+# realistic id for that source; needs a human, so a new source adds a row.
+# (2) auto-discovered further below — every config subclass generically
+# rejects another's id type; needs no maintenance as sources are added.
 
 _LOCATION_ID_CASES = [
     pytest.param(PvacdHydroVuBackfillRefetchConfig, 111, id="pvacd_hydrovu"),
@@ -286,11 +263,8 @@ def test_real_run_calls_prepare_once_and_run_chunk_per_chunk(
 def test_frost_watermark_dataset_is_isolated_from_production(
     mock_bucket_url, mock_fs, mock_checkpoint_cls, mock_build_loader
 ):
-    """
-    The FROST watermark store must use a distinct dataset from the one the
-    normal scheduled pipeline uses, so a backfill run can never race with, or
-    silently advance/clobber, production's own per-datastream watermark.
-    """
+    """Backfill's FROST watermark store must use a distinct dataset from
+    production's, so a backfill run can never race with or clobber it."""
     mock_bucket_url.return_value = "gs://bucket"
     mock_checkpoint_cls.return_value.is_complete.return_value = False
 
@@ -314,22 +288,9 @@ def test_frost_watermark_dataset_is_isolated_from_production(
 def test_real_run_forwards_python_logs_from_every_emitting_package(
     mock_bucket_url, mock_fs, mock_checkpoint_cls, mock_build_loader, mock_log_forward
 ):
-    """
-    Regression test: prepare_fn()/run_chunk_fn() emit per-location/per-page
-    progress via stdlib logging (see sources/hydrovu_common.py), which
-    only reaches the Dagster run log if forward_python_logs_to_dagster wraps
-    the call — this was originally missing, leaving a silent multi-minute gap
-    in real backfill runs. Also covers BackfillCheckpointStore's own logger
-    ("aqueduct_dagster.shared.backfill") and BaseAdapter's
-    ("aqueduct_dagster.canonical.base_adapter"), neither of which is a
-    descendant of "aqueduct_dagster.sources" in the logging hierarchy, so each
-    needs its own prefix.
-
-    The sources prefix is the whole "aqueduct_dagster.sources" tree rather than
-    "aqueduct_dagster.sources.{name}": a source can fetch through a shared vendor
-    module that is its sibling, not its descendant (sources/hydrovu_common.py, which
-    carries every HydroVu fetch log), and this factory cannot know which.
-    """
+    """Regression test: every emitting package's logger prefix (sources tree,
+    shared, canonical, dlt) must be forwarded to the Dagster run log, or
+    progress logging silently goes missing — this previously happened for real."""
     mock_bucket_url.return_value = "gs://bucket"
     mock_checkpoint_cls.return_value.is_complete.return_value = False
 

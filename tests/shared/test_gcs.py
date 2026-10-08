@@ -1,15 +1,6 @@
 """
-tests/shared/test_gcs.py
-
 Unit tests for the shared parquet/watermark helpers in shared/gcs.py.
 All GCS and parquet I/O is mocked — no live GCS required.
-
-Covers:
-  _gcs_bucket_url               — GCS_BUCKET_URL env override + config.toml fallback
-  _load_id_from_filename        — dlt parquet filename parsing
-  read_new_parquet_rows         — glob + watermark filtering + row_filter
-  read_parquet_rows_for_load_id — exact load_id match (used by backfill chunks)
-  atomic_write_json_with_retry  — tmp+rename write, retry with backoff
 """
 
 from __future__ import annotations
@@ -68,11 +59,9 @@ class TestLoadIdFromFilename:
 
 
 def _mock_fs(files: list[str], tables: dict[str, dict]) -> MagicMock:
-    """
-    Build a mocked gcsfs.GCSFileSystem: fs.glob() returns `files`, and
-    fs.open(path) yields a context manager whose identity is patched into
-    pyarrow.parquet.read_table via the caller's `patch` block, keyed by path.
-    """
+    """Mocked gcsfs.GCSFileSystem: fs.glob() returns `files`; fs.open(path)
+    yields a context manager keyed by path, matched against the caller's
+    patched pyarrow.parquet.read_table."""
     fs = MagicMock()
     fs.glob.return_value = files
 
@@ -202,10 +191,9 @@ class TestReadNewParquetRows:
     def test_bad_name_file_alongside_already_processed_good_files_is_not_a_false_warning(
         self, caplog
     ):
-        """A stray bad-named file must not make an otherwise-normal 'caught up,
-        nothing new' run claim 'not genuinely empty' — that's only true when
-        every candidate file was unparseable, not when good files exist but are
-        simply older than the watermark."""
+        """A stray bad-named file must not make an otherwise-normal 'caught up'
+        run claim 'not genuinely empty' — that's only true when every candidate
+        file was unparseable, not when good files just predate the watermark."""
         files = [
             "bucket/ds/year=2024/month=01/day=01/100.0.0.parquet",
             "bucket/ds/not-a-load-id.0.parquet",

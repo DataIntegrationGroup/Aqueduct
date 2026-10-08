@@ -1,18 +1,7 @@
 """
-tests/shared/test_http.py
-
 Unit tests for shared HTTP infrastructure: retry, token management, and
-bearer-token auth. No real API calls — httpx interactions are simulated via
-httpx.MockTransport (for BearerAuth / build_authenticated_client, so the real
-auth_flow() protocol is exercised) or by patching httpx.post (for
-TokenManager, which calls a token endpoint directly, not through a Client).
-
-Covers:
-  TokenManager             — caching, expiry, force-refresh (moved verbatim
-                              from tests/sources/pvacd_hydrovu/test_dlt_pipeline.py
-                              when TokenManager moved to shared/http.py)
-  BearerAuth               — attaches token, refreshes + retries once on 401
-  build_authenticated_client — wires base_url, default headers, auth, timeout
+bearer-token auth. No real API calls — httpx.MockTransport exercises the
+real auth_flow(); TokenManager's own httpx.post call is patched directly.
 """
 
 from __future__ import annotations

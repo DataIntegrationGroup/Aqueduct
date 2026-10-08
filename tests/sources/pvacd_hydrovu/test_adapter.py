@@ -1,26 +1,8 @@
 """
-tests/sources/pvacd_hydrovu/test_adapter.py
-
-Unit tests for PvacdHydroVuAdapter.
-No real API calls — uses mock records matching the grouped record shape
-produced by hydrovu_transform_common.group_readings_by_location().
-
-Record shape (one per location):
-  {
-    "location_id":          int,
-    "location_name":        str,
-    "location_description": str,   # well number or "" if unnamed
-    "latitude":             float,
-    "longitude":            float,
-    "readings": [
-      {"parameter_id": str, "unit_id": str, "timestamp": int, "value": float},
-    ]
-  }
-
-Parameter IDs (confirmed June 2026):
-  "4"  = Depth to Water (metres → convert to feet)
-  "1"  = Temperature (skipped)
-  "33" = Battery Level (skipped)
+Unit tests for PvacdHydroVuAdapter. Mock records match
+group_readings_by_location()'s output shape (see _record() below). Parameter
+IDs: "4"=Depth to Water (m→ft, confirmed June 2026); "1"/"33" (temp/battery)
+are skipped.
 """
 
 from datetime import UTC

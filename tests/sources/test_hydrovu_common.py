@@ -1,26 +1,9 @@
 """
-tests/sources/test_hydrovu_common.py
-
-Unit tests for the shared HydroVu API client (sources/hydrovu_common.py), the
-vendor-level code every HydroVu tenant runs through.
-
-No real API calls — HTTP interactions are simulated via httpx.MockTransport,
-so requests go through a real httpx.Client + BearerAuth (exercising real
-httpx semantics: raise_for_status, headers, auth_flow) without patching
-httpx.get.
-
-Covers:
-  fetch_locations      — success, pagination, error propagation, transient retry
-  fetch_location_data  — typed result tuple: success, 404, 5xx, 429, transient errors
-  resolve_hydrovu_credentials / build_hydrovu_client — Secret Manager and auth wiring
-
-iter_location_readings is exercised through each tenant's own resource, in
-tests/sources/<tenant>/test_dlt_pipeline.py, since the cursor state it mutates is
-owned there.
-
-TokenManager/BearerAuth's own behavior (401 refresh-and-retry, token caching)
-is covered in tests/shared/test_http.py — the 401 tests here only confirm
-fetch_locations/fetch_location_data are wired to the client correctly.
+Unit tests for the shared HydroVu API client (sources/hydrovu_common.py).
+No real API calls — httpx.MockTransport exercises real httpx.Client +
+BearerAuth semantics. iter_location_readings is tested per-tenant (see
+tests/sources/<tenant>/test_dlt_pipeline.py); TokenManager/BearerAuth's own
+behavior is covered in tests/shared/test_http.py.
 """
 
 from __future__ import annotations
@@ -359,12 +342,9 @@ class TestBuildHydroVuClient:
 
 
 class TestFetchLocationDataPageMerge:
-    """
-    A readings page covers roughly a two-day block, so any real fetch spans many
-    pages and the merge below is what assembles them. It matters more for BernCo
-    than PVACD: history reaches back to 2009 and one location logs every minute,
-    which is thousands of rows across hundreds of pages.
-    """
+    """A readings page covers ~2 days, so any real fetch spans many pages —
+    this merge assembles them. Matters most for BernCo: history back to 2009
+    at one-minute logging is thousands of rows across hundreds of pages."""
 
     def test_merges_readings_for_a_parameter_seen_on_several_pages(self):
         page1 = {

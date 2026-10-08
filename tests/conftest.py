@@ -1,8 +1,6 @@
 """
-tests/conftest.py
-
 Shared test helpers for httpx.Client/BearerAuth-based code, used by both
-tests/shared/test_http.py and tests/sources/pvacd_hydrovu/test_dlt_pipeline.py.
+tests/shared/test_http.py and tests/sources/test_hydrovu_common.py.
 Consolidated here after the two files independently grew near-identical
 make_tm()/client_with_responses() helpers.
 """
@@ -29,15 +27,10 @@ def client_with_responses(
     tm: TokenManager | None = None,
     base_url: str | httpx.URL = "",
 ) -> tuple[httpx.Client, list[httpx.Request]]:
-    """
-    Builds a real httpx.Client wired to BearerAuth(tm), backed by a
-    MockTransport that returns `responses` in order — or raises, if an item
-    is an Exception instance (simulates a transient network error).
-
-    Exercises real httpx semantics (raise_for_status, headers, pagination via
-    response headers, auth_flow) without patching httpx.get. Returns
-    (client, calls) — calls records every request the transport actually saw.
-    """
+    """Real httpx.Client wired to BearerAuth(tm), backed by a MockTransport
+    that returns `responses` in order (or raises, for an Exception item) —
+    exercises real httpx semantics without patching httpx.get. Returns
+    (client, calls), where calls records every request the transport saw."""
     calls: list[httpx.Request] = []
     remaining = iter(responses)
 
@@ -60,15 +53,7 @@ def client_with_responses_unauthenticated(
     responses: list[httpx.Response | Exception],
     base_url: str | httpx.URL = "",
 ) -> tuple[httpx.Client, list[httpx.Request]]:
-    """
-    Builds a real httpx.Client backed by a
-    MockTransport that returns `responses` in order — or raises, if an item
-    is an Exception instance (simulates a transient network error).
-
-    Exercises real httpx semantics (raise_for_status, headers, pagination via
-    response headers, auth_flow) without patching httpx.get. Returns
-    (client, calls) — calls records every request the transport actually saw.
-    """
+    """Same as client_with_responses(), without BearerAuth."""
     calls: list[httpx.Request] = []
     remaining = iter(responses)
 
