@@ -15,18 +15,6 @@ last re-uploaded 2025-03-12.
 
 ## Summary
 
-**Decision path**
-
-1. **Access: granted.** datHere added a Cloudflare exception keyed on a request header, so scripts can
-   reach the catalog again. See [The Cloudflare Challenge](#the-cloudflare-challenge).
-2. **Build [Plan A](#plan-a-automated-ingest-with-a-dathere-exception):** a weekly automated pipeline
-   over the CKAN Action API.
-3. **Keep [Plan B](#plan-b-without-an-exception) as the fallback** if the exception stops working or
-   fails from Dagster+: a person pulls the files with a browser into GCS, and the same pipeline reads
-   them from there. Only the fetch step differs.
-
-**Plan A in brief**
-
 - **Recommendation:** use the CKAN Action API to find resources and detect changes, then download the
   raw resource file for the data. It is a hybrid of the two options the ticket asked about.
   - One `package_show` call per dataset per run lists every resource with its `last_modified` / `size`.
@@ -42,24 +30,21 @@ last re-uploaded 2025-03-12.
 - **"Less robust" is fine here and is designed in:** a weekly schedule, no pagination, cursor or
   rate-limit machinery, a changed file simply lands again in full, and the first run *is* the backfill.
 
-**Access in brief.** Cloudflare returns `403` to every scripted client unless the request carries the
+**Access.** Cloudflare returns `403` to every scripted client unless the request carries the
 `x-cf-bypass` header with the value datHere issued. With it, the API and file downloads all work. Keep
-the value in GCP Secret Manager, never in code or docs, and confirm it works from Dagster+.
+the value in GCP Secret Manager, never in code or docs, and confirm it works from Dagster+. See
+[Access](#access-cloudflare).
 
 ---
 
-## Plan A: Automated Ingest (with a datHere Exception)
-
-This is the design to build. datHere has exempted requests that carry the bypass header from the
-Cloudflare challenge (see [The Cloudflare Challenge](#the-cloudflare-challenge)). Everything after the
-fetch step is also what [Plan B](#plan-b-without-an-exception) uses.
+## Automated Ingest
 
 ### Platform and Endpoints
 
 A standard CKAN instance with FileStore uploads, the DataStore extension (populated by the catalog's
 pusher, most likely datHere's DataPusher+) and ckanext-dcat. All read endpoints are unauthenticated, but
-every request must carry the `x-cf-bypass` header (value from Secret Manager) to get past Cloudflare.
-File downloads are served directly, with no redirect.
+every request must carry the `x-cf-bypass` header (value from Secret Manager) to get past Cloudflare
+(see [Access](#access-cloudflare)). File downloads are served directly, with no redirect.
 
 | Endpoint | Use | Gotchas |
 |---|---|---|
@@ -156,7 +141,7 @@ FROST**. EBWPC says its transducer data is drift-corrected, so such corrections 
 
 | Module | Owns |
 |---|---|
-| `sources/ckan_common.py` | httpx client (`build_unauthenticated_client` plus the `x-cf-bypass` header from Secret Manager, overriding `Accept` for file downloads), `package_show`, fingerprinting, download, CSV -> string rows, provenance columns. Keep "get the `package_show` JSON and the file bytes" behind one function, so [Plan B](#plan-b-without-an-exception) can feed the same pipeline from GCS. |
+| `sources/ckan_common.py` | httpx client (`build_unauthenticated_client` plus the `x-cf-bypass` header from Secret Manager, overriding `Accept` for file downloads), `package_show`, fingerprinting, download, CSV -> string rows, provenance columns |
 | `sources/wdi_transform_common.py` | The WDI location + measurement -> `CanonicalBundle` adapter and its validation rules |
 | `sources/<agency>_ckan/` | Dataset UUID, resource selector, agency shim, `raw_<key>` dataset, dlt resource names. One `SourceConfig` entry each. |
 
@@ -180,122 +165,30 @@ per-resource failure, and every date format and junk value listed in the survey.
 
 ---
 
-## The Cloudflare Challenge
+## Access (Cloudflare)
 
-**Status: resolved by a header exception.** datHere added a Cloudflare exception for requests that carry
-the `x-cf-bypass` header with the value it issued. Store the value in GCP Secret Manager, like the
-HydroVu credentials, and never put it in code, config or docs.
-
-| Request | Result |
-|---|---|
-| No header, or a wrong `x-cf-bypass` value | 403, Cloudflare challenge |
-| Browser User-Agent and `Accept`, no `x-cf-bypass` | 403, Cloudflare challenge |
-| `x-cf-bypass` only, curl's default User-Agent | **200** |
-| `x-cf-bypass` through `build_unauthenticated_client` (`httpx`) | **200** |
-
-- **Paths tested:** `status_show`, `package_show` (EBWPC and OSE), `datastore_search` and resource
-  downloads all return 200 with the header.
-- **Downloads are complete and come straight from the catalog.** All 22 EBWPC downloads match their
-  `size`, and the 17 that the Internet Archive also holds are byte-identical to its copies.
-- **Only the header matters.** `User-Agent` and `Accept` make no difference.
-- **Not yet confirmed from Dagster+.** It has only been tested from a developer machine. If datHere also
-  scoped the exception to IP addresses, Dagster+ would still be blocked.
-
-### Background: why it was needed
-
-Without the header, every scripted request returns `HTTP/2 403` with `cf-mitigated: challenge` and
-Cloudflare's "Just a moment..." page, a **managed challenge** (`cType: 'managed'`) that a Dagster+ run
-can't pass. This happens on every path, including file downloads and `/robots.txt`; only `/cdn-cgi/trace`
-(answered by Cloudflare itself) returns 200. Browsers get the JSON with no challenge at all, so the rule
-targets clients that look automated, not an IP or User-Agent. The legacy NMWDI loaders and DIE's CKAN
-connector (see [Prior Art](#prior-art)) are presumably broken the same way.
-
-- **It is a datHere platform setting, not a New Mexico one.** Every hostname found in datHere's
-  `opendataportal.us` Cloudflare zone is challenged on every path: `newmexico.` (the catalog's CNAME
-  target), `catalog.` and `sandbox.opendataportal.us`.
-- **Only datHere can change it.** DNS for `newmexicowaterdata.org` is hosted at GoDaddy, not Cloudflare,
-  so NMBGMR has no Cloudflare settings of its own.
-- **Cloudflare isn't new, but the challenge is.** The hostname's certificate history shows Cloudflare in
-  front since spring 2024, and the Internet Archive got normal `200` pages through it until its last
-  capture on 2026-04-19. So the challenge was switched on some time after that.
-- **It isn't Bot Fight Mode.** Bot Fight Mode can't be skipped by a WAF rule
-  ([Cloudflare docs](https://developers.cloudflare.com/bots/get-started/bot-fight-mode/)), so a working
-  header exception means the challenge comes from a setting datHere can exempt.
-
-### The exception
-
-datHere runs the catalog for NMBGMR/WDI under an NMT
+Without the `x-cf-bypass` header, Cloudflare answers every scripted request on every path with `403`
+and a managed challenge (`cf-mitigated: challenge`) that a Dagster+ run can't pass. It is a datHere
+platform setting, and datHere runs the catalog for NMBGMR/WDI under an NMT
 [sole-source contract](https://www.nmt.edu/finance/purchasing/Dathere_Sole%20Source%20Justification.pdf),
 so changes to the exception go through WDI to datHere.
 
-- **Header:** `x-cf-bypass`. The value lives in Secret Manager and is added by `ckan_common`'s client.
-- **Covers:** the read API (`/api/3/action/*`) and resource downloads (`/dataset/*/resource/*/download/*`),
-  the only paths the pipeline needs.
-- **Still to do:**
-  - confirm it works from a Dagster+ run
-  - ask datHere whether it is also scoped by path or IP address
-  - ask datHere to warn WDI before changing or rotating it, since the pipeline fails closed without it
+- **Header:** `x-cf-bypass`, with the value datHere issued. Store it in GCP Secret Manager, like the
+  HydroVu credentials, and have `ckan_common`'s client add it. Never put it in code, config or docs.
+- **Only the header matters.** `User-Agent` and `Accept` make no difference: browser-like headers without
+  it are still challenged, and curl's default User-Agent with it gets `200`.
+- **Covers what the pipeline needs.** `status_show`, `package_show`, `datastore_search` and resource
+  downloads all return `200` with the header, through `build_unauthenticated_client` as well as curl.
+- **Downloads are complete.** All 22 EBWPC downloads match their `size`, and the 17 that the Internet
+  Archive also holds are byte-identical to its copies.
+- **Not yet confirmed from Dagster+.** It has only been tested from a developer machine. If datHere also
+  scoped the exception to IP addresses, Dagster+ would still be blocked. See Open Question 1.
 
 ---
 
-## Plan B: Without an Exception
+## Reference
 
-Fallback only: use this if the header exception stops working, or doesn't work from Dagster+. Only the
-fetch step changes.
-Fingerprinting, the raw layer, the shims, the WDI adapter and the FROST load are the same as
-[Plan A](#plan-a-automated-ingest-with-a-dathere-exception), and the [Reference](#reference-both-plans)
-material applies unchanged.
-
-### Default: manual browser pull into GCS
-
-Browsers aren't challenged, so a person can fetch exactly what the pipeline would have fetched.
-
-1. **Save the `package_show` JSON** for each dataset from the browser, e.g.
-   `.../api/3/action/package_show?id=719844ad-46bf-46cf-a781-a111f114fe38`. It lists every resource with
-   its `last_modified`, `size` and URL, so discovery and change detection still work.
-2. **Download each resource file** from the dataset page (EBWPC has 22 resources, OSE 3 CSVs). Save the file
-   itself, not the link the browser ends up on: the catalog may redirect downloads to a signed S3 link
-   that expires.
-3. **Upload both to a GCS landing prefix**, e.g. `landing/<source_key>/<YYYY-MM-DD>/`. This is an input
-   folder, separate from the dlt-owned `raw_*` datasets.
-4. **The ingest reads the newest landing folder** instead of calling the catalog, then carries on as in
-   Plan A.
-
-**Costs.** A person has to notice updates and repeat the pull. Checking each dataset page's "Last Updated"
-date now and then is enough, given how rarely the data moves. New wells appear only when someone pulls.
-It is a stopgap, not the long-term answer.
-
-### Middle-ground options datHere could offer
-
-Both stay automatic and change only the fetch step:
-
-- **Read access to the catalog's file storage.** Uploads live in an S3 bucket (`newmexico-s3-bucket`,
-  seen in an archived redirect) and are served through short-lived signed links that CKAN generates, so
-  there is no public path today. Change detection would use object timestamps instead of `package_show`.
-- **A scheduled export** of the datasets we need to a GCS bucket we own.
-
-### Other routes, by source
-
-| Source | Route | Caveat |
-|---|---|---|
-| All three | **Old FROST server `st2.newmexicowaterdata.org`.** NMBGMR's own server, not behind Cloudflare, and answering `200`. Holds EBWPC (to 2024-04-26), OSE-Roswell (to about 2020-02) and CityOfRoswell (to 2025-03-15). | Frozen since the legacy loaders stopped, and EBWPC times are wrongly stamped as UTC. Fine for a one-time history backfill or cross-checks, not an ongoing feed. |
-| OSE Roswell | **USGS Water Data API.** OSE's readings are in USGS under the same 15-digit site IDs, with measuring agency `NM001` ("New Mexico State Engineers Office"). | Spot check of one site (`323405104242601`): USGS readings run to 2022-01-06 and differ from the catalog's (USGS 2020-01-16 at 11.53 ft vs the catalog's 2020-02-17 at 11.1 ft, marked "Date and time approximate"). A related dataset, not a copy, so compare before relying on it. |
-| City of Roswell | **The `roswellbubbler` GCS bucket** the legacy loader read. | It was never a CKAN source. If NMBGMR owns the bucket, this is the simplest route of all. |
-| Any | **Providers send files directly** (EBWPC's contractor, OSE District 2) into the same landing prefix. | Same manual cost as the browser pull. |
-
-### Not recommended
-
-Making our client pass as a browser (driving a headless Chrome, reusing a browser's cookies or headers,
-or using a library that copies Chrome's connection fingerprint), or calling the server behind Cloudflare
-directly. These deliberately get around datHere's protection on a catalog NMBGMR pays datHere to run.
-They also break without warning whenever datHere tunes its settings, and could get Dagster+ traffic
-blocked outright.
-
----
-
-## Reference (Both Plans)
-
-The WDI shape both plans map to, what each source looks like today, and the legacy code.
+The WDI shape the pipeline maps to, what each source looks like today, and the legacy code.
 
 EBWPC and OSE have both been checked against the live catalog. The other facts below come from three
 sources, each dated where quoted: Internet Archive snapshots (the EBWPC dataset page, its RDF metadata and
@@ -567,9 +460,8 @@ which fits how rarely the data moves.
 ## Proposed Follow-Up Tickets
 
 1. **Access (exception granted):** store the `x-cf-bypass` value in GCP Secret Manager and confirm it
-   works from a Dagster+ run. See [The exception](#the-exception) and Open Question 1.
+   works from a Dagster+ run. See [Access](#access-cloudflare) and Open Question 1.
 1. **`ckan_common` + `wdi_transform_common`:** shared discover/fingerprint/parse, with the bypass header
-   on the client and a swappable fetch step (HTTP for Plan A, GCS landing for Plan B), and the WDI ->
-   canonical adapter. Offline unit tests against a synthetic WDI-template fixture. No agency yet.
+   on the client, and the WDI -> canonical adapter. Offline unit tests against a synthetic WDI-template fixture. No agency yet.
 1. **Feedback to WDI** on the best-practices document: add a timezone field, and ask providers to update
    resources in place instead of adding new ones (OSE added `_r2` copies next to its old files).
