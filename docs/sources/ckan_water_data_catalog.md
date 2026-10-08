@@ -2,11 +2,14 @@
 
 **Platform:** CKAN, hosted by datHere (the catalog footer reads "Powered by datHere")
 **Base URL:** `https://catalog.newmexicowaterdata.org` (CNAME to `newmexico.opendataportal.us`)
-**Agencies investigated:** EBWPC, OSE Roswell (District 2), City of Roswell. The same approach applies to any
-other agency that publishes water levels to the catalog.
+**Agencies investigated:** EBWPC and OSE Roswell (District 2). The same approach applies to any other
+agency that publishes water levels to the catalog; City of Santa Fe and City of Deming are wanted later.
+City of Roswell is out of scope: its data is in a GCS bucket, not on CKAN.
 **Response format:** CKAN Action API JSON for metadata, CSV (legacy XLSX) resource files for data
-**Source timezone:** not stated by any source, and not covered by the WDI best practices. See
-[Open Questions](#open-questions).
+**Source timezone:** not stated by any source, and not covered by the WDI best practices, so it is
+decided per source by checking timestamps for missing or repeated hours on DST dates. An undecided
+timezone blocks that source's production backfill. EBWPC's loggers run on a fixed UTC−07:00 (see
+[EBWPC](#ebwpc-estancia-basin-water-planning-committee)).
 **Update frequency:** irregular, and publication lags collection. EBWPC collects semi-annually and OSE
 District 2 annually each winter. As of Jan 2026, EBWPC's newest reading was 2024-04-26 and its files were
 last re-uploaded 2025-03-12.
@@ -122,8 +125,9 @@ refuse unknown units), and pick the Manual vs continuous datastream from `measur
 **FROST dedup caveat.** Re-emitting a whole file is safe, because the loader's per-datastream
 `phenomenonTime` watermark (`loader/watermark_store.py`) skips anything at or before the last loaded
 observation. The flip side: **a corrected or backfilled value older than the watermark never reaches
-FROST**. EBWPC says its transducer data is drift-corrected, so such corrections are plausible. See
-[Open Questions](#open-questions).
+FROST**. EBWPC says its transducer data is drift-corrected, so such corrections are plausible. This is
+accepted for now. The fix belongs in the loader (e.g. a per-source "reload datastream when the snapshot
+changed" mode) and is future work after the migration.
 
 #### Schedule and failure handling
 
@@ -145,17 +149,18 @@ FROST**. EBWPC says its transducer data is drift-corrected, so such corrections 
 | `sources/wdi_transform_common.py` | The WDI location + measurement -> `CanonicalBundle` adapter and its validation rules |
 | `sources/<agency>_ckan/` | Dataset UUID, resource selector, agency shim, `raw_<key>` dataset, dlt resource names. One `SourceConfig` entry each. |
 
-**Proposed source keys:** `ebwpc_ckan`, `ose_roswell_ckan`, `city_of_roswell_ckan`, following the
-`<agency>_<source system>` rule in `STORAGE_CONVENTIONS.md`. TBD; see [Open Questions](#open-questions).
+**Source keys and agency codes:** `ebwpc_ckan` / `EBWPC` and `nmose_ckan` / `NMOSE`, following the
+`<agency>_<source system>` rule in `STORAGE_CONVENTIONS.md`. Codes are upper-case and per agency, like
+`PVACD`, `CABQ` and `BERNCO`, so OSE's district and basin go in `source_specific`. Old FROST used
+`OSE-Roswell`.
 
 **Dependencies and canonical touch points:**
-- CSV needs only the stdlib `csv` module. EBWPC has one XLSX resource left (`E-9407-Archived`). Add
-  `openpyxl` (with `uv add`) only if that well is wanted (Open Question 3).
-- EBWPC's locations are UTM-only, so the shim needs `pyproj`. Neither `pyproj` nor `openpyxl` is in
-  `uv.lock` today.
+- CSV needs only the stdlib `csv` module. EBWPC's one XLSX resource (`E-9407-Archived`) is skipped for
+  now and logged in metadata, and EBWPC will be asked to re-upload it as CSV, so `openpyxl` isn't needed.
+- EBWPC's locations are UTM-only, so the shim needs `pyproj`, which isn't in `uv.lock` today.
 - **Sensors:** `canonical_constants.py` has only `MANUAL_SENSOR` and `HYDROVU_SENSOR`. EBWPC needs a
-  pressure transducer and City of Roswell a bubbler (old FROST called them `Transducer` and `Bubbler`).
-  Both names are in the Sensor list in `_mapping_template.md`. Coordinate the change in `canonical/`.
+  pressure transducer (old FROST called it `Transducer`), which is in the Sensor list in
+  `_mapping_template.md`. Coordinate the change in `canonical/`.
 - **Observation parameters:** WDI's desired measurement fields match the standard `parameters` keys in
   `_mapping_template.md` one-to-one, so no new keys are needed.
 
@@ -171,7 +176,8 @@ Without the `x-cf-bypass` header, Cloudflare answers every scripted request on e
 and a managed challenge (`cf-mitigated: challenge`) that a Dagster+ run can't pass. It is a datHere
 platform setting, and datHere runs the catalog for NMBGMR/WDI under an NMT
 [sole-source contract](https://www.nmt.edu/finance/purchasing/Dathere_Sole%20Source%20Justification.pdf),
-so changes to the exception go through WDI to datHere.
+so changes to the exception go through WDI's owner of the datHere relationship (to be documented), who
+should hear before the value changes or is rotated.
 
 - **Header:** `x-cf-bypass`, with the value datHere issued. Store it in GCP Secret Manager, like the
   HydroVu credentials, and have `ckan_common`'s client add it. Never put it in code, config or docs.
@@ -182,7 +188,8 @@ so changes to the exception go through WDI to datHere.
 - **Downloads are complete.** All 22 EBWPC downloads match their `size`, and the 17 that the Internet
   Archive also holds are byte-identical to its copies.
 - **Not yet confirmed from Dagster+.** It has only been tested from a developer machine. If datHere also
-  scoped the exception to IP addresses, Dagster+ would still be blocked. See Open Question 1.
+  scoped the exception to IP addresses, Dagster+ would still be blocked. Checking this is follow-up
+  ticket 1.
 
 ---
 
@@ -211,8 +218,8 @@ enforceable standards". Contact: `newmexicowaterdata@nmt.edu`. It ships two temp
 | **File names** follow `Agency_Region_ProjectName_YYYYMM_DataType_Version` | Filenames and download URLs are *expected* to change, so never configure them. |
 | Field names lowercase with underscores, all in row 1 | A compliant file needs no header surgery. The shim still lower-cases defensively. |
 | Depth to water in **feet below ground surface**, units in a separate `*_unit` column | Map `depth_to_water` to `DTW_OBS_PROP` and validate `depth_to_water_unit`. |
-| Manual and continuous readings in **one** `depth_to_water` field, told apart by `measurement_type` | `measurement_type` selects the datastream and sensor (Manual vs Transducer/Bubbler). |
-| Date `YYYY-MM-DD` and time `HH:MM:SS` (24-hour) in separate columns | Parse the two columns. **No timezone field and no guidance on one.** See Open Questions. |
+| Manual and continuous readings in **one** `depth_to_water` field, told apart by `measurement_type` | `measurement_type` selects the datastream and sensor (Manual vs a continuous sensor such as a transducer). |
+| Date `YYYY-MM-DD` and time `HH:MM:SS` (24-hour) in separate columns | Parse the two columns. **No timezone field and no guidance on one**, so the timezone is decided per source. |
 | Locations without x,y "should not be included" | The adapter drops measurements for sites with no located location, and counts them in metadata. |
 
 #### Field mapping: WDI -> canonical
@@ -226,7 +233,7 @@ enforceable standards". Contact: `newmexicowaterdata@nmt.edu`. It ships two temp
 | `coordinate_system`, `horizontal_datum` | required | Drive the coordinate conversion. Originals kept in `properties.source_specific`. |
 | `elevation`, `elevation_units` | required | Location `properties.source_specific.elevation`, in feet |
 | `site_name` | desired | Location `name` if present, else `site_id` |
-| `alternate_site_id` + `alternate_site_id_organization`, `ose_pod_id`, `ose_tag_id` | desired | `properties.alternate_id` = `[{id, agency}]`, OSE IDs with agency `NMOSE` (settle in the mapping ticket) |
+| `alternate_site_id` + `alternate_site_id_organization`, `ose_pod_id`, `ose_tag_id` | desired | `properties.alternate_id` = `[{id, agency}]`, OSE IDs with agency `NMOSE` |
 | `well_depth`, `screen_top`, `screen_bottom` (+ units) | desired | Thing `properties.source_specific.well_depth` = `{value, unit: "ft"}` and `.screens` = `[{top, bottom}]` |
 | Every other desired field (`vertical_datum`, `county`, `hole_depth`, `casing_diameter`, `well_completion_date`, `primary_use`, `primary_aquifer`, `lithology`, `location_source`, `location_accuracy*`, `elevation_source`, `elevation_accuracy`) | desired | `properties.source_specific` as-is (`primary_use` is from WDI's fixed value list) |
 
@@ -235,7 +242,7 @@ enforceable standards". Contact: `newmexicowaterdata@nmt.edu`. It ships two temp
 | WDI field | Req. | Canonical target |
 |---|---|---|
 | `site_id` | required | Join key to the location |
-| `measurement_date` + `measurement_time` | required | Observation `phenomenonTime`, converted to UTC (timezone TBD) |
+| `measurement_date` + `measurement_time` | required | Observation `phenomenonTime`, converted to UTC from the source's timezone |
 | `depth_to_water`, `depth_to_water_unit` | required | Observation `result`, in feet |
 | `measurement_type` | desired | Choice of Datastream and Sensor (manual vs continuous) |
 | `measuring_agency`, `measurement_method`, `water_level_status`, `measurement_point_height`, `water_level_accuracy` | desired | Observation `parameters` standard keys, same names |
@@ -243,8 +250,8 @@ enforceable standards". Contact: `newmexicowaterdata@nmt.edu`. It ships two temp
 
 ### Per-Source Survey
 
-All three agencies predate the best-practice document. **None is fully compliant**, which is why each
-gets a shim.
+Both agencies predate the best-practice document. **Neither is fully compliant**, which is why each gets
+a shim.
 
 #### EBWPC (Estancia Basin Water Planning Committee)
 
@@ -256,7 +263,8 @@ gets a shim.
 | **Compliance** | **Partial.** Per-well files and a separate locations resource are the right idea, but the column names, split depth columns, date and time formats, missing unit columns and UTM-only locations all deviate. |
 
 **Resources.** One resource per well, named by well ID (`E-8428`, `Smith-1`, `E-1639-POD1`). Retired
-wells are suffixed `-Archived`.
+wells are suffixed `-Archived`: strip the suffix to get the `source_id`, record `is_archived` in
+`source_specific`, and load them wherever a location exists.
 - **Oct 2024 snapshot:** eight XLSX well resources.
 - **Jan 2026 snapshot:** 22 resources, none modified after 2025-03-12. The original eight keep their
   resource IDs but are now CSV with new download URLs. 20 of the well resources are CSV. `E-9407-Archived`
@@ -277,8 +285,9 @@ these depth columns:
 | `manual_depth_BTOC` | Manual, **below top of casing** | `hagerman`, `rubyshaw` |
 | `manual_depth_Below_TOC` | Manual, **below top of casing** | `e-6385` |
 
-TOC readings are not BGS. Without a measuring-point height they cannot become `DTW_OBS_PROP` values.
-The legacy loader skipped them because the `KeyError` on `manual_depth_bgs` bailed out of those files.
+TOC readings are not BGS. Without a measuring-point height they cannot become `DTW_OBS_PROP` values, so
+they are skipped for now and EBWPC will be asked for stick-up heights. The legacy loader skipped them
+too, because the `KeyError` on `manual_depth_bgs` bailed out of those files.
 
 **Data-quality issues**, from profiling the 17 archived CSVs (Jan 2026):
 - **Dates:** `M/D/YY` in some files, `M/D/YYYY` in others. `e-1639-pod1` mixes both.
@@ -378,33 +387,6 @@ Site_ID,Date,Time,Location,DD_lat,DD_lon,DMS_lat,DMS_lon,DTWGS,Basin,Comment,UTM
 324752 104243201,,12:00:00,17S.26E.32.11223,32.798056,-104.408611,32 47 53,104 24 31,73.52,Roswell,,555371,3629050
 ```
 
-#### City of Roswell
-
-| | |
-|---|---|
-| **On CKAN?** | **Unconfirmed.** The legacy loader (`stao/croswell/`, added 2025-03-18) read from a GCS bucket (`roswellbubbler`) and a checked-in locations CSV, not from CKAN. The Jan 2026 snapshot of the catalog's organizations page (66 orgs) has no `city-of-roswell` between `city-of-deming` and `city-of-santa-fe`. |
-| **Compliance** | **Closest of the three.** The locations CSV already uses WDI field names, and the measurements are nearly compliant. |
-
-**Locations** (`Roswell_locations.csv`), missing the required `elevation`, `elevation_units` and
-`horizontal_datum`:
-
-```csv
-site_id,y_coord,x_coord,coordinate_system,county,well_depth,well_depth_unit,casing_diameter,casing_diameter_unit,primary_use,ose_pod_id
-18,33.29592,-104.58409,decimal degrees,Chaves,850,ft,16,in,public supply,RA-4253S
-```
-
-**Measurements** (`SMW18_measurements_fixed.csv`), non-compliant in four ways: a space in
-`measuring _agency`, an unnamed empty column, a combined non-zero-padded `timestamp` instead of separate
-date and time columns, and no `depth_to_water_unit`:
-
-```csv
-depth_to_water,site_id,measuring _agency,,timestamp
-124.1,18,City of Roswell,,2024-6-3T11:46:38
-```
-
-**Old FROST footprint (`st2`):** 1 Location (`Site-18`, with a geoconnex URI), 1 `Groundwater Levels`
-Datastream (Sensor `Bubbler`, continuous), 2024-06-03 to 2025-03-15. Agency code: `CityOfRoswell`.
-
 ### Prior Art
 
 | Code | What it does | Lesson |
@@ -412,55 +394,18 @@ Datastream (Sensor `Bubbler`, continuous), 2024-06-03 to 2025-03-15. Agency code
 | [NMWDI/CloudFunctions `stao/ckan_stao.py`](https://github.com/NMWDI/CloudFunctions/blob/main/stao/ckan_stao.py) | `package_show`, filter resources by name, `httpx.get(resource.url)`, `csv.DictReader`. | The recommended pattern already worked in production, after the 2025-03-19 move off the DataStore. No change detection or provenance. |
 | [`stao/ebwpc/entities.py`](https://github.com/NMWDI/CloudFunctions/blob/main/stao/ebwpc/entities.py) | EBWPC locations from `EBWPC Well Locations` (UTM->lat/lon), manual + transducer datastreams per well, four hardcoded `strptime` formats. | Its comments list every known per-well quirk. Don't repeat its UTC stamping of local times. |
 | [`stao/ose_roswell_basin/entities.py`](https://github.com/NMWDI/CloudFunctions/blob/main/stao/ose_roswell_basin/entities.py) | Three resource IDs, dedupes sites, swaps lat/lon when `lat < 0`. | Keep the lat/lon guard. Its IDs point at the pre-2025 files, not the `_r2` revisions. |
-| [`stao/croswell/entities.py`](https://github.com/NMWDI/CloudFunctions/blob/main/stao/croswell/entities.py) | Local locations CSV plus the `roswellbubbler` GCS bucket. | City of Roswell was never a CKAN source in the legacy system. |
 | [DataIntegrationEngine `backend/connectors/ckan/source.py`](https://github.com/DataIntegrationGroup/DataIntegrationEngine/blob/main/backend/connectors/ckan/source.py) | OSE Roswell via `datastore_search?resource_id=...` with no `limit`/`offset`. | Silent truncation at CKAN's 100-row default. |
 
-None of the three legacy agency loaders is wired into `main.py`. All were run by hand from `__main__`,
+None of the legacy agency loaders is wired into `main.py`. All were run by hand from `__main__`,
 which fits how rarely the data moves.
-
----
-
-## Open Questions
-
-1. **Exception durability.** Does the header work from Dagster+? Is the exception also scoped by path
-   or IP address? Who at WDI owns the datHere relationship and gets told before the value changes or is
-   rotated?
-2. **OSE revisions as new resources.** OSE added its 2025 revisions (`*_r2.csv`) next to the old files
-   instead of replacing them. Proposal: select the three `*_waterlevels` CSVs by name, and ask OSE to
-   update resources in place from now on, per the WDI best practices.
-3. **EBWPC's one XLSX resource** (`E-9407-Archived`). Proposal: select CSV only and log skipped resources
-   in metadata, and ask EBWPC to re-upload it as CSV per the best practices. Add `openpyxl` only if the
-   well is needed sooner.
-4. **Is City of Roswell on CKAN now?** If not, it is out of scope for the CKAN pipeline. Who owns the
-   legacy `roswellbubbler` GCS bucket, and can we read it directly?
-5. **Source timezone.** No source or WDI guidance states one, and the legacy loaders' UTC assumption is
-   almost certainly wrong for field times. Don't assume `America/Denver`: EBWPC's loggers run on a fixed
-   UTC−07:00 with no daylight saving (see [EBWPC](#ebwpc-estancia-basin-water-planning-committee)).
-   Before choosing a zone for each source, check its timestamps for missing or repeated hours on DST
-   dates. Record the assumption, and suggest WDI add a timezone field (NMBGMR's own data dictionary has
-   `TimeDatum`).
-6. **TOC readings** (EBWPC `hagerman`, `rubyshaw`, `e-6385`) need a measuring-point height to become BGS.
-   Skip them (proposed), ask EBWPC for stick-up heights, or load them under a separate "below top of
-   casing" observed property.
-7. **Corrections older than the FROST watermark** are silently dropped (see
-   [Transform](#transform-raw---wdi-shape---canonical)). Is that acceptable for sources that re-upload
-   drift-corrected history? If not, the fix belongs in the loader, e.g. a per-source "reload datastream
-   when the snapshot changed" mode.
-8. **"Archived" wells.** Proposal: strip the `archived` suffix to get the `source_id`, record
-   `is_archived` in `source_specific`, and load them wherever a location exists.
-9. **Source keys and agency codes.** Keys proposed above. Old FROST used `EBWPC`, `OSE-Roswell` and
-   `CityOfRoswell`, while the canonical model asks for upper-case codes (`PVACD`, `CABQ`, `EBID`). Keep
-   the old codes for continuity, or normalize?
-10. **Other catalog sources.** The same approach covers any water-level dataset on the catalog. Which other
-    agencies (e.g. `nmbgmr`, `carlsbad-irrigation-district`, `city-of-santa-fe`, `city-of-deming`) are
-    wanted?
 
 ---
 
 ## Proposed Follow-Up Tickets
 
-1. **Access (exception granted):** store the `x-cf-bypass` value in GCP Secret Manager and confirm it
-   works from a Dagster+ run. See [Access](#access-cloudflare) and Open Question 1.
+1. **Access (exception granted):** store the `x-cf-bypass` value in GCP Secret Manager, confirm it
+   works from a Dagster+ run, and ask datHere whether the exception is also scoped by IP address or
+   path. See [Access](#access-cloudflare).
 1. **`ckan_common` + `wdi_transform_common`:** shared discover/fingerprint/parse, with the bypass header
    on the client, and the WDI -> canonical adapter. Offline unit tests against a synthetic WDI-template fixture. No agency yet.
 1. **Feedback to WDI** on the best-practices document: add a timezone field, and ask providers to update
