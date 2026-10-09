@@ -231,7 +231,7 @@ enforceable standards". Contact: `newmexicowaterdata@nmt.edu`. It ships two temp
 | `site_id` | required | Location/Thing `properties.source_id` (str) |
 | `y_coord`, `x_coord` | required | Location GeoJSON `coordinates[1]`, `[0]`, after conversion to WGS84 lat/lon |
 | `coordinate_system`, `horizontal_datum` | required | Drive the coordinate conversion. Originals kept in `properties.source_specific`. |
-| `elevation`, `elevation_units` | required | Location `properties.source_specific.elevation`, in feet |
+| `elevation`, `elevation_units` | required | Location `properties.source_specific.elevation` = `{value, unit: "m"}`, converted from `elevation_units` |
 | `site_name` | desired | Location `name` if present, else `site_id` |
 | `alternate_site_id` + `alternate_site_id_organization`, `ose_pod_id`, `ose_tag_id` | desired | `properties.alternate_id` = `[{id, agency}]`, OSE IDs with agency `NMOSE` |
 | `well_depth`, `screen_top`, `screen_bottom` (+ units) | desired | Thing `properties.source_specific.well_depth` = `{value, unit: "ft"}` and `.screens` = `[{top, bottom}]` |

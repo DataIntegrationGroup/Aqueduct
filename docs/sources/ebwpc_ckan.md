@@ -14,9 +14,9 @@ levels collected by Sandia National Labs (2007 to 2009), HydroResolutions (2009 
 Shomaker & Associates (2021-12 to present). Transducer data were drift-corrected against hand
 measurements every 6 to 12 months.
 
-Platform-level research (why the Action API plus file download, the Cloudflare exception, the Plan B
-fallback) lives in
-[`ckan_water_data_catalog.md`](ckan_water_data_catalog.md). This doc covers EBWPC only.
+Platform-level research (why the Action API plus file download, fingerprinting, the raw layer and
+Cloudflare access) lives in [`ckan_water_data_catalog.md`](ckan_water_data_catalog.md). This doc covers
+EBWPC only.
 
 **At a glance**
 
@@ -29,17 +29,10 @@ fallback) lives in
 
 ## API Access
 
-**Credentials: one header.** The catalog is public CKAN, so there are no CKAN credentials. But Cloudflare
-blocks scripts unless every request carries the `x-cf-bypass` header with the value datHere issued. Keep
-the value in GCP Secret Manager, like the HydroVu credentials, and never put it in code, config or docs.
-
-**With the header, everything EBWPC needs works.** `package_show` and all 22 resource downloads return
-200. Without the header, every request gets a Cloudflare 403 challenge. The header hasn't yet been
-confirmed from Dagster+. If it fails there, fall back to
-[Plan B](ckan_water_data_catalog.md#plan-b-without-an-exception) (browser pull into GCS). Details are in
-[The exception](ckan_water_data_catalog.md#the-exception).
-
-Every call below needs the header.
+**Credentials: one header.** The catalog is public CKAN, but every call below needs the `x-cf-bypass`
+header (value in GCP Secret Manager) to get past Cloudflare. See
+[Access](ckan_water_data_catalog.md#access-cloudflare). With it, `package_show` and all 22 resource
+downloads return 200.
 
 | Endpoint | URL |
 |---|---|
@@ -52,17 +45,15 @@ Every call below needs the header.
 - **21 well resources**, one per well, named by well ID. The 7 retired wells are suffixed `-Archived`. 20
   are CSV. `E-9407-Archived` is XLSX (`e-9407_hydrographdata_data.xlsx`).
 - **1 locations resource**, `EBWPC Well Locations`.
-- Select well resources by name and format, never by a fixed ID list. `format` is free text: `CSV` on
-  most, `.csv` on `E-94077` and `Hagerman HQ-Archived`, `XLSX` on one. Normalise it (lower-case, strip
-  the dot).
+- Select well resources by name and normalised format, never by a fixed ID list. `format` reads `CSV` on
+  most, `.csv` on `E-94077` and `Hagerman HQ-Archived`, and `XLSX` on `E-9407-Archived`.
 
 **`package_show` notes.**
 
-- `last_modified` and `size` are populated on every resource. Fingerprint on those two.
-- **Don't trust `hash`.** It is populated, but it matches the downloaded file's MD5 for only 9 of 22
-  resources: the eight created in August 2024 and the never-reuploaded XLSX. The resources created from
-  October 2024 on carry a `hash` that matches nothing, probably left over from an earlier upload. Treat it
-  as opaque, and hash the downloaded body yourself.
+- `last_modified` and `size` are populated on every resource, so the
+  [CKAN fingerprint](ckan_water_data_catalog.md#flow) works as designed.
+- **Don't trust `hash`.** It matches the downloaded file for only 9 of the 22 resources (see
+  [Platform and Endpoints](ckan_water_data_catalog.md#platform-and-endpoints)). Hash the body yourself.
 - `total_record_count` is the DataStore row count (75,660 for `E-8428`, matching the file).
 - `spatial_full` is ~346 KB of GeoJSON, most of the 390 KB response. Ignore it.
 - The dataset's `metadata_modified` (2026-03-18) moved during a catalog upgrade with no data change, so
@@ -131,8 +122,6 @@ Map `E-2043` to `E-2034` with a one-line alias in the shim, and ask EBWPC to cor
 - the `E-2043` typo (`E-2034`)
 - the trailing space (`E-9673`)
 - the loader skipping rows that end in `archived` (`E-50-1`, `Greene-4`, `Lujan-1`)
-
-This corrects the "Missing locations" bullet in `ckan_water_data_catalog.md`.
 
 ---
 
@@ -205,7 +194,8 @@ The make and model of the transducers isn't published. Adding the constant is a 
 **Not mapped: below-top-of-casing readings.** `manual_depth_BTOC` (`hagerman`, `rubyshaw`) and
 `manual_depth_Below_TOC` (`e-6385`) are measured from the top of casing, not ground surface. That's 67
 readings across three archived wells, and they would need a measuring-point height to become BGS. Skip
-them and count them in asset metadata. See Open Questions.
+them and count them in asset metadata until EBWPC supplies stick-up heights (see
+[Requests to EBWPC](#requests-to-ebwpc)).
 
 **New observed property needed?** No.
 
@@ -277,6 +267,11 @@ usable reading of that type. Old FROST created both for every well and left many
 
 `E-00428` has 3,408 transducer readings (2022-03-30 to 2024-04-25) that old FROST never loaded.
 
+**`E-9407-Archived` is skipped.** It's XLSX and a raw logger export, not depth to water: one sheet
+(`E-9407-all`) with `Date`, `Time`, `Transducer Read`, `ET (min)`, `PSI`, `Ft Head conv`, `Delta`,
+`Celsius` and `?-change`, holding 19,109 readings from 2012-10-10 to 2014-12-15. Skip it and log it in
+asset metadata, as the CKAN design does for non-CSV resources, until EBWPC republishes it as CSV.
+
 ---
 
 ## Observation
@@ -336,8 +331,9 @@ Parse the date and time separately, then combine.
   and most sit on logger rows.
 - **Conversion:** attach `timezone(timedelta(hours=-7))` and convert to UTC, i.e. add 7 hours. Don't use
   `ZoneInfo("America/Denver")`, which would mis-shift summer readings and reject the 02:xx ones.
-- This supersedes the DST-aware proposal in `ckan_water_data_catalog.md` (Open Question 5) for EBWPC.
-  Confirm with John Shomaker & Associates (see Open Questions).
+- This is the decided timezone, matching `ckan_water_data_catalog.md`. The evidence rules out daylight
+  saving but can't on its own rule out a fixed UTC clock, so it is also listed under
+  [Requests to EBWPC](#requests-to-ebwpc) for confirmation. That confirmation doesn't block the load.
 
 **Manual times are approximate.**
 - 174 of the 380 manual readings that have a time are stamped exactly 00:00 or 12:00, which look like
@@ -369,8 +365,7 @@ example, E-8428's last transducer reading is `2024-04-26T08:18:00Z` in old FROST
 
 ### `package_show` (live, trimmed)
 
-Saved from a browser. A scripted request with the `x-cf-bypass` header returns the same 390,194-byte
-response. This is a sanitised version of it. Removed:
+Fetched with the `x-cf-bypass` header (390,194 bytes), then sanitised. Removed:
 - the contact person's name, email and phone, and `creator_user_id`
 - `author`, `maintainer`, `spatial`, `spatial_full`, `tags`, `groups` and other unused dataset fields
 - 19 of the 22 resources
@@ -509,8 +504,7 @@ Hagerman HQ-archived,426891,3889512,NAD83
 
 ### Well files (excerpts)
 
-Fetched live with the bypass header. They are byte-identical to the Internet Archive's January 2026
-copies. All have CRLF line endings. Rows are copied verbatim.
+Fetched live with the bypass header. All have CRLF line endings. Rows are copied verbatim.
 
 `e-8428.csv`, an active well with both depth columns and 24-hour times. The first two rows are manual only,
 the third has both readings on one row, and the last is the newest reading in the dataset:
@@ -553,29 +547,29 @@ E-6385-archived,4/15/2009,16:06,136.16
 
 ---
 
+## Requests to EBWPC
+
+None of these blocks the load. Each has a workaround above.
+
+1. Correct `E-2043` to `E-2034` in the locations file.
+1. Supply measuring-point (stick-up) heights for `Hagerman HQ`, `Ruby Shaw WM` and `E-6385`, so their
+   TOC readings can become BGS.
+1. Republish `E-9407-Archived` as CSV in the standard columns, and say whether `?-change` or a hang depth
+   gives depth to water.
+1. Have John Shomaker & Associates confirm that the transducers and field times are on MST (UTC−07:00)
+   year-round, not UTC.
+1. Add `elevation`, `elevation_units` and `lithology` columns to the locations file, per the WDI best
+   practices. Elevation is a WDI required field.
+
+---
+
 ## Open Questions
 
-1. **Logger clock.** Confirm with John Shomaker & Associates that the transducers and field times are
-   on MST (UTC−07:00) year-round, and not UTC. The evidence rules out daylight saving but can't tell a
-   fixed MST clock from a fixed UTC one on its own.
-2. **`E-2043` vs `E-2034`.** Confirm the typo with EBWPC and ask them to correct the locations file.
-   Until then, alias it in the shim.
-3. **Below-top-of-casing readings** (`hagerman`, `rubyshaw`, `e-6385`; 67 readings). Skip them
-   (proposed), ask EBWPC for measuring-point heights, or load them under a separate observed property.
-4. **Archived wells.** Proposal: load them like the rest, with `is_archived` set. Three have usable
-   readings (`E-50-1`, `Greene-4`, `Lujan-1`), three have only TOC readings, and `E-9407` is XLSX. See
-   the datastream table.
-5. **`E-9407-Archived` is XLSX, and not depth to water.** It's a raw logger export: one sheet
-   (`E-9407-all`) with `Date`, `Time`, `Transducer Read`, `ET (min)`, `PSI`, `Ft Head conv`, `Delta`,
-   `Celsius` and `?-change`, and 19,109 readings from 2012-10-10 to 2014-12-15. Proposal: skip it and log
-   it. Ask EBWPC whether `?-change` or a hang depth gives depth to water, and to republish it as CSV in
-   the standard columns.
-6. **`measuring_agency`.** Derive it from the dataset's contractor periods, or leave it `None`
+1. **`measuring_agency`.** Derive it from the dataset's contractor periods, or leave it `None`
    (proposed)? The periods overlap in 2009 and miss 2021-02 to 2021-12.
-7. **`alternate_id`.** Are the `E-nnnn`/`T-nnnn` IDs OSE file numbers? If so, emit
-   `[{id, agency: "NMOSE"}]`.
-8. **Elevation and formation.** Parse the free-text descriptions (4 of 21 wells, proposed), or ask EBWPC
-   to add `elevation`, `elevation_units` and `lithology` columns to the locations file per the WDI best
-   practices? Elevation is a WDI required field that EBWPC doesn't otherwise provide.
-9. **`data_source`.** Set a fixed `"NM Water Data Catalog"`, or leave `None`? Settle it the same way
+1. **`alternate_id`.** Are the `E-nnnn`/`T-nnnn` IDs OSE file numbers? If so, emit
+   `[{id, agency: "NMOSE"}]`, the OSE agency code in the CKAN doc's field mapping.
+1. **Elevation and formation.** Proposal: parse them from the free-text descriptions (4 of 21 wells)
+   until EBWPC adds the columns (request 5).
+1. **`data_source`.** Set a fixed `"NM Water Data Catalog"`, or leave `None`? Settle it the same way
    across sources.
