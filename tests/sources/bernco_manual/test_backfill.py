@@ -1,3 +1,8 @@
+"""
+Unit tests for sources/bernco_manual/backfill.py (Mode A refetch).
+No live API/GCS/FROST — all I/O is mocked.
+"""
+
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 

@@ -1,12 +1,7 @@
 """
-tests/shared/test_config.py
-
-Unit tests for the cwd-independent config resolution in shared/config.py.
-
-The behavior that matters: resolution must not depend on the working directory,
-because Dagster+ Serverless runs from a PEX whose cwd is not the repo root. Every
-test writes its own .dlt/config.toml into tmp_path and patches _PACKAGE_DIR, so the
-real repo checkout can never make a test pass by accident.
+Unit tests for the cwd-independent config resolution in shared/config.py —
+must not depend on cwd, since Dagster+ Serverless runs from a PEX whose cwd
+isn't the repo root. Every test uses tmp_path, never the real repo checkout.
 """
 
 from __future__ import annotations
@@ -41,10 +36,8 @@ def _make_settings(root: Path, body: str = _SAMPLE) -> Path:
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch, tmp_path):
-    """
-    Clear the override and point _PACKAGE_DIR at an empty dir, so nothing resolves
-    unless a test sets it up explicitly.
-    """
+    """Clear the override and point _PACKAGE_DIR at an empty dir, so nothing
+    resolves unless a test sets it up explicitly."""
     monkeypatch.delenv(ENV_DLT_PROJECT_DIR, raising=False)
     empty = tmp_path / "empty-package"
     empty.mkdir()
@@ -87,10 +80,8 @@ class TestResolutionOrder:
 
 class TestDltProjectDirExport:
     def test_exports_env_for_dlt(self, monkeypatch, tmp_path):
-        """
-        dlt resolves the [sources.pvacd_hydrovu] block through its own provider chain, so
-        it has to be pointed at the same file we resolved.
-        """
+        """dlt resolves each [sources.<name>] block through its own provider
+        chain, so it has to be pointed at the same file we resolved."""
         root = _make_settings(tmp_path / "repo")
         monkeypatch.chdir(root)
 

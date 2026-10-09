@@ -1,8 +1,6 @@
 """
-tests/sources/cabq/test_dlt_pipeline.py
-
 Unit tests for CABQ DLT pipeline.
-No real API calls, simulated via httpx.MockTransport.          -
+No real API calls, simulated via httpx.MockTransport.
 """
 
 from __future__ import annotations

@@ -1,19 +1,14 @@
 """
-shared/gcp_auth.py
-
 Bootstraps Application Default Credentials (ADC) from an environment variable.
 
-Why this exists: every GCP client in this repo asks for ADC and nothing else.
-These resolve through `google.auth.default()`.
+Every GCP client here asks for ADC via google.auth.default(), which works
+locally via `gcloud auth application-default login` but has nothing to
+discover on Dagster+ Serverless (no metadata server, no mountable file).
+Dagster's answer is a base64-encoded service account key env var, decoded
+once here at the ADC layer, so the bucket, Secret Manager, and dlt clients
+all pick it up without each needing their own bootstrap.
 
-Locally that works because of `gcloud auth application-default login`. Dagster+
-Serverless, however, has no metadata server and no way to mount a credentials
-file, so ADC has nothing to discover and all three fail. Dagster's documented
-answer for Serverless is a base64-encoded service account key in an environment
-variable.  once, at the ADC layer rather than per client.
-One bootstrap therefore satisfies the bucket, Secret Manager, and dlt together.
-
-`GOOGLE_APPLICATION_CREDENTIALS` must be a *path*, not the credentials themselves.
+GOOGLE_APPLICATION_CREDENTIALS must be a *path*, not the credentials themselves.
 """
 
 from __future__ import annotations
@@ -37,19 +32,14 @@ ENV_KEY_B64 = "GCP_SERVICE_ACCOUNT_KEY_B64"
 #: The variable Google's auth libraries read. A filesystem path, never a payload.
 ENV_ADC_PATH = "GOOGLE_APPLICATION_CREDENTIALS"
 
-#: Fields a usable service account key must carry. Checked so a truncated or
-#: wrong-type key fails here with a clear message.
-#:
-#: client_email, token_uri, and private_key are exactly what
-#: google.oauth2.service_account.Credentials.from_service_account_info() requires —
-#: omit any one and it raises "Service account info was not in the expected format",
-#: naming no environment variable and giving no hint where the key came from.
-#: project_id is not required by google-auth, but every gcloud-issued key carries it
-#: and the success log reports it, so a key without one is malformed enough to reject.
+#: Fields a usable key must carry, so a truncated/wrong-type key fails here
+#: with a clear message instead of google-auth's unhelpful generic error.
+#: project_id isn't required by google-auth, but every real key has one and
+#: the success log reports it.
 _REQUIRED_FIELDS = ("client_email", "private_key", "project_id", "token_uri")
 
-# Set once the current process has a usable ADC path, so the three call sites can
-# each call ensure_adc() freely without racing to write duplicate key files.
+# Set once the current process has a usable ADC path, so every call site can
+# call ensure_adc() freely without racing to write duplicate key files.
 _bootstrapped = False
 
 
@@ -58,17 +48,9 @@ class AdcBootstrapError(RuntimeError):
 
 
 def _decode_key(raw: str) -> tuple[bytes, dict[str, Any]]:
-    """
-    Decodes and validates the base64 key payload.
-
-    Returns the decoded bytes alongside the parsed dict: the bytes are what gets
-    written to disk, while the dict is only used for validation and for logging
-    the identity.
-
-    Deliberately never includes the payload (or any fragment of it) in an error
-    message — these errors surface in Dagster run logs, which are not a secret
-    store. The variable name is enough to act on.
-    """
+    """Decodes and validates the base64 key payload; returns (decoded bytes for
+    disk, parsed dict for validation/logging). Never includes the payload in an
+    error message — these surface in Dagster run logs, not a secret store."""
     try:
         # validate=False so whitespace and newlines introduced by copy-paste or by
         # `base64` line-wrapping are tolerated rather than rejected.
@@ -109,14 +91,9 @@ def _decode_key(raw: str) -> tuple[bytes, dict[str, Any]]:
 
 
 def _write_key_file(decoded: bytes) -> str:
-    """
-    Writes the key to a private temp file and returns its path.
-
-    The file is exactly 0600, always. mkstemp opens with O_CREAT|O_EXCL and mode
-    0600, so the key is never briefly world-readable; the explicit chmod below pins
-    the mode rather than leaving it to the ambient umask. Lives in the system temp
-    dir, outside the repo, so it cannot be picked up by a stray `git add`.
-    """
+    """Writes the key to a 0600 private temp file (outside the repo, so a stray
+    `git add` can't catch it) and returns its path. mkstemp + explicit chmod
+    means it's never briefly world-readable via the ambient umask."""
     fd, path = tempfile.mkstemp(prefix="aqueduct-adc-", suffix=".json")
     try:
         with os.fdopen(fd, "wb") as fh:
@@ -141,26 +118,12 @@ def _remove_quietly(path: str) -> None:
 
 
 def ensure_adc() -> None:
-    """
-    Makes ADC available to this process, if it isn't already. Safe to call anywhere.
+    """Makes ADC available to this process if it isn't already — idempotent,
+    safe to call anywhere, before constructing any GCP client. Existing ADC
+    (local gcloud login, or GOOGLE_APPLICATION_CREDENTIALS already set) is left
+    untouched; otherwise decodes ENV_KEY_B64 into a temp file.
 
-    Idempotent and cheap after the first call. Call it immediately before
-    constructing any GCP client; see the three call sites named in this module's
-    docstring.
-
-    Resolution order:
-      1. Already bootstrapped in this process → nothing to do.
-      2. GOOGLE_APPLICATION_CREDENTIALS already points at a real file → leave it
-         alone. This is what keeps `gcloud auth application-default login` and any
-         externally-mounted key working untouched.
-      3. ENV_KEY_B64 unset → nothing to do. Ambient ADC (local gcloud login, or a
-         metadata server) is expected to supply credentials, and letting
-         google.auth raise its own error is more useful than pre-empting it here.
-      4. Otherwise decode ENV_KEY_B64, write it to a private temp file, and point
-         GOOGLE_APPLICATION_CREDENTIALS at that file.
-
-    Raises AdcBootstrapError if ENV_KEY_B64 is set but unusable.
-    """
+    Raises AdcBootstrapError if ENV_KEY_B64 is set but unusable."""
     global _bootstrapped
 
     if _bootstrapped:

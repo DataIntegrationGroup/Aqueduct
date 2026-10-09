@@ -1,20 +1,15 @@
 """
-sources/bernco_hydrovu/backfill.py
+Backfill for BernCo HydroVu — follows pvacd_hydrovu/backfill.py's pattern,
+with two differences below. Own isolated GCS table (hydrovu_backfill_readings
+under raw_bernco_hydrovu) and dlt pipeline state, separate from production.
 
-Backfill for BernCo HydroVu — mirrors pvacd_hydrovu/backfill.py.
-Writes to its own isolated GCS table (hydrovu_backfill_readings under
-raw_bernco_hydrovu) and dlt pipeline state, separate from production.
+Not a Dagster asset/op. Called per-chunk by defs/jobs/backfill.py's factory.
 
-Not a Dagster asset/op — no Dagster imports. Called per-chunk by the shared
-job factory in defs/jobs/backfill.py.
-
-One difference from PVACD: BernCo has two locations with bad device clocks
-that report near Unix epoch 0 (see adapter.py). Production's floor
-(sentinel_floor(), in transform.py) uses initial_start_date, which only
-works there because production never asks for anything older. Backfill
-deliberately does ask for older data, so it needs its own fixed floor below
-instead — using sentinel_floor() here would silently drop every real
-historical reading, not just the bad ones.
+1. Two BernCo locations have bad device clocks near Unix epoch 0 (adapter.py).
+   Production's sentinel_floor() relies on initial_start_date, which backfill
+   bypasses — so backfill uses its own fixed floor (SENTINEL_FLOOR) instead.
+2. hydrovu_backfill_readings discards readings the API returns outside the
+   requested window; pvacd_hydrovu's version doesn't.
 """
 
 from __future__ import annotations
@@ -72,7 +67,6 @@ def hydrovu_backfill_readings(
     start_ts: int,
     end_ts: int,
 ) -> Iterator[dict]:
-    """One flat row per (location, parameter, reading) in [start_ts, end_ts)."""
     allowed = frozenset(location_ids)
     for location in locations:
         loc_id = location["id"]

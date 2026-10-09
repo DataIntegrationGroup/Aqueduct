@@ -20,18 +20,20 @@ Each source is an independent pipeline with three stages:
 API → dlt → GCS (parquet) → Adapter → CanonicalBundle → FROST loader → FROST
 ```
 
-| Stage | Asset (PVACD HydroVu) | Asset (CABQ) | Asset (BernCo HydroVu) |
-|---|---|---|---|
-| Ingest (dlt → GCS) | `raw_pvacd_hydrovu_readings` | `raw_cabq_readings` | `raw_bernco_hydrovu_readings` |
-| Transform (GCS → CanonicalBundles) | `canonical_bundles_pvacd_hydrovu` | `canonical_bundles_cabq` | `canonical_bundles_bernco_hydrovu` |
-| Load (CanonicalBundles → FROST) | `frost_load_pvacd_hydrovu` | `frost_load_cabq` | `frost_load_bernco_hydrovu` |
+| Stage | Asset name |
+|---|---|
+| Ingest (dlt → GCS) | `raw_<name>_readings` |
+| Transform (GCS → CanonicalBundles) | `canonical_bundles_<name>` |
+| Load (CanonicalBundles → FROST) | `frost_load_<name>` |
 
-All three run end to end.
+Sources are listed in `shared/source_registry.py`'s `SOURCE_REGISTRY` — the
+single source of truth for which sources exist and their config.
 Use PVACD HydroVu as the reference implementation when wiring up a new source.
 
-PVACD and BernCo are two tenants on the same platform, so vendor-level HydroVu code
-lives once and each tenant folder holds only what is genuinely its own (its dlt
-source, resources, config block, dataset, and any hazard specific to that tenant):
+Multiple tenants run on the HydroVu platform, so vendor-level HydroVu code lives
+once instead of being duplicated per tenant; each tenant folder holds only what
+is genuinely its own (its dlt source, resources, config block, dataset, and any
+hazard specific to that tenant):
 
 | Stage | Shared module                                                                                                           | What a tenant still owns |
 |---|-------------------------------------------------------------------------------------------------------------------------|---|
@@ -56,21 +58,27 @@ src/aqueduct_dagster/
 │   ├── gcs.py             # GCS filesystem access, parquet reads, watermark read/write
 │   ├── pipeline.py        # build_source_pipeline() — shared dlt pipeline factory
 │   ├── http.py            # retry_transient(), TokenManager, BearerAuth, build_authenticated_client()
+│   ├── backfill.py        # Mode A refetch helpers — month_chunks(), BackfillCheckpointStore, ChunkResult
+│   ├── config.py          # settings_dir()/load_config() — locates .dlt/config.toml independent of cwd
+│   ├── gcp_auth.py        # ensure_adc() — bootstraps ADC from GCP_SERVICE_ACCOUNT_KEY_B64
 │   └── source_registry.py # SOURCE_REGISTRY — single per-source config, read by definitions.py and load.py
 ├── sources/        # one folder per source key (vertical slice) — see pvacd_hydrovu/ as the reference
-│   ├── hydrovu_common.py  # HydroVu API client (ingest) shared by the pvacd_hydrovu and bernco_hydrovu tenants
-│   ├── hydrovu_transform_common.py  # HydroVu DTW mapping + GCS read/group shared by those same tenants
+│   ├── hydrovu_common.py  # HydroVu API client (ingest), shared by every HydroVu tenant
+│   ├── hydrovu_transform_common.py  # HydroVu DTW mapping + GCS read/group, shared the same way
 │   └── <name>/
 │       ├── adapter.py       # raw rows → CanonicalBundle (source-specific)
 │       ├── dlt_pipeline.py  # dlt source/resource/pipeline factory
 │       ├── ingest.py        # Dagster asset: raw_<name>_readings
-│       └── transform.py     # Dagster asset: canonical_bundles_<name>
+│       ├── transform.py     # Dagster asset: canonical_bundles_<name>
+│       └── backfill.py      # Mode A refetch job body
 ├── defs/
 │   ├── assets/
 │   │   └── load.py         # Dagster assets: frost_load_<name>, generated per source from one factory
+│   ├── jobs/
+│   │   └── backfill.py     # <source>_backfill_refetch jobs, generated per source from one factory
 │   ├── definitions.py      # Dagster entry point: jobs, schedules, asset registry (also config-driven)
 │   └── dagster_logging.py  # forward_python_logs_to_dagster() — stdlib logging → Dagster run logs
-└── loader/         # frost_loader.py (FROST upserts) + watermark_store.py (dedup)
+└── loader/         # frost_loader.py (FROST upserts), frost_auth.py (FROST IAM auth), watermark_store.py (dedup)
 tests/              # mirrors src/aqueduct_dagster/'s layout above — unit tests only, no live GCS/FROST/API
 ├── conftest.py     # cross-file test helpers (e.g. httpx.MockTransport/BearerAuth builders)
 ```
@@ -99,9 +107,8 @@ sync. Never hand-edit `uv.lock`. There is no `requirements.txt`.
   inline unless there's a documented reason (existing `# noqa: B008` on dlt
   incremental defaults is the idiomatic exception).
 - `snake_case` for functions, modules, variables; `PascalCase` for classes.
-- **Module docstrings** start with the file's own path and a short description of
-  its role (see any existing module). Keep that style — it's how this repo
-  documents intent. Module docstrings explain *why*; keep them current when behavior changes.
+- **Module docstrings** are short, explain *why* (not what — the path/role is
+  already visible from the file location), and stay current when behavior changes.
 - Match GCS folder names to dlt resource names exactly (see
   [STORAGE_CONVENTIONS.md](./docs/STORAGE_CONVENTIONS.md)).
 

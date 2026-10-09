@@ -1,18 +1,10 @@
 """
-sources/bernco_hydrovu/ingest.py
+Dagster asset: raw_bernco_hydrovu_readings — runs the BernCo HydroVu dlt source,
+writing two GCS resources: hydrovu_locations (replace, full list every run)
+and hydrovu_readings (append, per-location incremental; location metadata
+omitted, join on location_id at transform time).
 
-Dagster asset: raw_bernco_hydrovu_readings
-  Runs the BernCo HydroVu dlt source which writes two resources to GCS:
-
-  hydrovu_locations  (replace)  gs://<bucket>/raw_bernco_hydrovu/hydrovu_locations/year={YYYY}/month={MM}/day={DD}/
-    Full location list on every run, one row per location.
-
-  hydrovu_readings   (append, per-location incremental)  gs://<bucket>/raw_bernco_hydrovu/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/
-    New readings since each location's last successful fetch. One row per (location, parameter, reading).
-    Location metadata is omitted; join to hydrovu_locations on location_id at transform time.
-
-This is the FIRST asset in the BernCo HydroVu pipeline. No upstream dependencies.
-Downstream: canonical_bundles_bernco_hydrovu (reads both GCS folders)
+First asset in the pipeline. Downstream: canonical_bundles_bernco_hydrovu.
 """
 
 from dagster import AssetExecutionContext, Failure, MaterializeResult, MetadataValue, asset
@@ -31,26 +23,13 @@ from aqueduct_dagster.sources.bernco_hydrovu.dlt_pipeline import (
     compute_kind="dlt",
 )
 def raw_bernco_hydrovu_readings(context: AssetExecutionContext) -> MaterializeResult:
-    """
-    Runs the dlt pipeline to incrementally fetch BernCo HydroVu readings and
-    write them as parquet to the GCS raw zone.
+    """Incrementally fetches BernCo HydroVu readings into GCS — first run from
+    initial_start_date, later runs from each location's own cursor.
 
-    dlt handles:
-      - API authentication
-      - Incremental cursor (only fetches new data since last run)
-      - Parquet serialisation
-      - GCS write
-      - Cursor state persistence (stored in GCS next to the data)
-
-    On first run: fetches from initial_start_date (set in dlt config).
-    On subsequent runs: fetches only records newer than each location's per-location cursor.
-
-    Failure policy? one bad station must not block the rest
-      - Some locations errored, some succeeded: warn, still materialize. Their cursors
-        did not advance, so the next run picks up exactly where they left off.
-      - Every allowlisted location errored: raise Failure. Nothing landed, and a silent
-        green run would hide an expired credential or a dead API.
-    """
+    One bad station doesn't block the rest: some locations erroring just warns
+    and still materializes (their cursors don't advance, so the next run
+    retries them); every location erroring raises Failure instead, since a
+    silent green run would hide an expired credential or dead API."""
     pipeline = build_pipeline()
     context.log.info(
         "Starting BernCo HydroVu dlt extract (pipeline=%s, dataset=%s)",

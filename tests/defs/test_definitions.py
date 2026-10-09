@@ -1,30 +1,26 @@
 """
-tests/defs/test_definitions.py
+Unit tests for three places where SOURCE_REGISTRY must agree with something
+written independently elsewhere. All three fail silently — nothing raises,
+the run just does the wrong thing — so each is worth a test, not just a
+comment.
 
-Guards the three places where SOURCE_REGISTRY has to agree with something
-written independently somewhere else. Both failure modes are silent — nothing raises,
-the run just does the wrong thing — so they are worth a test rather than a comment.
+1. Asset/job/schedule names: defs/definitions.py and defs/assets/load.py
+   f-string them from the registry `name`; sources/<name>/ hardcodes the same
+   names in @asset decorators. A mismatch builds a job selecting assets that
+   don't exist, surfacing only when someone launches a run.
 
-1. Asset/job/schedule generation. defs/definitions.py and defs/assets/load.py build
-   names by f-string from the registry `name`, while sources/<name>/ hard-codes the
-   same names in its @asset decorators. A mismatch produces a job whose selection
-   names assets that do not exist; it only surfaces when someone launches a run.
+2. The dataset string, written three times (SOURCE_REGISTRY, build_pipeline(),
+   and the transform's GCS_DATASET) with nothing cross-checking them. If
+   registry and transform disagree, the load asset commits the watermark to a
+   path the transform never reads, and every run reprocesses from zero.
 
-2. The dataset string. Each source writes it three times — SOURCE_REGISTRY, the
-   source's build_pipeline(), and its transform module's GCS_DATASET — with nothing
-   cross-checking them. If the registry and transform disagree, the load asset commits
-   the transform watermark to a path the transform never reads, and every run
-   reprocesses from zero. shared/gcs.py:transform_watermark_path() unifies the
-   filename but not the dataset it sits in.
+3. The transform result type: defs/assets/load.py reads .bundles and
+   .max_load_id off an Any-typed result. Each source defines its own
+   dataclass, so a renamed/missing field type-checks fine and only raises
+   AttributeError at the end of a live run.
 
-3. The transform result type. defs/assets/load.py types its input as Any and reads
-   .bundles and .max_load_id off whatever canonical_bundles_{name} returns. Each source
-   defines its own result dataclass, so a renamed or missing field type-checks fine and
-   only fails with AttributeError at the end of a live run, after ingest and transform
-   have already done their work.
-
-Offline: no GCS, FROST, or dlt destination is touched — build_source_pipeline is
-patched out so build_pipeline() can be inspected without credentials.
+Offline: build_source_pipeline is patched out, so no GCS/FROST/dlt destination
+is touched.
 """
 
 from __future__ import annotations
@@ -68,10 +64,8 @@ def test_registry_entry_has_its_job_and_schedule(name):
 
 @pytest.mark.parametrize("cfg", SOURCE_REGISTRY, ids=_NAMES)
 def test_transform_module_agrees_with_registry_dataset(cfg):
-    """
-    The transform's GCS_DATASET and WATERMARK_PATH must match what defs/assets/load.py
-    derives from the registry — the read side and the write side of the same file.
-    """
+    """GCS_DATASET/WATERMARK_PATH must match what defs/assets/load.py derives
+    from the registry — read side vs write side."""
     transform = importlib.import_module(f"aqueduct_dagster.sources.{cfg['name']}.transform")
 
     assert transform.GCS_DATASET == cfg["dataset"]
@@ -80,11 +74,9 @@ def test_transform_module_agrees_with_registry_dataset(cfg):
 
 @pytest.mark.parametrize("cfg", SOURCE_REGISTRY, ids=_NAMES)
 def test_dlt_pipeline_writes_to_the_registry_dataset(cfg):
-    """
-    build_pipeline() passes dataset_name positionally to build_source_pipeline(); it is
-    the third independent copy of the dataset string and the one that decides where
-    parquet actually lands.
-    """
+    """The third independent copy of the dataset string, and the one that
+    decides where parquet actually lands — passed positionally to
+    build_source_pipeline()."""
     module = f"aqueduct_dagster.sources.{cfg['name']}.dlt_pipeline"
     dlt_pipeline = importlib.import_module(module)
 
@@ -97,10 +89,8 @@ def test_dlt_pipeline_writes_to_the_registry_dataset(cfg):
 
 @pytest.mark.parametrize("name", _NAMES)
 def test_transform_result_satisfies_load_contract(name):
-    """
-    canonical_bundles_{name} returns a dataclass with the two fields frost_load_{name}
-    reads: bundles (loaded into FROST) and max_load_id (committed as the transform watermark).
-    """
+    """bundles and max_load_id — the two fields frost_load_{name} reads
+    (loaded into FROST; committed as the transform watermark)."""
     transform_fn = defs.resolve_assets_def(f"canonical_bundles_{name}").op.compute_fn.decorated_fn
     result_type = get_type_hints(transform_fn)["return"]
 

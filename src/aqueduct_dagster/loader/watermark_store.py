@@ -1,32 +1,13 @@
 """
-loader/watermark_store.py
+Defines the WatermarkStore interface and implementations — tracks the last
+observation timestamp loaded into FROST per datastream, so frost_loader.py
+never reloads duplicates. Without it, a failed FROST load midway through
+would have no way to resume cleanly.
 
-Defines the WatermarkStore interface and all concrete implementations.
-
-WatermarkStore tracks the last observation timestamp successfully loaded into
-FROST per datastream — used by frost_loader.py to avoid loading duplicates.
-
-How it works:
-  - frost_loader calls .get() before loading to find the last loaded timestamp
-  - frost_loader calls .set() after each successful chunk to advance the watermark
-  - On next run, any observation at or before the watermark is skipped
-
-Without this, a failed FROST load midway through would have no way to
-resume — it would either re-load already-loaded observations or skip data.
-
-Implementations:
-  FrostWatermarkStore    — GCS-backed, durable across Dagster restarts
-  InMemoryWatermarkStore — dev/test only, not durable across runs
-
-GCS watermark file: raw_pvacd_hydrovu/_frost_watermarks.json
-  {"pvacd-4745648669458432-dtw": "2026-06-16T18:00:00+00:00", ...}
-  One key per datastream. Written after every successful chunk so a partial
-  failure resumes from the last successful chunk on the next run.
-  On first ever run (no file yet), get() returns None and frost_loader falls
-  back to _max_phenomenon_time() to recover the watermark from FROST itself.
-
-Writes are atomic: JSON is written to a .tmp object first, then renamed to
-the final path so the final file is never partially overwritten.
+GCS watermark file: {dataset}/_frost_watermarks.json
+  {"<datastream_external_key>": "2026-06-16T18:00:00+00:00", ...}
+On first run (no file yet), get() returns None and frost_loader falls back
+to _max_phenomenon_time() to recover the watermark from FROST itself.
 """
 
 from __future__ import annotations
@@ -64,17 +45,11 @@ class InMemoryWatermarkStore(WatermarkStore):
 
 
 class FrostWatermarkStore(WatermarkStore):
-    """
-    GCS-backed watermark store.
-
-    Reads the GCS watermark file on the first get() call per run (lazy — runs
-    with no new observations skip the GCS read entirely). Writes back to GCS
-    immediately after every set() so partial failures resume from the last
-    successful chunk on the next run.
-
-    Writes are atomic with retry, via shared/gcs.py's atomic_write_json_with_retry()
-    (also used by shared/backfill.py's BackfillCheckpointStore).
-    """
+    """GCS-backed watermark store. Reads the file lazily on the first get()
+    per run (runs with no new observations skip the GCS read entirely);
+    writes immediately after every set(), atomically with retry
+    (atomic_write_json_with_retry), so partial failures resume from the
+    last successful chunk."""
 
     def __init__(
         self,

@@ -1,27 +1,9 @@
 """
-tests/sources/bernco_hydrovu/test_adapter.py
-
-Unit tests for BerncoHydroVuAdapter.
-
-No real API or GCS calls. Uses mock records matching the grouped record shape
-produced by hydrovu_transform_common.group_readings_by_location().
-
-Record shape (one per location):
-  {
-    "location_id":          int,
-    "location_name":        str,
-    "location_description": str,   # well/permit number, or "" if unset
-    "latitude":             float,
-    "longitude":            float,
-    "readings": [
-      {"parameter_id": str, "unit_id": str, "timestamp": int, "value": float},
-    ]
-  }
-
-Parameter IDs (per /sispec/friendlynames, 2026-08-24):
-  "4"  = Level: Depth to Water (metres -> converted to feet)
-  "3"  = Depth (NOT depth to water). Same unitId "35", opposite direction
-  "1"  = Temperature, "2" = Pressure, "9" = Actual Conductivity, "33" = Battery Level
+Unit tests for BerncoHydroVuAdapter. Mock records match
+group_readings_by_location()'s output shape (see _record() below). Parameter
+IDs (per /sispec/friendlynames, 2026-08-24): "4"=DTW (m→ft, kept); "3"=Depth,
+easily confused with DTW (see test_skips_parameter_3_depth); "1","2","9","33"
+are all skipped.
 """
 
 from datetime import UTC

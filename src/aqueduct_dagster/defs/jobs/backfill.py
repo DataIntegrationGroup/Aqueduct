@@ -1,27 +1,10 @@
 """
-defs/jobs/backfill.py
+Mode A (refetch) backfill jobs — docs/BACKFILL_STRATEGY.md §4.2, §4.5.
 
-Mode A (refetch) backfill jobs — see docs/BACKFILL_STRATEGY.md §4.2, §4.5.
-
-One <source>_backfill_refetch job per source, each built by a small
-factory (_make_backfill_refetch_job) parameterized by the same per-source
-prepare_backfill()/run_backfill_chunk() shape every source's backfill.py exposes
-(see sources/pvacd_hydrovu/backfill.py for a reference implementation). A new
-source needs only its own sources/<name>/backfill.py plus one more call to the
-factory at the bottom of this file; no other job-wiring changes.
-
-Not a Dagster asset job — this is a plain @job of one @op, driven entirely by
-run configuration (BackfillRefetchConfig), matching how an operator actually
-launches a backfill: via the Dagster Launchpad, not the daily schedule (see
-docs/BACKFILL_STRATEGY.md §5.2). No schedule is attached — launched manually,
-on demand, same as every backfill job.
-
-BackfillRefetchConfig holds every field common to all sources (start_date,
-end_date, run_key, dry_run), prefilled with example values, plus validation
-(date format/order, and an auto-attached run_key timestamp). location_ids is
-also shared, but its default differs per source — a per-source subclass (e.g.
-PvacdHydroVuBackfillRefetchConfig) only overrides that one field's default, since
-that's the only thing a new source needs to customize.
+One <source>_backfill_refetch job per source, built from each source's
+prepare_backfill()/run_backfill_chunk() (see sources/pvacd_hydrovu/backfill.py).
+A plain @job/@op pair, launched manually via the Dagster Launchpad — not the
+daily schedule.
 """
 
 import logging
@@ -90,18 +73,9 @@ RunBackfillChunkFn = Callable[..., ChunkResult]
 
 
 class BackfillRefetchConfig[LocationId](Config):
-    """
-    Run configuration for a <source>_backfill_refetch job, filled in via the
-    Dagster Launchpad — see docs/BACKFILL_STRATEGY.md §5.2. Prefilled with
-    example values so a fresh scaffold is already valid and safe to launch
-    as-is (dry_run: true).
-
-    Fields here are common to every source. Per-source subclasses (e.g.
-    PvacdHydroVuBackfillRefetchConfig below) parameterize LocationId with their own
-    concrete id type and override location_ids' default; everything else is
-    inherited. Validation lives in shared/backfill.py as plain, Dagster-free
-    functions so Mode B (replay) can reuse it too.
-    """
+    """Run config for a <source>_backfill_refetch job, via the Dagster Launchpad.
+    Prefilled so a fresh scaffold is safe to launch as-is (dry_run: true).
+    Per-source subclasses only override location_ids' default."""
 
     location_ids: list[LocationId] = Field(
         default=[],
@@ -113,16 +87,12 @@ class BackfillRefetchConfig[LocationId](Config):
     )
     start_date: str = "2026-01-01"  # "YYYY-MM-DD", inclusive
     end_date: str = "2026-02-01"  # "YYYY-MM-DD", exclusive
-    # Re-launch with the same run_key to resume a crashed run from its last
-    # completed chunk (see attach_run_timestamp, BackfillCheckpointStore).
-    # validate_default=True: pydantic otherwise skips field validators on an
-    # untouched default, which would leave every launch on the same bare
-    # "example-backfill" with no timestamp ever attached.
+    # Re-launch with the same run_key to resume from the last completed chunk.
+    # validate_default=True: without it, pydantic skips validators on an
+    # untouched default, so the timestamp would never get attached.
     run_key: str = Field(default="example-backfill", validate_default=True)
-    # Per AGENTS.md: "any large backfill is a reviewed, deliberate action,
-    # not a default." Gates GCS/FROST writes only — not the one live,
-    # read-only API call the op always makes (see resolve_location_ids) to
-    # resolve/validate location_ids, which happens even when dry_run is true.
+    # Gates GCS/FROST writes only — the read-only location-list call still
+    # happens even when true.
     dry_run: bool = True
 
     @field_validator("start_date", "end_date")
@@ -147,43 +117,26 @@ def _make_backfill_refetch_op(
     dataset: str,
     prepare_fn: PrepareBackfillFn,
     run_chunk_fn: RunBackfillChunkFn,
-    # [int] is an arbitrary concrete choice for callers that omit config_cls
-    # (only tests/defs/jobs/test_backfill.py's generic factory-level tests do
-    # this) — every real source always passes its own concrete subclass
-    # explicitly (see the per-source BackfillRefetchConfig subclasses
-    # below), so the id type here is never actually exercised.
+    # [int] is an arbitrary placeholder — only tests omit config_cls; every
+    # real source passes its own concrete subclass explicitly.
     config_cls: type[BackfillRefetchConfig] = BackfillRefetchConfig[int],
 ) -> OpDefinition:
-    """
-    Builds the op behind <name>_backfill_refetch:
-      1. Resolves the chunk plan (pure date math — see shared.backfill.month_chunks).
-      2. Calls prepare_fn() (a read, so this runs even during dry_run) to
-         resolve an empty location_ids into every API location, and reject
-         any explicitly-listed id the API doesn't recognize.
-      3. dry_run short-circuits here — logs the resolved plan, no GCS/FROST calls.
-      4. Otherwise processes chunks sequentially, skipping ones already
-         checkpointed for this run_key, checkpointing each only after its
-         ingest + transform + load succeed (sources/pvacd_hydrovu/backfill.py's
-         run_backfill_chunk).
-    """
+    """Resolves the chunk plan, calls prepare_fn() (runs during dry_run too),
+    logs and returns on dry_run, otherwise processes chunks sequentially —
+    checkpointing each only after ingest+transform+load succeed."""
 
     @op(name=f"{name}_backfill_refetch_op")
     def _op(context: OpExecutionContext, config: config_cls) -> None:  # type: ignore[valid-type]
-        # config_cls is a runtime-varying per-source subclass, which mypy
-        # can't check directly — cast to the common base every subclass
-        # only adds/overrides location_ids' default on top of.
+        # mypy can't check the runtime-varying subclass directly — cast to the
+        # common base, which every subclass only overrides location_ids' default on.
         cfg = cast(BackfillRefetchConfig, config)
         start = parse_backfill_date(cfg.start_date, "start_date")
         end = parse_backfill_date(cfg.end_date, "end_date")
         chunks = month_chunks(start, end)
 
-        # Forwards prepare_fn()/run_chunk_fn()'s stdlib logging plus
-        # BackfillCheckpointStore's own logger ("aqueduct_dagster.shared.backfill")
-        # into this run's log stream. The whole "aqueduct_dagster.sources" tree is
-        # forwarded rather than just this source's package, because a source can fetch
-        # through a shared vendor module that is a sibling of it, not a descendant
-        # (sources/hydrovu_common.py) — and this factory has no way to know which.
-        # prepare_fn() runs even during dry_run, so this wraps it unconditionally.
+        # Forwards stdlib logging into this run's log. The whole "sources" tree
+        # is forwarded, not just this source's package, since a fetch can go
+        # through a sibling vendor module (hydrovu_common.py), not a descendant.
         with forward_python_logs_to_dagster(
             context,
             "aqueduct_dagster.sources",
@@ -232,21 +185,12 @@ def _make_backfill_refetch_op(
                 bucket = _gcs_bucket_url().replace("gs://", "")
                 fs = _gcs_filesystem()
                 checkpoints = BackfillCheckpointStore(fs, bucket, dataset, run_key=cfg.run_key)
-                # Separate FROST watermark file from production's (e.g.
-                # raw_pvacd_hydrovu/_frost_watermarks.json), same isolation principle as
-                # the separate GCS raw table each source's backfill.py writes to
-                # (hydrovu_backfill_readings vs hydrovu_readings, for pvacd_hydrovu) — so
-                # a backfill run can never race with, or clobber, the daily scheduled
-                # pipeline's own watermark state.
+                # Separate watermark file from production's — a backfill run can
+                # never race with or clobber the daily pipeline's watermark state.
                 #
-                # Known limitation this trades away: if this backfill is repairing an
-                # outage gap (BACKFILL_STRATEGY.md §3, category A.3) and production's own
-                # ingest cursor also naturally recovers into that same window on its own,
-                # both paths can independently post the same underlying readings — FROST
-                # observations have no dedup key (§4.4), so that specific overlap can
-                # produce duplicates. Every other backfill situation (new entity, extended
-                # history, vendor correction) is unaffected, since production's cursor
-                # never revisits a window it has already moved past.
+                # Trade-off: backfilling an outage gap (§3 A.3) while production's
+                # cursor independently recovers the same window can duplicate
+                # observations — FROST has no dedup key (§4.4).
                 loader = build_frost_loader(context, f"{dataset}_backfill")
 
                 # Each chunk re-globs the whole table, so a bad filename can
@@ -327,11 +271,8 @@ def _make_backfill_refetch_job(
     dataset: str,
     prepare_fn: PrepareBackfillFn,
     run_chunk_fn: RunBackfillChunkFn,
-    # [int] is an arbitrary concrete choice for callers that omit config_cls
-    # (only tests/defs/jobs/test_backfill.py's generic factory-level tests do
-    # this) — every real source always passes its own concrete subclass
-    # explicitly (see the per-source BackfillRefetchConfig subclasses at the
-    # bottom of this file), so the id type here is never actually exercised.
+    # [int] is an arbitrary placeholder — only tests omit config_cls; every
+    # real source passes its own concrete subclass explicitly.
     config_cls: type[BackfillRefetchConfig] = BackfillRefetchConfig[int],
 ) -> JobDefinition:
     op_fn = _make_backfill_refetch_op(name, dataset, prepare_fn, run_chunk_fn, config_cls)
@@ -348,14 +289,8 @@ def _make_backfill_refetch_job(
 
 
 class PvacdHydroVuBackfillRefetchConfig(BackfillRefetchConfig[int]):
-    """
-    pvacd_hydrovu_backfill_refetch's run configuration. Only overrides
-    location_ids' default (PVACD's own known-good allowlist, read at import
-    time via default_backfill_location_ids()) — every other field is inherited
-    unchanged from BackfillRefetchConfig. Tenant-scoped, not vendor-scoped: a
-    second HydroVu tenant gets its own subclass reading its own allowlist, it
-    does not reuse this one.
-    """
+    """Only overrides location_ids' default (PVACD's allowlist). Tenant-scoped,
+    not vendor-scoped — a second HydroVu tenant gets its own subclass."""
 
     location_ids: list[int] = Field(
         default=pvacd_hydrovu_default_backfill_location_ids(),
@@ -394,8 +329,8 @@ cabq_backfill_refetch = _make_backfill_refetch_job(
 
 
 class BerncoHydroVuBackfillRefetchConfig(BackfillRefetchConfig[int]):
-    """bernco_hydrovu_backfill_refetch's run configuration — only overrides
-    location_ids' default, same pattern as PvacdHydroVuBackfillRefetchConfig."""
+    """Only overrides location_ids' default (BernCo's allowlist), same pattern
+    as PvacdHydroVuBackfillRefetchConfig."""
 
     location_ids: list[int] = Field(
         default=bernco_hydrovu_default_backfill_location_ids(),

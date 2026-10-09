@@ -1,6 +1,4 @@
 """
-tests/sources/pvacd_hydrovu/test_backfill.py
-
 Unit tests for sources/pvacd_hydrovu/backfill.py (Mode A refetch).
 No live API/GCS/FROST — all I/O is mocked.
 """
@@ -143,11 +141,8 @@ class TestHydroVuBackfillReadings:
 
     @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.fetch_location_data")
     def test_fetch_error_message_includes_the_chunk_window(self, mock_fetch):
-        """
-        An operator glancing at a failed run should immediately see which
-        window failed, not just the location id and raw error — the window
-        bounds must be readable in the raised message.
-        """
+        """An operator glancing at a failed run must see the window bounds
+        readable in the message, not just the location id and raw error."""
         mock_fetch.return_value = (None, "HTTP 500")
         # 2026-01-01T00:00:00Z and 2026-02-01T00:00:00Z, in unix seconds.
         start_ts = 1767225600
@@ -189,25 +184,17 @@ def test_default_backfill_location_ids_reads_the_configured_allowlist(mock_cfg):
 
 @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.load_source_config")
 def test_default_backfill_location_ids_is_empty_when_key_not_configured(mock_cfg):
-    """
-    A [sources.pvacd_hydrovu] section with no location_ids key at all is not an
-    error — some sources may deliberately not curate an allowlist — so this
-    returns [] (meaning "every location", see resolve_location_ids), not a
-    KeyError.
-    """
+    """A config section with no location_ids key is not an error — returns []
+    ("every location," see resolve_location_ids), not a KeyError."""
     mock_cfg.return_value = {"gcp_secret": "hydrovu_pvacd"}  # no location_ids key
     assert default_backfill_location_ids() == []
 
 
 @patch("aqueduct_dagster.sources.pvacd_hydrovu.backfill.load_source_config")
 def test_default_backfill_location_ids_raises_on_missing_config(mock_cfg):
-    """
-    Raises when .dlt/config.toml itself can't be read at all — a broken
-    environment, not an intentional "backfill everything" choice — instead
-    of silently falling back to [] and widening a reviewed allowlist into
-    "backfill everything" at Dagster's definitions-load time (see
-    PvacdHydroVuBackfillRefetchConfig).
-    """
+    """Raises when .dlt/config.toml can't be read at all — a broken
+    environment, not "backfill everything." Falling back to [] here would
+    silently widen a reviewed allowlist at Dagster's definitions-load time."""
     mock_cfg.side_effect = FileNotFoundError("no .dlt/config.toml")
     with pytest.raises(FileNotFoundError):
         default_backfill_location_ids()
@@ -350,12 +337,9 @@ def test_run_backfill_chunk_reads_by_exact_load_id_and_loads_bundles(
 def test_run_backfill_chunk_reports_adapter_failures_without_dropping_good_locations(
     mock_run_ingest, mock_read_rows
 ):
-    """
-    One location's reading has a malformed timestamp (None) — PvacdHydroVuAdapter
-    raises adapting it, BaseAdapter.run() catches and records it. The other,
-    healthy location must still produce a bundle and get loaded; ChunkResult
-    must report the failure count rather than silently swallowing it.
-    """
+    """A malformed timestamp in one location's reading makes the adapter
+    raise; BaseAdapter.run() catches it, but the other healthy location must
+    still produce a bundle, and ChunkResult must report the failure count."""
     mock_run_ingest.return_value = 100.0
     mock_read_rows.return_value = (
         [
@@ -428,11 +412,8 @@ def test_run_backfill_chunk_with_no_rows_loads_nothing(mock_run_ingest, mock_rea
 def test_run_backfill_chunk_handles_empty_loads_ids_without_crashing(
     mock_run_ingest, mock_read_rows
 ):
-    """
-    Regression test: run_backfill_ingest returns None when the chunk's
-    requested location(s) yield zero rows — e.g. a wrong/nonexistent
-    location_id — this must return a zero ChunkResult, not crash.
-    """
+    """Regression test: run_backfill_ingest returns None when requested
+    location(s) yield zero rows — must return a zero ChunkResult, not crash."""
     mock_run_ingest.return_value = None
 
     loader = _StubFrostLoader()

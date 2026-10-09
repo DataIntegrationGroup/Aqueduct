@@ -1,3 +1,11 @@
+"""
+Dagster asset: raw_bernco_manual_readings — runs the BernCo manual (ArcREST)
+dlt source, writing two GCS resources: bernco_manual_locations (replace) and
+bernco_manual_readings (append, per-location incremental).
+
+First asset in the pipeline. Downstream: canonical_bundles_bernco_manual.
+"""
+
 import logging
 
 from dagster import AssetExecutionContext, Failure, MaterializeResult, MetadataValue, asset
@@ -15,6 +23,8 @@ logger = logging.getLogger(__name__)
     compute_kind="dlt",
 )
 def raw_bernco_manual_readings(context: AssetExecutionContext) -> MaterializeResult:
+    """Incrementally fetches BernCo manual readings into GCS — first run from
+    initial_start_date, later runs from each station's own cursor."""
     pipeline = build_pipeline()
     stats: dict = {}
     with forward_python_logs_to_dagster(context, "aqueduct_dagster.sources.bernco_manual", "dlt"):

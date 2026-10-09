@@ -1,38 +1,6 @@
 """
-shared/backfill.py
-
-Source-agnostic helpers for backfill jobs (Mode A refetch, and later Mode B
-replay) — see docs/BACKFILL_STRATEGY.md.
-
-Three responsibilities, all with no knowledge of any one source's API or adapter:
-
-  month_chunks()          splits a requested date range into calendar-month
-                           windows, so a wide backfill runs as a sequence of
-                           small chunks in one Dagster run instead of one huge
-                           call (see BACKFILL_STRATEGY.md §4.3).
-
-  BackfillCheckpointStore  tracks which chunks of a specific backfill run have
-                           already completed (ingest + transform + load all
-                           succeeded), so re-launching the same run resumes
-                           from the last completed chunk rather than
-                           restarting the whole range (§4.3).
-
-  ChunkResult              the result shape every source's run_backfill_chunk()
-                           (sources/<name>/backfill.py) returns, so the generic
-                           job factory (defs/jobs/backfill.py) can report
-                           metadata without importing any one source's module.
-
-  parse_backfill_date/validate_date_order/attach_run_timestamp/
-  sanitize_run_key/resolve_location_ids
-                           run-config validation/resolution shared by every
-                           backfill job (dates, run_key, entity list) — kept
-                           Dagster- and source-free so Mode B (replay) can
-                           reuse it too.
-
-  load_source_config/build_backfill_pipeline/run_backfill_ingest/
-  load_bundles_windowed
-                           the per-chunk ingest/load mechanics every source's
-                           run_backfill_chunk() otherwise duplicated.
+Source-agnostic helpers for backfill jobs (Mode A refetch) — see
+docs/BACKFILL_STRATEGY.md.
 """
 
 from __future__ import annotations
@@ -69,12 +37,8 @@ class _Orderable(Protocol):
 
 @dataclass
 class ChunkResult:
-    """
-    Outcome of one calendar-month backfill chunk (ingest + transform + load).
-    Returned by every source's run_backfill_chunk() (sources/<name>/backfill.py)
-    so the job orchestration (defs/jobs/backfill.py) can report metadata and
-    aggregate totals identically regardless of source.
-    """
+    """Outcome of one backfill chunk; returned by every source's run_backfill_chunk()
+    so defs/jobs/backfill.py can aggregate metadata identically regardless of source."""
 
     rows_ingested: int
     bundles_loaded: int
@@ -102,17 +66,9 @@ def sum_chunk_results(results: list[ChunkResult]) -> ChunkResult:
 
 
 def month_chunks(start: date, end: date) -> list[tuple[datetime, datetime]]:
-    """
-    Splits the half-open range [start, end) into calendar-month chunks,
-    returned as UTC datetime bounds.
-
-    The first chunk starts exactly at `start` (not padded back to the 1st of
-    its month); the last chunk ends exactly at `end`. Every chunk in between
-    is a full calendar month. E.g. month_chunks(2026-01-15, 2026-03-01) ->
-    [(2026-01-15, 2026-02-01), (2026-02-01, 2026-03-01)].
-
-    Raises ValueError if start >= end.
-    """
+    """Splits [start, end) into calendar-month chunks (UTC). First/last chunks
+    are clipped to start/end exactly, e.g. (2026-01-15, 2026-03-01) ->
+    [(01-15, 02-01), (02-01, 03-01)]. Raises ValueError if start >= end."""
     if start >= end:
         raise ValueError(f"start ({start}) must be before end ({end})")
 
@@ -154,13 +110,9 @@ def validate_date_order(start_date: str, end_date: str) -> None:
 
 
 def attach_run_timestamp(run_key: str) -> str:
-    """
-    Appends a UTC timestamp to run_key, unless it already ends with one.
-
-    Keeps two runs launched from the same typed label from colliding, while
-    letting a resume-launch reuse the exact same (already-timestamped)
-    run_key unchanged, so BackfillCheckpointStore finds the same checkpoint.
-    """
+    """Appends a UTC timestamp to run_key (unless already timestamped) so two
+    runs from the same label don't collide, while a resume-launch reusing the
+    same run_key still finds its checkpoint."""
     if _RUN_KEY_TIMESTAMP_RE.search(run_key):
         return run_key
     return f"{run_key}_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
@@ -179,10 +131,8 @@ def load_source_config(source_name: str) -> dict[str, Any]:
 def build_backfill_pipeline(
     *, pipeline_name_prefix: str, dataset: str, run_key: str
 ) -> dlt.Pipeline:
-    """
-    Isolated dlt pipeline: one pipeline_name per run_key, so two backfill runs
-    can never share dlt's local pending-load state.
-    """
+    """Isolated dlt pipeline: one pipeline_name per run_key, so two backfill
+    runs can never share dlt's local pending-load state."""
     return build_source_pipeline(f"{pipeline_name_prefix}_{sanitize_run_key(run_key)}", dataset)
 
 
@@ -195,20 +145,13 @@ def run_backfill_ingest(
     chunk_start: datetime,
     chunk_end: datetime,
 ) -> float | None:
-    """
-    Builds the isolated pipeline, drops any pending package (so a package
-    left by an earlier crashed attempt is never silently resumed instead of
-    this chunk's real data), runs `resource`, and returns the load_id — or
-    None if nothing new was ingested (caller should return a zero ChunkResult
-    rather than index an empty list).
+    """Builds the isolated pipeline, drops any pending package (so a crashed
+    attempt's leftovers are never silently resumed), runs `resource`, returns
+    load_id or None if nothing new was ingested.
 
-    Assumes `resource` has no persisted incremental state of its own (see
-    hydrovu_backfill_readings, which deliberately never touches
-    dlt.current.resource_state()) — drop_pending_packages() runs
-    unconditionally, so a resource relying on a real cursor would have that
-    state silently discarded on every chunk. Write a dedicated cursor-free
-    resource for backfill rather than reusing a production one.
-    """
+    Assumes `resource` has no persisted cursor of its own — drop_pending_packages()
+    runs unconditionally, so a cursor-based resource would have its state
+    silently discarded every chunk. Write a dedicated cursor-free resource."""
     pipeline = build_backfill_pipeline(
         pipeline_name_prefix=pipeline_name_prefix, dataset=dataset, run_key=run_key
     )
@@ -254,11 +197,9 @@ def load_bundles_windowed(
 def resolve_location_ids[T: _Orderable](
     location_ids: list[T], locations_by_id: dict[T, dict]
 ) -> list[T]:
-    """
-    Empty location_ids means "every location the API returns" (locations_by_id);
-    otherwise raises ValueError listing any id not in locations_by_id, instead
-    of silently backfilling nothing for a typo'd/nonexistent id.
-    """
+    """Empty location_ids means "every location the API returns"; otherwise
+    raises ValueError listing any id not in locations_by_id, instead of
+    silently backfilling nothing for a typo."""
     if not location_ids:
         return sorted(locations_by_id)
     unknown = sorted(loc_id for loc_id in location_ids if loc_id not in locations_by_id)
@@ -273,34 +214,17 @@ def resolve_location_ids[T: _Orderable](
 def chunk_key[T: _Orderable](
     chunk_start: datetime, chunk_end: datetime, location_ids: list[T]
 ) -> str:
-    """
-    Canonical string key for a chunk window + entity list — used by
-    BackfillCheckpointStore and logging.
-
-    location_ids is part of the key (not just the date range) so that
-    re-launching the same run_key with a different entity list (e.g. adding a
-    location that was missing from the first run) is treated as a genuinely
-    different chunk, not silently skipped as already complete.
-    """
+    """Key for a chunk window + entity list. location_ids is part of the key
+    so a re-launch with a different entity list is a new chunk, not silently
+    skipped as already complete."""
     ids = ",".join(str(i) for i in sorted(location_ids))
     return f"{chunk_start.isoformat()}_{chunk_end.isoformat()}_{ids}"
 
 
 class BackfillCheckpointStore:
-    """
-    GCS-backed record of which chunks a specific backfill run has completed.
-
-    Keyed by an operator-supplied `run_key` (e.g. "pvacd_hydrovu-jan2026-repair") —
-    re-launching the job with the same run_key resumes from the last
-    completed chunk; a different run_key starts fresh and can be run
-    independently (e.g. two unrelated backfills for the same source).
-
-    GCS file: {dataset}/_backfill_checkpoints/{run_key}.json
-      {"completed_chunks": ["2026-01-01T00:00:00+00:00_2026-02-01T00:00:00+00:00_111,222", ...]}
-
-    Writes are atomic with retry, via shared/gcs.py's atomic_write_json_with_retry()
-    (also used by loader/watermark_store.py's FrostWatermarkStore).
-    """
+    """GCS-backed record of which chunks a backfill run has completed, keyed by
+    run_key — the same run_key resumes from the last completed chunk; a
+    different one starts fresh. File: {dataset}/_backfill_checkpoints/{run_key}.json."""
 
     def __init__(
         self,
@@ -311,8 +235,7 @@ class BackfillCheckpointStore:
     ) -> None:
         self._fs = fs
         # Sanitized the same way as build_backfill_pipeline's pipeline_name, so a
-        # run_key with e.g. a slash or space can't split the checkpoint file and
-        # the dlt pipeline name onto two different identifiers for the same run.
+        # run_key with a slash/space can't split this into two different identifiers.
         self._path = f"{bucket}/{dataset}/_backfill_checkpoints/{sanitize_run_key(run_key)}.json"
         self._completed: set[str] | None = None
 

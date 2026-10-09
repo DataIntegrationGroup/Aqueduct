@@ -1,3 +1,8 @@
+"""
+dlt source for BernCo's manual (ArcREST) well-monitoring data — locations and
+readings fetched from an unauthenticated ArcGIS FeatureServer, written to GCS.
+"""
+
 import logging
 import time
 from collections.abc import Iterator
@@ -19,30 +24,8 @@ _MAX_RATE_LIMIT_RETRIES = 3
 
 
 def _transform_result(data: dict) -> list[dict]:
-    """
-    The structure of data we get back from BerncoManual API is:
-    {
-        "objectIdFieldName": "OBJECTID",
-        "uniqueIdField": {
-            "name": "OBJECTID",
-            "isSystemMaintained": true
-        },
-        "globalIdFieldName": "",
-        "fields": [ list of fields in attributes ... ],
-        "exceededTransferLimit": true,
-        "features": [
-            {
-                "attributes": { ... }
-            },{
-                "attributes": { ... }
-            },{
-                ...
-            }
-        ]
-    }
-    The content of "attributes" in each entry of "features" list is what we actually want.
-    This function simply reads in the response from CABQ and returns a list the JSON objects in each "attributes" field.
-    """
+    """Extracts the "attributes" dict from each entry in the BernCo ArcREST
+    response's "features" list — the only part of the response actually used."""
     all_attributes: list[dict] = []
     for feature in data["features"]:
         all_attributes.append(feature["attributes"])
@@ -50,17 +33,10 @@ def _transform_result(data: dict) -> list[dict]:
 
 
 def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | None]:
-    """
-    get location information from BerncoManual API
-    format of location:
-    {
-        "GlobalID": str,                *string code for identifying location, UUID
-        "Well_Name": str,               *full human-readable name of location
-        "Well_Location_Latitude": num,  *latitude coordinate for location
-        "Well_Location_Longitude": num, *longitude coordinate for location
-        "NMT_ID": str                   *string code for identifying location, ex "BC-0364"
-    }
-    """
+    """Fetches location info from the BernCo ArcREST API.
+
+    Location shape: GlobalID (UUID), Well_Name, Well_Location_Latitude/Longitude,
+    NMT_ID (e.g. "BC-0364")."""
     path = "/0/query"
     params = {
         "where": "OBJECTID>0",
@@ -118,14 +94,9 @@ def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | Non
 def _fetch_readings_for_location(
     client: httpx.Client, location_id: str, start_time: int, end_time: int | None = None
 ) -> tuple[list[dict] | None, str | None]:
-    """
-    get reading information for location from BerncoManual API
-    format of location:
-    {
-        MSRMNT_Date: num,                       *timestamp of when measurement was taken in unix epoch milliseconds
-        Depth_To_Water_At_Msrmnt_Point: num,    *water level in ft msl
-    }
-    """
+    """Fetches readings for one location from the BernCo ArcREST API.
+
+    Reading shape: MSRMNT_Date (Unix epoch ms), Depth_To_Water_At_Msrmnt_Point (ft)."""
     path = "/1/query"
     query = (
         "Well_ID='"
@@ -216,6 +187,8 @@ def bernco_manual_source(
     initial_start_date: str = dlt.config.value,
     _stats: dict | None = None,
 ) -> Any:
+    """Fetches the location list once, then composes the two resources below.
+    Returns None if locations can't be fetched at all — nothing to yield without them."""
     start_ts = int(
         datetime.strptime(initial_start_date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
     )
@@ -257,26 +230,13 @@ def bernco_manual_readings(
     start_ts: int,
     _stats: dict | None = None,
 ) -> Iterator[dict]:
-    """
-    Yields one flat record per reading per location.
-    Per-location incremental cursor via dlt.current.resource_state() — same pattern as
-    hydrovu_readings. Each station has its own cursor; a failed station retries from the
-    same point next run rather than being skipped permanently.
+    """Per-location incremental cursor via dlt.current.resource_state() — same
+    pattern as hydrovu_readings. Each station has its own cursor; a failed
+    station retries from the same point next run rather than being skipped
+    permanently.
 
-    On first run: fetches from start_ts (derived from initial_start_date in config).
-    On subsequent runs: fetches only records newer than each station's cursor.
-
-    Record shape (to define when implementing):
-      reading_id   — unique key e.g. "{location_id}_{timestamp}"
-      location_id  — bernco manual station identifier
-      location_name — human-readable name of the location
-      latitude     — latitude in decimal degrees
-      longitude    — longitude in decimal degrees
-      timestamp    — Unix epoch milliseconds
-      value        — float measurement
-      alternate_id — Cross-reference IDs, e.g. `[{id: "BC-0364", agency: "NMBGMR"}]`
-      # add other fields as needed
-    """
+    First run fetches from start_ts (initial_start_date); later runs fetch
+    only what's newer than each station's cursor."""
     cursors: dict[str, int] = dlt.current.resource_state().setdefault("location_cursors", {})
     try:
         fetched = 0

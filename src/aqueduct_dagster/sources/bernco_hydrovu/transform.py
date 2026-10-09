@@ -1,34 +1,10 @@
 """
-sources/bernco_hydrovu/transform.py
+Dagster asset: canonical_bundles_bernco_hydrovu — reads new hydrovu_readings
+parquet, filters to DTW rows, joins to hydrovu_locations, drops sentinel-floor
+readings (sentinel_floor()), and runs BerncoHydroVuAdapter.
 
-Dagster asset: canonical_bundles_bernco_hydrovu
-  - Reads only NEW hydrovu_readings parquet from GCS since the last successful run
-  - Always reads the latest hydrovu_locations parquet
-  - Filters readings to DTW rows only (parameter_id="4")
-  - Joins readings to locations on location_id to restore name/lat/lon metadata
-  - Drops readings below the sentinel floor (see below)
-  - Runs BerncoHydroVuAdapter to produce CanonicalBundles (one per DTW location)
-  - Returns bundles downstream to frost_load_bernco_hydrovu
-
-Incremental reads (readings only):
-  A watermark file (raw_bernco_hydrovu/_bernco_hydrovu_transform_watermark.json) in GCS
-  tracks the highest dlt load_id processed so far. On each run only readings parquet
-  files with a newer load_id are read. Full re-reads were not chosen: BernCo's 29 DTW
-  locations report as often as once a minute, so the raw zone grows without bound.
-
-  load_id is the float Unix timestamp dlt embeds in every parquet filename:
-    raw_bernco_hydrovu/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/{load_id}.{file_id}.parquet
-
-Locations parquet (hydrovu_locations/) uses write_disposition="replace" so it is
-always a single up-to-date file. Read fresh on every run.
-
-Sentinel floor:
-  Two locations return readings stamped at or near Unix epoch 0 with plausible values
-  (bad device clocks, not history). Readings older than the source's own
-  initial_start_date are dropped, since the ingest never requests anything earlier.
-
-Upstream:  raw_bernco_hydrovu_readings
-Downstream: frost_load_bernco_hydrovu
+Incremental, not full re-reads: 29 locations report as often as once a
+minute, so the raw zone grows without bound.
 """
 
 import logging
@@ -66,27 +42,18 @@ WATERMARK_PATH = transform_watermark_path(GCS_DATASET, "bernco_hydrovu")
 
 @dataclass
 class BerncoHydroVuTransformResult:
-    """Carries CanonicalBundles and the GCS load_id watermark to the load step.
-
-    max_load_id is None when there were no new parquet files this run.
-    The load step writes the watermark only after FROST confirms success,
-    so a FROST failure leaves max_load_id unwritten and the next run retries.
-    """
+    """Carries CanonicalBundles + GCS load_id watermark to the load step.
+    max_load_id is None if no new files."""
 
     bundles: list[CanonicalBundle]
     max_load_id: float | None
 
 
 def sentinel_floor() -> int:
-    """
-    The Unix second below which a reading is a bad device clock rather than history.
-
-    Read from [sources.bernco_hydrovu] initial_start_date rather than hardcoded, so the
-    floor and the dlt cursor can never disagree: startTime is applied server-side and
-    the scheduled ingest never asks for anything earlier. A caller that deliberately
-    fetches older history (a future backfill) must pass its own floor to the adapter
-    instead, or it would discard everything it just fetched.
-    """
+    """Unix second below which a reading is a bad device clock, not history.
+    Read from initial_start_date (not hardcoded) so the floor and the dlt
+    cursor can't disagree. A backfill fetching older history must pass its
+    own floor instead."""
     raw = load_config()["sources"]["bernco_hydrovu"]["initial_start_date"]
     return int(datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=UTC).timestamp())
 
@@ -101,11 +68,8 @@ def sentinel_floor() -> int:
 def canonical_bundles_bernco_hydrovu(
     context: AssetExecutionContext,
 ) -> BerncoHydroVuTransformResult:
-    """
-    Reads only new HydroVu parquet from GCS (since last run), filters to DTW
-    readings, groups by location, and runs BerncoHydroVuAdapter to produce
-    CanonicalBundles.
-    """
+    """Does NOT write the watermark — frost_load_bernco_hydrovu does, after
+    FROST success, so a failure there just retries next run."""
     bucket_url = _gcs_bucket_url()
     bucket = bucket_url.replace("gs://", "")
 

@@ -1,13 +1,7 @@
 """
-tests/shared/test_gcp_auth.py
-
-Unit tests for the ADC bootstrap in shared/gcp_auth.py.
-Entirely offline — no GCP client is ever constructed, only environment and
-filesystem state is asserted.
-
-The security-relevant test here is test_error_never_leaks_payload: these errors
-land in Dagster run logs, which are not a secret store, so a malformed key must
-never be echoed back.
+Unit tests for the ADC bootstrap in shared/gcp_auth.py. Entirely offline —
+only env/filesystem state is asserted. Security-relevant:
+test_error_never_leaks_payload guards against key material reaching logs.
 """
 
 from __future__ import annotations
@@ -49,11 +43,9 @@ def _b64(payload: Any) -> str:
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
-    """
-    ensure_adc() caches success in a module-level flag so the three call sites can
-    call it freely. Reset it between tests, and clear both env vars so a developer's
-    real ADC setup can't influence the result.
-    """
+    """ensure_adc() caches success in a module-level flag so callers can call
+    it freely — reset between tests, and clear both env vars so a developer's
+    real ADC setup can't influence the result."""
     monkeypatch.setattr(gcp_auth, "_bootstrapped", False)
     monkeypatch.delenv(ENV_KEY_B64, raising=False)
     monkeypatch.delenv(ENV_ADC_PATH, raising=False)
@@ -110,15 +102,9 @@ class TestSuccessfulBootstrap:
         assert mode == 0o600, f"expected 0600, got {oct(mode)}"
 
     def test_key_file_is_0600_under_restrictive_umask(self, monkeypatch):
-        """
-        The mode must not depend on the developer's umask. mkstemp asks for 0600, but
-        umask clears bits from that — under 0o277 it yields 0400, which would break
-        test_key_file_is_private above for anyone running with an unusual umask.
-        Guards the explicit chmod in _write_key_file.
-
-        os.umask is process-global and monkeypatch cannot restore it, so the reset has
-        to be in a finally — leaking it would corrupt every later test in the session.
-        """
+        """mkstemp's 0600 request gets umask-cleared (0o277 → 0400) without the
+        explicit chmod this guards. os.umask is process-global and monkeypatch
+        can't restore it, so the reset must be in a finally."""
         previous_umask = os.umask(0o277)
         try:
             monkeypatch.setenv(ENV_KEY_B64, _b64(_key()))
@@ -141,7 +127,7 @@ class TestSuccessfulBootstrap:
         assert json.loads(Path(os.environ[ENV_ADC_PATH]).read_text()) == _key()
 
     def test_idempotent_across_calls(self, monkeypatch):
-        """All three call sites invoke this; it must not write a new key file each time."""
+        """Every call site invokes this; it must not write a new key file each time."""
         monkeypatch.setenv(ENV_KEY_B64, _b64(_key()))
 
         ensure_adc()
@@ -183,13 +169,9 @@ class TestRejectsBadInput:
 
     @pytest.mark.parametrize("field", ["client_email", "private_key", "project_id", "token_uri"])
     def test_rejects_key_missing_any_google_auth_required_field(self, monkeypatch, field):
-        """
-        google-auth needs client_email, token_uri, and private_key; omitting any one
-        makes it raise "Service account info was not in the expected format" from deep
-        inside a client library, naming no environment variable. Catching it here is
-        the entire point of validating, so every field is covered — token_uri
-        especially, since it is easy to leave out of a hand-assembled key.
-        """
+        """google-auth's own error for a missing field ("...not in the expected
+        format") names no env var — catching it here, especially for the
+        easy-to-forget token_uri, is the whole point of validating up front."""
         partial = _key()
         del partial[field]
         monkeypatch.setenv(ENV_KEY_B64, _b64(partial))

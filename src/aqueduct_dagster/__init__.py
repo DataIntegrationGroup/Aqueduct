@@ -1,1 +1,1 @@
-# aqueduct_dagster — Dagster POC for Aqueduct water data pipeline
+# aqueduct_dagster — Dagster pipeline for Aqueduct

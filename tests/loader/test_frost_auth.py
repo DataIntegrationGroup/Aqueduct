@@ -1,15 +1,7 @@
 """
-tests/loader/test_frost_auth.py
-
 Unit tests for FROST URL resolution and ID-token auth in loader/frost_auth.py.
-Entirely offline — no ID token is ever minted and no request leaves the process;
-credentials are stubs and only header/handler state is asserted.
-
-Two tests here guard against silent breakage rather than a bug we have seen:
-test_service_accepts_id_token_auth_handler pins the isinstance constraint that
-forces IdTokenAuthHandler to subclass AuthHandler, and test_audience_excludes_path
-pins the Cloud Run audience rule — getting it wrong yields a 403 that reads as a
-missing IAM binding.
+Entirely offline — credentials are stubs; no ID token is minted, no request
+leaves the process.
 """
 
 from __future__ import annotations
@@ -155,11 +147,9 @@ def test_missing_credentials_raise_actionable_error(monkeypatch):
 
 
 def test_service_accepts_id_token_auth_handler():
-    """
-    SensorThingsService.auth_handler isinstance-checks against AuthHandler.
-    If a library upgrade tightens or changes that, this fails loudly here rather
-    than as a ValueError inside a production load.
-    """
+    """SensorThingsService.auth_handler isinstance-checks against AuthHandler —
+    a library upgrade tightening that fails loudly here, not as a ValueError
+    inside a production load."""
     service = fsc.SensorThingsService(f"{REMOTE}/v1.1")
     service.auth_handler = IdTokenAuthHandler(_StubCredentials(), object())
     assert isinstance(service.auth_handler, IdTokenAuthHandler)
@@ -188,10 +178,8 @@ def test_valid_credentials_not_refreshed_again():
 
 
 def test_expired_credentials_refreshed_mid_run():
-    """
-    ID tokens last an hour; a backfill can post for longer. The same handler must
-    mint a new token once the old one goes invalid, not reuse a stale one.
-    """
+    """ID tokens last an hour; a backfill can post longer — the same handler
+    must mint a new token once the old one goes invalid, not reuse a stale one."""
     creds = _StubCredentials(valid=False)
     handler = IdTokenAuthHandler(creds, object())
 

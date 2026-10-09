@@ -1,6 +1,4 @@
 """
-shared/source_registry.py
-
 Single registry of per-source configuration. Both defs/definitions.py (jobs
 and schedules) and defs/assets/load.py (FROST load assets) pull their config
 from SOURCE_REGISTRY instead of each maintaining their own separate list.

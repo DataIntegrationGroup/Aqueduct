@@ -1,3 +1,5 @@
+"""Unit tests for BerncoManualAdapter. No real API or GCS calls."""
+
 from datetime import UTC
 
 from aqueduct_dagster.sources.bernco_manual.adapter import BerncoManualAdapter

@@ -1,16 +1,6 @@
 """
-sources/cabq/adapter.py
-
-Mapping-only adapter for CABQ data.
-Raw records come from GCS (written by dlt).
-
-Responsibilities:
-  - to_thing()           map a raw location record → CanonicalThing + CanonicalLocation
-  - to_observations()    map raw readings → list[CanonicalObservation]
-  - _build_datastreams() build CanonicalDatastream for this Thing
-  - extract()            reads from GCS — called by run()
-
-Fetching and auth live entirely in sources/cabq/dlt_pipeline.py
+Mapping-only adapter for CABQ data — raw records come from GCS (written by
+dlt). Fetching and auth live entirely in sources/cabq/dlt_pipeline.py.
 """
 
 from __future__ import annotations
@@ -39,24 +29,8 @@ AGENCY = "CABQ"
 
 
 class CabqAdapter(BaseAdapter):
-    """
-    Adapter for CABQ groundwater level data.
-
-    Receives pre-grouped records (one per location) from the transform asset.
-    cabq/transform.py owns GCS reading — this adapter only does mapping.
-
-    Record shape expected (one per location — to define when implementing):
-      {
-        "location_id":   str    — CABQ station identifier
-        "location_name": str    — station name
-        "latitude":      float
-        "longitude":     float
-        "readings": [
-          {"timestamp": int, "value": float, ...},
-          ...
-        ]
-      }
-    """
+    """Receives pre-grouped records (one per location) — cabq/transform.py
+    owns GCS reading, this only maps."""
 
     def __init__(self, records: list[dict]) -> None:
         super().__init__(agency=AGENCY)

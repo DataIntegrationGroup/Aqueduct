@@ -1,6 +1,4 @@
 """
-tests/canonical/test_base_adapter.py
-
 Unit tests for BaseAdapter.run()'s failure capture and the shared
 log_if_adapter_failed() helper — the one piece every source adapter gets
 for free (see canonical/base_adapter.py).

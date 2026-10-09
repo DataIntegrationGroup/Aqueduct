@@ -74,16 +74,8 @@ def read_new_parquet_rows_for_asset(
     fs: gcsfs.GCSFileSystem,
     row_filter: Callable[[dict], bool] | None = None,
 ) -> tuple[list[dict], float | None, int]:
-    """
-    Calls read_new_parquet_rows() (shared/gcs.py) with this asset's logger
-    forwarded into Dagster's run log, so its files_skipped_bad_name warning
-    reaches the run rather than stdlib's root logger.
-
-    shared/gcs.py has to stay Dagster-free, so the forwarding lives here
-    instead — shared by every source's transform asset, not duplicated per source.
-
-    Returns (rows, max_load_id_seen_this_run, files_skipped_bad_name).
-    """
+    """Wraps read_new_parquet_rows() with its logger forwarded into Dagster's run log —
+    lives here, not in shared/gcs.py, since that module must stay Dagster-free."""
     with forward_python_logs_to_dagster(
         context, f"aqueduct_dagster.sources.{source_name}", "aqueduct_dagster.shared"
     ):

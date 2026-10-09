@@ -1,18 +1,10 @@
 """
-sources/pvacd_hydrovu/ingest.py
+Dagster asset: raw_pvacd_hydrovu_readings — runs the HydroVu dlt source,
+writing two GCS resources: hydrovu_locations (replace, full list every run)
+and hydrovu_readings (append, per-location incremental; location metadata
+omitted, join on location_id at transform time).
 
-Dagster asset: raw_pvacd_hydrovu_readings
-  Runs the HydroVu dlt source which writes two resources to GCS:
-
-  hydrovu_locations  (replace)  gs://<bucket>/raw_pvacd_hydrovu/hydrovu_locations/year={YYYY}/month={MM}/day={DD}/
-    Full location list on every run — one row per location.
-
-  hydrovu_readings   (append, per-location incremental)  gs://<bucket>/raw_pvacd_hydrovu/hydrovu_readings/year={YYYY}/month={MM}/day={DD}/
-    New readings since each location's last successful fetch — one row per (location, parameter, reading).
-    Location metadata is omitted; join to hydrovu_locations on location_id at transform time.
-
-This is the FIRST asset in the HydroVu pipeline. No upstream dependencies.
-Downstream: transform_hydrovu (reads both GCS folders)
+First asset in the pipeline. Downstream: canonical_bundles_pvacd_hydrovu.
 """
 
 from dagster import AssetExecutionContext, Failure, MaterializeResult, MetadataValue, asset
@@ -28,20 +20,8 @@ from aqueduct_dagster.sources.pvacd_hydrovu.dlt_pipeline import build_pipeline, 
     compute_kind="dlt",
 )
 def raw_pvacd_hydrovu_readings(context: AssetExecutionContext) -> MaterializeResult:
-    """
-    Runs the dlt pipeline to incrementally fetch HydroVu readings and
-    write them as parquet to the GCS raw zone.
-
-    dlt handles:
-      - API authentication
-      - Incremental cursor (only fetches new data since last run)
-      - Parquet serialisation
-      - GCS write
-      - Cursor state persistence (stored in GCS next to the data)
-
-    On first run: fetches from initial_start_date (set in dlt config).
-    On subsequent runs: fetches only records newer than each location's per-location cursor.
-    """
+    """Incrementally fetches HydroVu readings into GCS — first run from
+    initial_start_date, later runs from each location's own cursor."""
     pipeline = build_pipeline()
     context.log.info(
         "Starting HydroVu dlt extract (pipeline=%s, dataset=%s)",

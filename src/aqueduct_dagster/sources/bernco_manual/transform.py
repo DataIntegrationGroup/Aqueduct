@@ -1,3 +1,9 @@
+"""
+Dagster asset: canonical_bundles_bernco_manual — reads new
+bernco_manual_readings parquet, groups rows by location, and runs
+BerncoManualAdapter to produce CanonicalBundles.
+"""
+
 from dataclasses import dataclass
 
 from dagster import AssetExecutionContext, MetadataValue, asset

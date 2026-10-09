@@ -1,17 +1,7 @@
 """
-tests/sources/pvacd_hydrovu/test_dlt_pipeline.py
-
-Unit tests for PVACD's hydrovu_readings resource.
-
-The vendor-level HTTP client this resource fetches through (fetch_locations,
-fetch_location_data, credential resolution, pagination, 404/429/5xx handling) is
-shared with the other HydroVu tenants and tested once in
-tests/sources/test_hydrovu_common.py. What is tested here is what this module owns:
-the allowlist, and the per-location cursors living in dlt resource state.
-
-No real API calls — fetch_location_data is patched at the shared module, which is
-where the resource resolves it from, and dlt.current.resource_state() is patched with
-a plain dict so the generator can be driven directly.
+Unit tests for PVACD's hydrovu_readings resource — exercises the shared
+iter_location_readings() (allowlist, per-location cursors, error stats)
+through this tenant, since test_hydrovu_common.py defers that coverage here.
 """
 
 from __future__ import annotations

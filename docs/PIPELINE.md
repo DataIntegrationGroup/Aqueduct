@@ -41,7 +41,7 @@ location errored; otherwise it returns a `MaterializeResult` with metadata
 defines the actual dlt source. The HydroVu API client it fetches through —
 credentials, pagination, retries, the per-location fetch loop — is
 [`sources/hydrovu_common.py`](../src/aqueduct_dagster/sources/hydrovu_common.py),
-shared with the `bernco_hydrovu` tenant, which is otherwise an independent pipeline
+shared with every other HydroVu tenant, each otherwise an independent pipeline
 with its own credentials, allowlist, dlt state and dataset:
 
 - `pvacd_hydrovu_source()` — fetches OAuth creds from GCP Secret Manager (secret
@@ -89,7 +89,7 @@ Deps: `raw_pvacd_hydrovu_readings`.
    readings + location metadata into one record per location — the exact shape
    `PvacdHydroVuAdapter` expects: `{location_id, location_name,
    location_description, latitude, longitude, readings: [...]}`. Both helpers are
-   shared with the `bernco_hydrovu` tenant
+   shared with every other HydroVu tenant
    ([sources/hydrovu_transform_common.py](../src/aqueduct_dagster/sources/hydrovu_transform_common.py)).
 5. Instantiates `PvacdHydroVuAdapter(records)` and calls `list(adapter.run())`.
 6. Returns `HydroVuTransformResult(bundles, max_load_id)`. **The watermark is
@@ -163,9 +163,8 @@ is the single source of truth per source:
 
 ```python
 SOURCE_REGISTRY: list[SourceConfig] = [
-    {"name": "pvacd_hydrovu", "dataset": "raw_pvacd_hydrovu", "cron": "0 6 * * *"},
-    {"name": "bernco_hydrovu", "dataset": "raw_bernco_hydrovu", "cron": "0 7 * * *"},
-    {"name": "cabq", "dataset": "raw_cabq", "cron": "0 8 * * *"},
+    {"name": "<name>", "dataset": "raw_<name>", "cron": "<cron>"},
+    ...
 ]
 ```
 

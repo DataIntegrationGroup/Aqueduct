@@ -1,6 +1,4 @@
 """
-tests/loader/test_frost_loader.py
-
 Unit tests for FrostLoader.ensure_datastream retry behavior.
 No live FROST server required — all FROST calls are provided by a test double.
 """
@@ -31,13 +29,9 @@ from aqueduct_dagster.loader.watermark_store import InMemoryWatermarkStore
 
 
 class _StubLoader(FrostLoader):
-    """
-    Minimal concrete FrostLoader for unit testing ensure_datastream retry.
-
-    side_effects: dict mapping entity key to a list of responses. Each item is
-    either None (not found), a str id (found), or an Exception (raise on that call).
-    When the list is exhausted, the default behavior is used (None for find, str id for create).
-    """
+    """Minimal concrete FrostLoader for unit testing ensure_datastream retry.
+    side_effects maps entity key to a list of responses — None (not found), a
+    str id (found), or an Exception; exhausted entries fall back to defaults."""
 
     _FIND_DEFAULTS: dict[str, str | None] = {
         "find_location": None,
@@ -312,11 +306,8 @@ def test_load_window_empty_records_preserves_existing_watermark():
 
 
 def test_load_window_raises_on_out_of_window_record_before_any_side_effect():
-    """
-    A record outside [window_start, window_end) must be rejected BEFORE any
-    delete or post happens — zero side effects on failure, so the window is
-    left completely untouched rather than deleted-and-then-wrongly-repostable.
-    """
+    """A record outside [window_start, window_end) must be rejected BEFORE any
+    delete or post happens — zero side effects on failure."""
     loader = _StubLoader(deleted_count=99)  # would prove delete ran, if it did
     out_of_window = ObservationRecord(phenomenon_time=datetime(2026, 2, 5, tzinfo=UTC), result=1.0)
     records = [_rec(5), out_of_window]
@@ -405,15 +396,10 @@ def test_delete_observations_in_window_returns_zero_when_nothing_matches():
 
 
 def test_delete_observations_in_window_materializes_all_pages_before_deleting():
-    """
-    Regression test: EntityList.__next__ fetches later pages lazily via
-    @iot.nextLink, and FROST builds that link as $top=N&$skip=N (skip/offset
-    based). Deleting while still iterating would shrink the underlying result
-    set mid-pagination, shifting the skip offset for every later page and
-    silently skipping matches for any window spanning more than one page.
-    This verifies every entity is consumed from the query result before the
-    first delete() call happens, regardless of how many "pages" it spans.
-    """
+    """Regression test: EntityList pages lazily via skip/offset ($top=N&$skip=N),
+    so deleting while iterating would shift the skip offset for later pages
+    and silently miss matches. Verifies every entity is consumed before any
+    delete() call."""
     import frost_sta_client as fsc
 
     call_order: list[tuple[str, int]] = []

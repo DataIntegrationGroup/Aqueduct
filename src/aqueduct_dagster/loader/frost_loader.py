@@ -1,37 +1,32 @@
 """
-loader/frost_loader.py
-
 Writes CanonicalBundles to a FROST SensorThings API server.
 
 Three responsibilities:
-  1. ensure_datastream() — idempotent upsert of full metadata graph:
-       Location → Thing (linked to Location) → Sensor → ObservedProperty
-       → Datastream (linked to all four)
-     Each entity is looked up by properties/externalId before creation.
-     Links are ID-only references — never re-nest full objects (creates duplicates).
-
-  2. load_observations() — posts observations as chunked Data Array batches.
-     Watermark filters already-loaded records. Watermark is advanced per chunk
-     so a partial failure doesn't re-post on the next run.
-     Used by the normal scheduled pipeline (append-only, never overwrites).
-
-  3. load_window() — delete-then-repost for an explicit [window_start, window_end)
-     range: deletes existing observations in that window first, then posts the
-     given records, per docs/BACKFILL_STRATEGY.md §4.4. Used by backfill (Mode A
-     refetch) and, later, Mode B replay — both need to be able to overwrite
-     already-loaded data (e.g. a vendor correction), not just append behind a
-     watermark. The watermark is only ever advanced forward, never rewound.
+  1. ensure_datastream() — idempotent upsert of the full metadata graph
+     (Location → Thing → Sensor → ObservedProperty → Datastream), each entity
+     looked up by properties/externalId before creation. Links are ID-only
+     references — never re-nest full objects (creates duplicates).
+  2. load_observations() — posts observations as chunked Data Array batches,
+     filtered by watermark, which advances per chunk so a partial failure
+     doesn't re-post next run. Used by the scheduled pipeline (append-only).
+  3. load_window() — delete-then-repost for an explicit [window_start,
+     window_end) range (docs/BACKFILL_STRATEGY.md §4.4), for backfill's Mode A
+     refetch, which needs to overwrite already-loaded data (e.g. a vendor
+     correction), not just append behind a watermark. Watermark only ever
+     advances forward, never rewinds.
 
 frost_sta_client object model notes:
-  - Thing.locations accepts a list of Location objects (wraps in EntityList)
-  - Datastream accepts thing/sensor/observed_property as typed objects
-  - An object constructed with only id= serializes as {"@iot.id": id} — safe ID-only ref
+  - Thing.locations takes a list of Location objects (wraps in EntityList)
+  - Datastream takes thing/sensor/observed_property as typed objects
+  - An object constructed with only id= serializes as {"@iot.id": id} — safe
+    ID-only ref
   - unit_of_measurement must be a UnitOfMeasurement instance, not a dict
-  - DataArrayValue: set datastream then components (order matters), then add_observation
-  - Observation.phenomenon_time is stored as-is (str or datetime) by the library
+  - DataArrayValue: set datastream then components (order matters), then
+    add_observation
+  - Observation.phenomenon_time is stored as-is (str or datetime)
   - No bulk-delete endpoint: BaseDao.delete() takes one entity at a time, so
     deleting a window means query-then-delete-per-entity (see
-    FrostStaClientLoader._delete_observations_in_window).
+    FrostStaClientLoader._delete_observations_in_window)
 """
 
 import abc
@@ -84,12 +79,9 @@ class LoadResult:
 def observation_records_for(
     bundle: CanonicalBundle, datastream: CanonicalDatastream
 ) -> list[ObservationRecord]:
-    """
-    Extracts this datastream's observations from bundle as ObservationRecords
-    — shared by both load paths (defs/assets/load.py's _frost_load and
-    shared/backfill.py's load_bundles_windowed) so the CanonicalObservation ->
-    ObservationRecord mapping can't drift between them.
-    """
+    """Extracts this datastream's observations from bundle as ObservationRecords
+    — shared by both load paths (_frost_load, load_bundles_windowed) so the
+    mapping can't drift between them."""
     raw_obs = bundle.observations.get(datastream.external_key, [])
     return [ObservationRecord(phenomenon_time=o.phenomenon_time, result=o.result) for o in raw_obs]
 
@@ -133,10 +125,8 @@ def _with_retry[T](fn: Callable[..., T], *, attempts: int = 5, base_delay: float
 
 
 class FrostLoader(abc.ABC):
-    """
-    Handles entity ordering, upsert, watermark filtering, chunking, and retry.
-    Subclasses implement the _find_* / _create_* / _post_data_array hooks.
-    """
+    """Handles entity ordering, upsert, watermark filtering, chunking, and
+    retry; subclasses implement the _find_*/_create_*/_post_data_array hooks."""
 
     KEY_FIELD = "externalId"
 
@@ -226,34 +216,24 @@ class FrostLoader(abc.ABC):
         window_start: datetime,
         window_end: datetime,
     ) -> LoadResult:
-        """
-        Delete-then-repost for the explicit half-open range [window_start, window_end).
+        """Delete-then-repost for [window_start, window_end). Unlike
+        load_observations(), ignores the watermark — unconditionally deletes
+        whatever exists in the window, then posts every given record, so a
+        backfill/replay can correct already-loaded data (e.g. a vendor
+        correction), not just append behind a watermark.
 
-        Unlike load_observations(), this does not filter by watermark — it
-        unconditionally deletes whatever observations already exist for this
-        datastream in the window, then posts every given record. This is what
-        lets a backfill or replay correct already-loaded data (e.g. a vendor
-        correction), not just append new data behind a watermark.
+        Delete happens before post (docs/BACKFILL_STRATEGY.md §4.4): a crash
+        between the two leaves a visible, self-healing hole (re-run fixes it);
+        the reverse order risks old and new values silently coexisting, with
+        no way to detect the double-count.
 
-        Deletion happens before posting (not after) — see
-        docs/BACKFILL_STRATEGY.md §4.4: a crash between delete and repost
-        leaves a visible, self-healing hole (re-running the same window fixes
-        it); the reverse order risks a crash leaving both old and new values
-        coexisting, silently double-counting with no way to detect it.
+        Watermark only ever extends forward — correcting old history below it
+        leaves it untouched.
 
-        The persisted watermark is only ever extended forward — if this
-        window's data doesn't reach past the current watermark (e.g.
-        correcting old history), the watermark is left untouched.
-
-        Raises ValueError if any record's phenomenon_time falls outside
-        [window_start, window_end) — checked before anything else, so a
-        mismatch causes zero side effects (no delete, no post) rather than
-        deleting the correct window and reposting the wrong data into it.
-        This is deliberately defense-in-depth: it protects FROST from any bug
-        upstream (not just one specific cause) that could ever hand this
-        function records that don't actually belong to the window it's told
-        to correct.
-        """
+        Raises ValueError if any record's phenomenon_time falls outside the
+        window, checked before any delete/post — defense-in-depth against any
+        upstream bug handing this function records outside the window it's
+        told to correct."""
         result = LoadResult(datastream_key=datastream_key)
         ordered = sorted(records, key=lambda r: r.phenomenon_time)
         result.considered = len(ordered)
@@ -345,17 +325,15 @@ class FrostLoader(abc.ABC):
 
 
 class FrostStaClientLoader(FrostLoader):
-    """
-    Concrete FrostLoader backed by frost_sta_client.
+    """Concrete FrostLoader backed by frost_sta_client.
 
-    ID-only linking pattern (avoids duplicates):
-      - _create_thing: sets thing.locations = [fsc.Location(id=location_id)]
-      - _create_datastream: passes thing/sensor/observed_property as id-only objects
-      - _post_data_array: sets dav.datastream = fsc.Datastream(id=datastream_id)
+    ID-only linking (avoids duplicates): _create_thing sets
+    thing.locations=[fsc.Location(id=...)]; _create_datastream passes
+    thing/sensor/observed_property as id-only objects; _post_data_array sets
+    dav.datastream=fsc.Datastream(id=...).
 
-    unit_of_measurement from the canonical model is a plain dict — converted to
-    UnitOfMeasurement instance before passing to fsc.Datastream.
-    """
+    unit_of_measurement is a plain dict in the canonical model — converted to
+    UnitOfMeasurement before passing to fsc.Datastream."""
 
     def __init__(
         self, service: Any, watermarks: WatermarkStore, chunk_size: int = DEFAULT_CHUNK_SIZE
@@ -539,21 +517,16 @@ class FrostStaClientLoader(FrostLoader):
     def _delete_observations_in_window(
         self, datastream_id: str, window_start: datetime, window_end: datetime
     ) -> int:
-        """
-        Deletes every observation on this datastream with phenomenonTime in
-        [window_start, window_end). frost_sta_client has no bulk-delete
-        endpoint (BaseDao.delete() takes one entity at a time — see
-        dao/base.py), so this queries matching observations by id, then
-        deletes them one at a time, retrying each delete independently.
+        """Deletes every observation in [window_start, window_end).
+        frost_sta_client has no bulk-delete (BaseDao.delete() takes one entity
+        at a time), so this queries matching ids, then deletes them one at a
+        time with independent retry.
 
-        The query result is fully materialized into a list before any delete
-        happens. EntityList.__next__ fetches later pages lazily via
-        @iot.nextLink, and FROST builds that link as $top=N&$skip=N
-        (skip/offset-based, default page size 100) — deleting entities while
-        still iterating would shrink the underlying result set mid-pagination,
-        shifting the skip offset for every later page and silently skipping
-        some matches for any window spanning more than one page.
-        """
+        The query is fully materialized into a list before any delete. FROST's
+        pagination is skip/offset-based ($top=N&$skip=N); deleting while still
+        iterating would shrink the result set mid-pagination, shifting the
+        skip offset and silently skipping matches on any window spanning more
+        than one page."""
         import frost_sta_client as fsc
 
         flt = (

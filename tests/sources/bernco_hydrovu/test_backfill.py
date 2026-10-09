@@ -1,6 +1,4 @@
 """
-tests/sources/bernco_hydrovu/test_backfill.py
-
 Unit tests for sources/bernco_hydrovu/backfill.py (Mode A refetch).
 No live API/GCS/FROST — all I/O is mocked. Mirrors
 tests/sources/pvacd_hydrovu/test_backfill.py.
@@ -177,8 +175,8 @@ class TestHydroVuBackfillReadings:
 
     @patch("aqueduct_dagster.sources.bernco_hydrovu.backfill.fetch_location_data")
     def test_fetch_error_message_includes_the_chunk_window(self, mock_fetch):
-        """An operator glancing at a failed run should immediately see which
-        window failed, not just the location id and raw error."""
+        """An operator glancing at a failed run must see the window bounds
+        readable in the message, not just the location id and raw error."""
         mock_fetch.return_value = (None, "HTTP 500")
         # 2026-01-01T00:00:00Z and 2026-02-01T00:00:00Z, in unix seconds.
         start_ts = 1767225600

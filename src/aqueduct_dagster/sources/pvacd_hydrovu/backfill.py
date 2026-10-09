@@ -1,29 +1,13 @@
 """
-sources/pvacd_hydrovu/backfill.py
-
 Mode A (refetch) backfill for PVACD HydroVu — see docs/BACKFILL_STRATEGY.md §4.2.
 
 Runs ingest -> transform -> load for an explicit entity list and date range,
-under fully isolated dlt pipeline state (own pipeline_name, BACKFILL_PIPELINE_NAME)
-and its own GCS table (hydrovu_backfill_readings, not hydrovu_readings — see
-BACKFILL_TABLE_NAME). Because it's a different table, not just a different
-pipeline_name, its files never match production transform.py's
-"raw_pvacd_hydrovu/hydrovu_readings/**/*.parquet" glob — the normal scheduled pipeline
-cannot see this data at all, so there's nothing to coordinate or interfere with.
+under isolated dlt pipeline state and its own GCS table (hydrovu_backfill_readings,
+not hydrovu_readings) — invisible to the normal scheduled pipeline's glob, so
+nothing to coordinate or interfere with.
 
-Not a Dagster asset or op itself — no Dagster imports here. Called per-chunk
-by the generic backfill job factory in defs/jobs/backfill.py, which owns the
-run config, chunk loop, and checkpointing.
-
-Reused, unchanged: group_readings_by_location (hydrovu_transform_common.py),
-PvacdHydroVuAdapter (adapter.py). Load (FrostLoader.load_window per datastream) happens inside
-shared.backfill.load_bundles_windowed, not here. Only the ingest side
-(hydrovu_backfill_readings) and the location_ids/client-setup glue
-(default_backfill_location_ids, prepare_backfill) are HydroVu-specific —
-mirroring dlt_pipeline.py's existing per-source ingest code, per
-BACKFILL_STRATEGY.md §4.2: "requires one new function per source... cannot be
-made fully generic." Config-reading itself (load_source_config) is shared,
-since it's a plain [sources.<name>] lookup with no HydroVu-specific content.
+Not a Dagster asset/op — called per-chunk by defs/jobs/backfill.py's generic
+factory, which owns the run config, chunk loop, and checkpointing.
 """
 
 from __future__ import annotations
@@ -76,23 +60,14 @@ def hydrovu_backfill_readings(
     start_ts: int,
     end_ts: int,
 ) -> Iterator[dict]:
-    """
-    Yields one flat record per (location, parameter, reading) within the
-    half-open range [start_ts, end_ts), for location_ids only.
+    """Yields one flat record per (location, parameter, reading) within
+    [start_ts, end_ts), for location_ids only. No persisted cursor — explicit
+    range every call, never touching dlt.current.resource_state() or
+    colliding with production's cursors.
 
-    No persisted cursor of any kind — unlike hydrovu_readings, every call is
-    fully explicit about its range. Chunk-level completion is tracked
-    separately by shared.backfill.BackfillCheckpointStore, at a coarser but
-    sufficient granularity, so there's no need for this resource to touch
-    dlt.current.resource_state() at all — which is what keeps it from ever
-    being confused with (or interfering with) hydrovu_readings' per-location
-    production cursors.
-
-    Raises RuntimeError on a real fetch error (not a 404) for any location —
-    a chunk is all-or-nothing (see BACKFILL_STRATEGY.md §4.3), so one failed
-    location must fail the whole chunk rather than silently yielding partial
-    data that would then get checkpointed as complete.
-    """
+    Raises RuntimeError on a real fetch error (not 404) — a chunk is
+    all-or-nothing, so one failed location fails the whole chunk rather than
+    checkpointing partial data."""
     allowed = frozenset(location_ids)
     for location in locations:
         loc_id = location["id"]
@@ -123,13 +98,9 @@ def hydrovu_backfill_readings(
 
 
 def _locations_by_id(locations: list[dict]) -> dict[int, dict]:
-    """
-    Converts the raw HydroVu /locations/list response into the {id: {...}}
-    shape group_readings_by_location expects — the same shape
-    read_locations_from_gcs produces when reading the locations parquet.
-    Built directly from the already-fetched in-memory list, so backfill never
-    needs to read or write the hydrovu_locations table at all.
-    """
+    """Converts the raw /locations/list response into the {id: {...}} shape
+    group_readings_by_location expects, from the already-fetched in-memory
+    list — backfill never reads or writes the hydrovu_locations table."""
     return {
         loc["id"]: {
             "name": loc["name"],
@@ -142,31 +113,21 @@ def _locations_by_id(locations: list[dict]) -> dict[int, dict]:
 
 
 def default_backfill_location_ids() -> list[int]:
-    """
-    Same allowlist the daily pipeline reads from .dlt/config.toml
-    ([sources.pvacd_hydrovu].location_ids). Called once, eagerly, at
-    defs/jobs/backfill.py import time, since Dagster's Launchpad only shows
-    a plain, already-computed default — not a lazily-resolved one.
+    """Same allowlist the daily pipeline reads from .dlt/config.toml. Called
+    once, eagerly, at defs/jobs/backfill.py import time, since the Launchpad
+    needs a plain, already-computed default.
 
-    No location_ids key configured is not an error (returns [], meaning
-    "every location" — see resolve_location_ids): some sources may
-    deliberately not curate an allowlist. But .dlt/config.toml itself being
-    unreadable/malformed does raise — that's a broken environment, and
-    failing Dagster's definitions load loudly beats silently defaulting to
-    "backfill everything."
-    """
+    Missing location_ids returns [] ("every location" — see resolve_location_ids);
+    a broken .dlt/config.toml still raises, since failing loudly beats silently
+    backfilling everything."""
     return list(load_source_config("pvacd_hydrovu").get("location_ids", []))
 
 
 def prepare_backfill() -> tuple[httpx.Client, list[dict], dict[int, dict]]:
-    """
-    One-time setup shared by every chunk in a backfill run: builds the
-    authenticated client and fetches the location list exactly once — the
-    location reference data doesn't depend on the date range, so there's no
-    reason to re-fetch it per chunk.
+    """One-time setup shared by every chunk: builds the client and fetches the
+    location list once, since it doesn't depend on the date range.
 
-    Returns (client, locations, locations_by_id).
-    """
+    Returns (client, locations, locations_by_id)."""
     cfg = load_source_config("pvacd_hydrovu")
     client = build_hydrovu_client("", "", cfg["gcp_secret"], cfg["api_base_url"], cfg["token_url"])
     try:
@@ -192,30 +153,14 @@ def run_backfill_chunk(
     fs: gcsfs.GCSFileSystem,
     run_key: str,
 ) -> ChunkResult:
-    """
-    Runs ingest + transform + load for one calendar-month chunk:
-      1. Ingest — isolated dlt pipeline run, writing only to
-         hydrovu_backfill_readings (never hydrovu_readings).
-      2. Transform — reads back exactly this run's rows (by exact load_id
-         match, not "since some watermark"), groups by location, and runs
-         PvacdHydroVuAdapter — the same adapter production uses, unchanged.
-      3. Load — shared.backfill.load_bundles_windowed() per datastream:
-         delete existing observations in [chunk_start, chunk_end), then repost.
+    """Runs ingest + transform + load for one calendar-month chunk — ingest
+    writes only to hydrovu_backfill_readings, transform reads back by exact
+    load_id match (not a watermark) and runs the same PvacdHydroVuAdapter
+    production uses, load deletes-then-reposts the chunk window.
 
-    Raises on any failure in any stage — the caller (defs/jobs/backfill.py)
-    only checkpoints a chunk after this returns without raising, so a
-    mid-chunk failure retries the whole chunk next launch (safe: every stage
-    here is idempotent to repeat).
-
-    bucket/fs are passed in (not derived here) because the caller already
-    computes them once before the chunk loop — re-parsing .dlt/config.toml
-    and rebuilding the GCS filesystem client on every chunk would be pure
-    waste for a multi-month backfill.
-
-    run_key gives this run its own dlt pipeline_name (see
-    shared.backfill.build_backfill_pipeline), so two different backfill
-    operations can never share dlt's local pending-load state at all.
-    """
+    Raises on any failure — checkpointed only after returning clean, so a
+    mid-chunk failure retries cleanly (every stage is idempotent). bucket/fs
+    are passed in since the caller already computes them once per run."""
     start_ts = int(chunk_start.timestamp())
     end_ts = int(chunk_end.timestamp())
 

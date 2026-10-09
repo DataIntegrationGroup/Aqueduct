@@ -1,6 +1,4 @@
 """
-tests/defs/test_dagster_logging.py
-
 Unit tests for forward_python_logs_to_dagster and read_new_parquet_rows_for_asset.
 Unlike tests elsewhere that mock forward_python_logs_to_dagster away, these
 exercise the real handler-attach/route/detach mechanism, with a MagicMock
@@ -71,8 +69,6 @@ def test_handler_is_detached_once_the_with_block_exits():
 
 
 def test_read_new_parquet_rows_for_asset_forwards_bad_filename_warning():
-    """The warning read_new_parquet_rows emits must reach context.log, and its
-    (rows, max_load_id, files_skipped_bad_name) result must pass through unchanged."""
     context = MagicMock()
 
     def _fake_read_new_parquet_rows(*args, **kwargs):

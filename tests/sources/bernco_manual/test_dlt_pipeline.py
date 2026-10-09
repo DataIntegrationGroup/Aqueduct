@@ -1,3 +1,9 @@
+"""
+Unit tests for sources/bernco_manual/dlt_pipeline.py's fetch helpers and
+bernco_manual_readings resource. No real API calls — httpx.MockTransport
+simulates responses.
+"""
+
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 

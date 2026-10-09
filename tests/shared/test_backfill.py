@@ -1,12 +1,6 @@
 """
-tests/shared/test_backfill.py
-
-Unit tests for shared/backfill.py: month_chunks(), BackfillCheckpointStore,
-sum_chunk_results(), the run-config helpers (parse_backfill_date,
-validate_date_order, attach_run_timestamp, resolve_location_ids), and the
-per-chunk ingest/load helpers (load_source_config, build_backfill_pipeline,
-run_backfill_ingest, load_bundles_windowed) every source's run_backfill_chunk()
-reuses. All GCS/dlt/FROST I/O is mocked — no live services required.
+Unit tests for shared/backfill.py — the per-chunk ingest/load helpers every
+source's run_backfill_chunk() reuses. All GCS/dlt/FROST I/O is mocked.
 """
 
 from __future__ import annotations
@@ -196,11 +190,9 @@ CHUNK_2 = (datetime(2026, 2, 1, tzinfo=UTC), datetime(2026, 3, 1, tzinfo=UTC), [
 
 
 def test_run_key_is_sanitized_in_checkpoint_path():
-    """
-    Regression test: the checkpoint path must use the same sanitized run_key
-    as build_backfill_pipeline's dlt pipeline_name, so a run_key with unsafe
-    characters can't split the two identifiers for the same run apart.
-    """
+    """Regression test: checkpoint path must use the same sanitized run_key as
+    build_backfill_pipeline's dlt pipeline_name, so unsafe characters can't
+    split the two identifiers for one run apart."""
     store = BackfillCheckpointStore(
         MagicMock(), "my-bucket", "raw_pvacd_hydrovu", run_key="team/jan-2026 fix"
     )
@@ -262,12 +254,9 @@ def test_mark_complete_then_is_complete_reflects_update():
 
 
 def test_mark_complete_with_one_location_list_does_not_cover_a_different_list():
-    """
-    Regression test: re-launching the same run_key with an expanded/changed
-    location_ids list for the same date range must not be silently skipped
-    as already complete — that would mean a newly added location never gets
-    backfilled for a month already checkpointed under the old list.
-    """
+    """Regression test: re-launching with an expanded location_ids list for
+    the same range must not be skipped as complete — a newly added location
+    would never get backfilled for an already-checkpointed month."""
     store, mock_fs = _make_store(gcs_content=None)
     write_buf = io.StringIO()
     mock_fs.open.side_effect = None
@@ -376,11 +365,9 @@ def _run_ingest(resource=None, **overrides):
 
 @patch("aqueduct_dagster.shared.backfill.build_backfill_pipeline")
 def test_run_backfill_ingest_drops_pending_packages_before_run(mock_build_pipeline):
-    """
-    A package left pending by an earlier, uncleanly-terminated run must be
-    dropped BEFORE pipeline.run() is called — otherwise dlt would silently
-    finish loading that stale package instead of this chunk's real data.
-    """
+    """A package left pending by an earlier, unclean run must be dropped
+    BEFORE pipeline.run() — otherwise dlt silently finishes loading stale
+    data instead of this chunk's real data."""
     call_order: list[str] = []
     mock_pipeline = MagicMock()
     mock_pipeline.drop_pending_packages.side_effect = lambda: call_order.append("drop")
@@ -396,11 +383,9 @@ def test_run_backfill_ingest_drops_pending_packages_before_run(mock_build_pipeli
 
 @patch("aqueduct_dagster.shared.backfill.build_backfill_pipeline")
 def test_run_backfill_ingest_forwards_prefix_dataset_and_run_key(mock_build_pipeline):
-    """
-    Regression test: run_backfill_ingest must forward its own
-    pipeline_name_prefix/dataset/run_key straight through to
-    build_backfill_pipeline, not swap or drop any of them.
-    """
+    """Regression test: run_backfill_ingest must forward pipeline_name_prefix/
+    dataset/run_key straight through to build_backfill_pipeline, not swap or
+    drop any of them."""
     mock_pipeline = MagicMock()
     mock_pipeline.run.return_value = MagicMock(loads_ids=["100.0"])
     mock_build_pipeline.return_value = mock_pipeline

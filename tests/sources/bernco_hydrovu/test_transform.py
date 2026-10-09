@@ -1,6 +1,4 @@
 """
-tests/sources/bernco_hydrovu/test_transform.py
-
 Unit tests for the pure parts of the canonical_bundles_bernco_hydrovu transform.
 
 Offline: nothing here touches GCS. The asset body itself is thin glue over

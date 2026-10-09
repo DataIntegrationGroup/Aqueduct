@@ -1,18 +1,8 @@
 """
-tests/sources/bernco_hydrovu/test_ingest.py
-
-Unit tests for the raw_bernco_hydrovu_readings Dagster asset.
-
-What is worth testing here is the asset's failure policy, which is the part that
-decides whether a human gets paged: a run where some stations failed still
-materializes (their cursors did not advance, so the next run retries them), while a
-run where every station failed raises, because a green run that landed nothing would
-hide an expired credential or a dead API.
-
-Offline: build_pipeline and bernco_hydrovu_source are patched, so no dlt pipeline is
-constructed and no GCS or HydroVu call is made. The stats dict the asset reads is
-populated by the fake pipeline.run(), standing in for what iter_location_readings
-writes at the end of a real extract.
+Unit tests for raw_bernco_hydrovu_readings' failure policy: partial station
+failures still materialize (cursors unchanged, retried next run), but total
+failure raises — a quiet green run would hide an expired credential or dead
+API. Offline: build_pipeline/bernco_hydrovu_source are patched.
 """
 
 from __future__ import annotations
@@ -28,12 +18,9 @@ _MODULE = "aqueduct_dagster.sources.bernco_hydrovu.ingest"
 
 
 def _run_asset(stats: dict) -> MaterializeResult:
-    """
-    Materializes the asset with a fake dlt pipeline whose run() reports `stats`.
-
-    The asset passes its own dict into the source and reads it back after run(),
-    so the fake has to copy into that same dict rather than return a new one.
-    """
+    """Materializes the asset with a fake dlt pipeline whose run() reports
+    `stats`. The asset passes its own dict into the source and reads it back
+    after run(), so the fake must copy into that same dict, not return a new one."""
     pipeline = MagicMock()
     pipeline.pipeline_name = "bernco_hydrovu"
     pipeline.dataset_name = "raw_bernco_hydrovu"
