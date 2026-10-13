@@ -16,8 +16,10 @@ def _fetch_readings(
 ) -> tuple[list[dict] | None, str | None]:
     result: list[dict[Any, Any]] = []
     try:
+        # get list of file names in bucket
         files = client.ls(path=path)
         valid_file_names = []
+        # filter out file names that do not fit into time range
         for file in files:
             file_ts = (
                 datetime.strptime(file.split("_")[1].split(".csv")[0], "%m-%d-%y")
@@ -28,6 +30,7 @@ def _fetch_readings(
                 continue
             if file_ts >= start_time:
                 valid_file_names.append(file)
+        # process each file
         for file in valid_file_names:
             with client.open(path=path + "/" + file, mode="r") as f:
                 lines = f.readlines()
