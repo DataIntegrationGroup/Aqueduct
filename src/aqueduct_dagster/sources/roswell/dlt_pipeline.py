@@ -74,6 +74,11 @@ def roswell_readings(
     client: GCSFileSystem, api_base_url: str, start_ts: int, _stats: dict | None = None
 ) -> Iterator[dict]:
     cursors: dict[str, int] = dlt.current.resource_state().setdefault("location_cursors", {})
+    fetched = 0
+    no_data = 0
+    errored = 0
+    failed_ids: list[str] = []
+    rows_yielded = 0
     # only have one location
     loc_start = max(cursors.get("18", 0), start_ts)
     logger.info(
@@ -83,8 +88,20 @@ def roswell_readings(
         loc_start,
     )
     data, err = _fetch_readings(client, api_base_url, loc_start)
-    rows_yielded = 0
+    if err is not None:
+        logger.warning(
+            "Location 18 failed: %s — cursor not advanced, will retry next run",
+            err,
+        )
+        errored += 1
+        failed_ids.append("18")
+    if data is None or len(data) == 0:
+        logger.warning(
+            "Location 18: no data (404)",
+        )
+        no_data += 1
     if data is not None:
+        fetched += 1
         max_timestamp = loc_start
         for measurement in data:
             timestamp = int(
@@ -106,11 +123,18 @@ def roswell_readings(
             }
         cursors["18"] = max_timestamp
     logger.info(
-        "City of Roswell readings extract complete: %d rows yielded",
+        "City of Roswell readings extract complete: %d fetched, %d errored, %d no-data, %d rows yielded",
+        fetched,
+        errored,
+        no_data,
         rows_yielded,
     )
     if _stats is not None:
         _stats["rows_yielded"] = rows_yielded
+        _stats["locations_fetched"] = fetched
+        _stats["locations_no_data"] = no_data
+        _stats["locations_errored"] = errored
+        _stats["failed_location_ids"] = failed_ids
 
 
 def build_pipeline() -> dlt.Pipeline:
