@@ -18,6 +18,7 @@ def _fetch_readings(
     try:
         # get list of file names in bucket
         files = client.ls(path=path)
+        print(files)
         valid_file_names = []
         # filter out file names that do not fit into time range
         for file in files:
@@ -40,10 +41,10 @@ def _fetch_readings(
                     line_split = line.split(",")
                     result.append(
                         {
-                            "depth_to_water": line_split[0],
-                            "site_id": line_split[1],
-                            "measuring_agency": line_split[2],
-                            "timestamp": line_split[3],
+                            "depth_to_water": float(line_split[0].strip()),
+                            "site_id": int(line_split[1].strip()),
+                            "measuring_agency": line_split[2].strip(),
+                            "timestamp": line_split[3].strip(),
                         }
                     )
                 f.close()
@@ -76,14 +77,14 @@ def roswell_source(
 def roswell_readings(
     client: GCSFileSystem, api_base_url: str, start_ts: int, _stats: dict | None = None
 ) -> Iterator[dict]:
-    cursors: dict[str, int] = dlt.current.resource_state().setdefault("location_cursors", {})
+    cursors: dict[int, int] = dlt.current.resource_state().setdefault("location_cursors", {})
     fetched = 0
     no_data = 0
     errored = 0
-    failed_ids: list[str] = []
+    failed_ids: list[int] = []
     rows_yielded = 0
     # only have one location
-    loc_start = max(cursors.get("18", 0), start_ts)
+    loc_start = max(cursors.get(18, 0), start_ts)
     logger.info(
         "Fetching readings for location %s (%s) from Unix timestamp %s",
         "site",
@@ -97,7 +98,7 @@ def roswell_readings(
             err,
         )
         errored += 1
-        failed_ids.append("18")
+        failed_ids.append(18)
     if data is None or len(data) == 0:
         logger.warning(
             "Location 18: no data (404)",
@@ -119,12 +120,12 @@ def roswell_readings(
                 "reading_id": f"{measurement['site_id']}_{timestamp}",
                 "location_id": measurement["site_id"],
                 "location_name": "Site-18",
-                "latitude": "33.29592",
-                "longitude": "-104.58409",
+                "latitude": 33.29592,
+                "longitude": -104.58409,
                 "timestamp": timestamp,
                 "value": measurement["depth_to_water"],
             }
-        cursors["18"] = max_timestamp
+        cursors[18] = max_timestamp
     logger.info(
         "City of Roswell readings extract complete: %d fetched, %d errored, %d no-data, %d rows yielded",
         fetched,

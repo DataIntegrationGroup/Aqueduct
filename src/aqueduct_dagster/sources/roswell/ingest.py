@@ -22,7 +22,7 @@ def raw_roswell_readings(context: AssetExecutionContext) -> MaterializeResult:
     context.log.info("City of Roswell dlt load complete: %s", load_info)
     errored: int = stats.get("locations_errored", 0)
     fetched: int = stats.get("locations_fetched", 0)
-    failed_ids: list[str] = stats.get("failed_location_ids", [])
+    failed_ids: list[int] = stats.get("failed_location_ids", [])
     if errored > 0:
         context.log.warning(
             "City of Roswell ingest: %d location(s) errored and will retry next run: %s",
