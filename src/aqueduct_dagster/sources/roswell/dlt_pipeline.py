@@ -11,6 +11,25 @@ from aqueduct_dagster.shared.pipeline import build_source_pipeline
 logger = logging.getLogger(__name__)
 
 
+def _process_timestamp_string_to_iso(timestamp_string: str) -> str:
+    # timestamps provided are not always proper iso, often a value for month, day, hour, minute, or second only has
+    # one character, this corrects the format by injecting a '0' where needed
+    split = timestamp_string.split("T")
+    hms = split[1].split(":")
+    if len(hms[0]) != 2:
+        hms[0] = "0" + hms[0]
+    if len(hms[1]) != 2:
+        hms[1] = "0" + hms[1]
+    if len(hms[2]) != 2:
+        hms[2] = "0" + hms[2]
+    ymd = split[0].split("-")
+    if len(ymd[1]) != 2:
+        ymd[1] = "0" + ymd[1]
+    if len(ymd[2]) != 2:
+        ymd[2] = "0" + ymd[2]
+    return ymd[0] + "-" + ymd[1] + "-" + ymd[2] + "T" + hms[0] + ":" + hms[1] + ":" + hms[2]
+
+
 def _fetch_readings(
     client: GCSFileSystem, path: str, start_time: int, end_time: int | None = None
 ) -> tuple[list[dict] | None, str | None]:
@@ -18,7 +37,9 @@ def _fetch_readings(
     try:
         # get list of file names in bucket
         files = client.ls(path=path)
-        print(files)
+        if files is None or len(files) == 0:
+            logger.warning("No files found at %s", path)
+            return None, f"No files found at {path}"
         valid_file_names = []
         # filter out file names that do not fit into time range
         for file in files:
@@ -109,7 +130,7 @@ def roswell_readings(
         max_timestamp = loc_start
         for measurement in data:
             timestamp = int(
-                datetime.strptime(measurement["timestamp"], "%Y-%m-%dT%h:%m:%s")
+                datetime.fromisoformat(_process_timestamp_string_to_iso(measurement["timestamp"]))
                 .replace(tzinfo=UTC)
                 .timestamp()
             )

@@ -172,7 +172,7 @@ BERNCO_MANUAL_RESULTS = {
 DUMMY_CLIENT = MagicMock(spec=Client)
 
 
-class TestCabqReadings:
+class TestBerncoManualReadings:
     @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
     @patch("aqueduct_dagster.sources.bernco_manual.dlt_pipeline._fetch_readings_for_location")
     def test_returns_bernco_manual_readings(self, mock_fetch_readings, mock_state):
