@@ -72,9 +72,9 @@ class TestFetchReadings:
         assert result == PROCESSED_DATA
         assert err is None
 
-    def test_raises_on_file_not_found(self):
+    def test_raises_on_exception(self):
         client = _mock_fs(["observations_04-07-26.csv"], [])
-        client.open.side_effect = FileNotFoundError("file not found")
+        client.open.side_effect = Exception("file not found")
         result, err = _fetch_readings(client, "gs://bucket", 0)
         assert result is None
         assert err == "file not found"
