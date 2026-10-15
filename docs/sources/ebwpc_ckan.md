@@ -87,7 +87,7 @@ CRLF line endings, 21 rows (14 active wells, then the 7 archived ones).
 |---|---|---|---|---|
 | `source_id` | str | Required | `NMBG_ID` | Same normalised value as `name` |
 | `geoconnex` | str | Optional | *(not in source)* | - |
-| `alternate_id` | [{id: str, agency: str}] \| None | Optional | *(not in source)* | The `E-nnnn` and `T-nnnn` IDs look like OSE Estancia-basin file numbers. Don't emit until confirmed. See Open Questions. |
+| `alternate_id` | [{id: str, agency: str}] \| None | Optional | *(not in source)* | Not emitted. The `E-nnnn` and `T-nnnn` IDs look like OSE Estancia-basin file numbers but not full POD IDs, so hold off until EBWPC confirms (see [Requests to EBWPC](#requests-to-ebwpc)). |
 
 **properties.source_specific:**
 
@@ -140,7 +140,7 @@ Map `E-2043` to `E-2034` with a one-line alias in the shim, and ask EBWPC to cor
 |---|---|---|---|---|
 | `agency` | str | Required | *(fixed)* | Fixed: `EBWPC`. Same code as old FROST. |
 | `source_id` | str | Required | `NMBG_ID` | Same as Location |
-| `alternate_id` | [{id: str, agency: str}] \| None | Optional | *(not in source)* | See Location |
+| `alternate_id` | [{id: str, agency: str}] \| None | Optional | *(not in source)* | Not emitted. See Location. |
 
 **properties.source_specific:**
 
@@ -290,9 +290,9 @@ asset metadata, as the CKAN design does for non-CSV resources, until EBWPC repub
 
 | Canonical Field | Type | Source Field | Notes |
 |---|---|---|---|
-| `measuring_agency` | str \| None | *(not in source)* | `None`. The dataset names its contractors by period, but the periods share the year 2009 and leave 2021-02 to 2021-12 uncovered. See Open Questions. |
+| `measuring_agency` | str \| None | *(not in source)* | `None`. The dataset names its contractors by period, but the periods share the year 2009 and leave 2021-02 to 2021-12 uncovered, so it isn't derived from them. |
 | `measurement_method` | str \| None | *(not in source)* | `None`. The Sensor already says manual vs transducer, and the hand-measurement instrument isn't stated. |
-| `data_source` | str \| None | *(not in source)* | Could be fixed `"NM Water Data Catalog"`, as `pvacd_hydrovu.md` and `ebid.md` propose for theirs |
+| `data_source` | str \| None | *(fixed)* | Fixed: `CKAN NM Water Data Catalog`, naming the platform the files come from. It is the same kind of platform name that `pvacd_hydrovu.md` and `ebid.md` propose for theirs. |
 | `water_level_status` | str \| None | *(not in source)* | `None` |
 | `measurement_point_height` | float \| None | *(not in source)* | `None`. Its absence is why TOC readings are skipped. |
 | `water_level_accuracy` | float \| None | *(not in source)* | `None` |
@@ -560,16 +560,12 @@ None of these blocks the load. Each has a workaround above.
    year-round, not UTC.
 1. Add `elevation`, `elevation_units` and `lithology` columns to the locations file, per the WDI best
    practices. Elevation is a WDI required field.
+1. Say whether the `E-nnnn`/`T-nnnn` well IDs correspond to NMOSE/OSE identifiers. They don't look like
+   full POD IDs, so `alternate_id` isn't emitted until this is confirmed.
 
 ---
 
 ## Open Questions
 
-1. **`measuring_agency`.** Derive it from the dataset's contractor periods, or leave it `None`
-   (proposed)? The periods overlap in 2009 and miss 2021-02 to 2021-12.
-1. **`alternate_id`.** Are the `E-nnnn`/`T-nnnn` IDs OSE file numbers? If so, emit
-   `[{id, agency: "NMOSE"}]`, the OSE agency code in the CKAN doc's field mapping.
 1. **Elevation and formation.** Proposal: parse them from the free-text descriptions (4 of 21 wells)
    until EBWPC adds the columns (request 5).
-1. **`data_source`.** Set a fixed `"NM Water Data Catalog"`, or leave `None`? Settle it the same way
-   across sources.
