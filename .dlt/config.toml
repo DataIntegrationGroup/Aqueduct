@@ -73,6 +73,16 @@ initial_start_date = "2026-05-01"
 api_base_url = "https://services.arcgis.com/CWv1abTnC3urn4bV/ArcGIS/rest/services/All_WL_Locations/FeatureServer/25"
 initial_start_date = "2026-05-01"
 
+[sources.ebwpc_ckan]
+api_base_url = "https://catalog.newmexicowaterdata.org"
+# The dataset UUID, see docs/sources/ebwpc_ckan.md
+dataset_id = "719844ad-46bf-46cf-a781-a111f114fe38"
+# The file that holds the locations file (as opposed to the well CSVs)
+locations_resource_name = "EBWPC Well Locations"
+# Secret Manager secret holding the datHere-issued x-cf-bypass header value,
+# shared by every CKAN agency. Never put the value itself in git.
+gcp_secret = "ckan_cf_bypass"
+
 [cabq]
 api_base_url       = "https://cabq-api-url.com"   # TODO: confirm CABQ API endpoint
 initial_start_date = "2026-01-01"   # change to limit initial load

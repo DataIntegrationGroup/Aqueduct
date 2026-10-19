@@ -1,7 +1,7 @@
 """
-Shared test helpers for httpx.Client/BearerAuth-based code, used by both
-tests/shared/test_http.py and tests/sources/test_hydrovu_common.py.
-Consolidated here after the two files independently grew near-identical
+Shared test helpers for httpx.Client/BearerAuth-based code, used by
+tests/shared/test_http.py and the tests/sources/ HydroVu and CKAN tests.
+Consolidated here after two files independently grew near-identical
 make_tm()/client_with_responses() helpers.
 """
 
@@ -66,6 +66,33 @@ def client_with_responses_unauthenticated(
 
     client = httpx.Client(
         base_url=base_url,
+        transport=httpx.MockTransport(handler),
+    )
+    return client, calls
+
+
+def client_with_routes(
+    routes: dict[str, httpx.Response | Exception],
+    base_url: str | httpx.URL = "",
+    headers: dict[str, str] | None = None,
+) -> tuple[httpx.Client, list[httpx.Request]]:
+    """Unauthenticated client whose MockTransport answers by URL path rather
+    than call order. For code that fetches several URLs. An unrouted path gets a 404.
+    Returns (client, calls)."""
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        item = routes.get(request.url.path)
+        if item is None:
+            return httpx.Response(404)
+        if isinstance(item, Exception):
+            raise item
+        return httpx.Response(item.status_code, headers=item.headers, content=item.content)
+
+    client = httpx.Client(
+        base_url=base_url,
+        headers=headers,
         transport=httpx.MockTransport(handler),
     )
     return client, calls
