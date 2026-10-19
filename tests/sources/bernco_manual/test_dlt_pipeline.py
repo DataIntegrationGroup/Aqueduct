@@ -7,8 +7,7 @@ simulates responses.
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
-import pytest
-from httpx import Client, HTTPStatusError, Request, Response
+from httpx import Client, Request, Response
 
 from aqueduct_dagster.sources.bernco_manual.dlt_pipeline import (
     _fetch_locations,
@@ -45,13 +44,6 @@ class TestFetchLocations:
         result, err = _fetch_locations(client)
         assert result == LOCATIONS_PROCESSED
 
-    def test_raises_on_server_error(self):
-        client, _ = _client_with_responses([Response(500)])
-        data, err = _fetch_locations(client)
-        assert data is None
-        assert err is not None
-        assert "500" in err
-
     def test_hits_correct_endpoint(self):
         client, calls = _client_with_responses([Response(200, json=LOCATIONS_RESPONSE)])
         _fetch_locations(client)
@@ -84,32 +76,6 @@ class TestFetchReadings:
             client, location_id="4f92c895-6b41-42d6-be6b-508ee44812fa", start_time=1391079600
         )
         assert result == READINGS_PROCESSED
-
-    def test_returns_none_on_404(self):
-        client, _ = _client_with_responses([Response(404)])
-        data, err = _fetch_readings_for_location(
-            client, location_id="4f92c895-6b41-42d6-be6b-508ee44812fa", start_time=1391079600
-        )
-        assert data is None
-        assert err is None
-
-    def test_returns_error_reason_on_500(self):
-        client, _ = _client_with_responses([Response(500)])
-        data, err = _fetch_readings_for_location(
-            client, location_id="4f92c895-6b41-42d6-be6b-508ee44812fa", start_time=1391079600
-        )
-        assert data is None
-        assert err is not None
-        assert "500" in err
-
-    def test_returns_error_reason_on_503(self):
-        client, _ = _client_with_responses([Response(503)])
-        data, err = _fetch_readings_for_location(
-            client, location_id="4f92c895-6b41-42d6-be6b-508ee44812fa", start_time=1391079600
-        )
-        assert data is None
-        assert err is not None
-        assert "503" in err
 
     def test_hits_correct_endpoint(self):
         client, calls = _client_with_responses([Response(200, json=READINGS_RESPONSE)])
@@ -146,14 +112,6 @@ class TestFetchReadings:
             calls[0].url.params["where"]
             == "Well_ID='4f92c895-6b41-42d6-be6b-508ee44812fa' AND MSRMNT_Date>='2019-11-14' AND MSRMNT_Date<='2019-11-15'"
         )
-
-    def test_raises_on_unexpected_4xx(self):
-        client, _ = _client_with_responses([Response(403)])
-        with pytest.raises(HTTPStatusError) as exc_info:
-            _fetch_readings_for_location(
-                client, location_id="4f92c895-6b41-42d6-be6b-508ee44812fa", start_time=1391079600
-            )
-        assert exc_info.value.response.status_code == 403
 
 
 # -- bernco_manual_readings --

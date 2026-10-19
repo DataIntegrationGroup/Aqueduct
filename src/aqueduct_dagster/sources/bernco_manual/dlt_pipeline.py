@@ -63,12 +63,12 @@ def _fetch_readings_for_location(
     }
     rows, err = fetch_readings_for_location(client, path, params, location_id)
     if rows is not None and end_time is not None:
-        # The API's measurement_date query only accepts date literals, so it's
+        # The API's MSRMNT_Date query only accepts date literals, so it's
         # inclusive of the entire end date — a reading exactly at end_time's
         # midnight instant would otherwise pass this query but violate the
         # strict half-open [start, end) window load_window() enforces. Trim it
         # client-side, mirroring hydrovu_common.py's fetch_location_data()
-        # end_time handling. measurement_date is epoch ms; end_time is epoch s.
+        # end_time handling. MSRMNT_Date is epoch ms; end_time is epoch s.
         rows = [row for row in rows if row["MSRMNT_Date"] < end_time * 1000]
     return rows, err
 
