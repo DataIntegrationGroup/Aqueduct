@@ -65,6 +65,7 @@ src/aqueduct_dagster/
 ├── sources/        # one folder per source key (vertical slice) — see pvacd_hydrovu/ as the reference
 │   ├── hydrovu_common.py  # HydroVu API client (ingest), shared by every HydroVu tenant
 │   ├── hydrovu_transform_common.py  # HydroVu DTW mapping + GCS read/group, shared the same way
+│   ├── ckan_common.py     # NM Water Data Catalog (CKAN) client + per-file fingerprint cursor, shared by every CKAN agency
 │   └── <name>/
 │       ├── adapter.py       # raw rows → CanonicalBundle (source-specific)
 │       ├── dlt_pipeline.py  # dlt source/resource/pipeline factory
