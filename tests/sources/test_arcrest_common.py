@@ -47,8 +47,16 @@ class TestFetchLocations:
         assert err is not None
         assert "500" in err
 
+    def test_raises_on_unexpected_4xx(self):
+        client, _ = _client_with_responses([Response(403)])
+        with pytest.raises(HTTPStatusError) as exc_info:
+            fetch_locations(client, "/path", {"some_param": "some_value"})
+        assert exc_info.value.response.status_code == 403
+
 
 # -- fetch_readings_for_locations --
+
+
 class TestFetchReadings:
     def test_returns_list_on_success(self):
         client, _ = _client_with_responses([Response(200, json=SAMPLE_RESPONSE)])

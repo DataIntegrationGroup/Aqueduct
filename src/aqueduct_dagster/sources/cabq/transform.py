@@ -82,7 +82,6 @@ def canonical_bundles_cabq(context: AssetExecutionContext) -> CabqTransformResul
     rows, max_load_id, files_skipped_bad_name = read_new_parquet_rows_for_asset(
         context, "cabq", bucket, f"{GCS_DATASET}/cabq_readings/**/*.parquet", since_load_id, fs
     )
-
     if not rows:
         context.log.info("No new rows — returning empty result (watermark unchanged)")
         context.add_output_metadata(
