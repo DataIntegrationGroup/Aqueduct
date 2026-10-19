@@ -83,6 +83,10 @@ locations_resource_name = "EBWPC Well Locations"
 # shared by every CKAN agency. Never put the value itself in git.
 gcp_secret = "ckan_cf_bypass"
 
+[sources.city_of_roswell]
+api_base_url = "gs://roswellbubbler"
+initial_start_date = "2026-05-01"
+
 [cabq]
 api_base_url       = "https://cabq-api-url.com"   # TODO: confirm CABQ API endpoint
 initial_start_date = "2026-01-01"   # change to limit initial load
