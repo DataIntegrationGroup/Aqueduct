@@ -23,11 +23,11 @@ from aqueduct_dagster.shared.backfill import (
     run_backfill_ingest,
 )
 from aqueduct_dagster.shared.gcs import read_parquet_rows_for_load_id
+from aqueduct_dagster.sources.arcrest_common import build_arcrest_client
 from aqueduct_dagster.sources.bernco_manual.adapter import BerncoManualAdapter
 from aqueduct_dagster.sources.bernco_manual.dlt_pipeline import (
     _fetch_locations,
     _fetch_readings_for_location,
-    build_bernco_manual_client,
 )
 from aqueduct_dagster.sources.bernco_manual.transform import GCS_DATASET, _group_rows_by_location
 
@@ -95,7 +95,7 @@ def default_backfill_location_ids() -> list[str]:
 
 def prepare_backfill() -> tuple[Client, list[dict], dict[str, dict]]:
     cfg = load_source_config("bernco_manual")
-    client = build_bernco_manual_client(cfg["api_base_url"])
+    client = build_arcrest_client(cfg["api_base_url"])
     try:
         locations, err = _fetch_locations(client)
         if locations is None:
