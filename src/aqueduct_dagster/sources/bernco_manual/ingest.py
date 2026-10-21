@@ -27,7 +27,12 @@ def raw_bernco_manual_readings(context: AssetExecutionContext) -> MaterializeRes
     initial_start_date, later runs from each station's own cursor."""
     pipeline = build_pipeline()
     stats: dict = {}
-    with forward_python_logs_to_dagster(context, "aqueduct_dagster.sources.bernco_manual", "dlt"):
+    with forward_python_logs_to_dagster(
+        context,
+        "aqueduct_dagster.sources.bernco_manual",
+        "aqueduct_dagster.sources.arcrest_common",
+        "dlt",
+    ):
         load_info = pipeline.run(bernco_manual_source(_stats=stats), loader_file_format="parquet")
     context.log.info("Bernco Manual dlt load complete: %s", load_info)
     errored: int = stats.get("locations_errored", 0)

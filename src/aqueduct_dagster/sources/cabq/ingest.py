@@ -26,7 +26,9 @@ def raw_cabq_readings(context: AssetExecutionContext) -> MaterializeResult:
     initial_start_date, later runs from the last cursor value."""
     pipeline = build_pipeline()
     stats: dict = {}
-    with forward_python_logs_to_dagster(context, "aqueduct_dagster.sources.cabq", "dlt"):
+    with forward_python_logs_to_dagster(
+        context, "aqueduct_dagster.sources.cabq", "aqueduct_dagster.sources.arcrest_common", "dlt"
+    ):
         load_info = pipeline.run(cabq_source(_stats=stats), loader_file_format="parquet")
     context.log.info("CABQ dlt load complete: %s", load_info)
     errored: int = stats.get("locations_errored", 0)
