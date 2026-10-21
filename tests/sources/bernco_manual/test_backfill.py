@@ -137,6 +137,27 @@ class TestBerncoManualBackfillReadings:
                 )
             )
 
+    def test_raises_on_well_casing_null(self):
+        location = {
+            "GlobalID": "4f92c895-6b41-42d6-be6b-508ee44812fa",
+            "Well_Name": "9-Mile Hill LF",
+            "Well_depth": 740.0,
+            "Well_Location_Latitude": 35.071526,
+            "Well_Location_Longitude": -106.778477,
+            "Well_Casing_Stickup": None,
+            "NMT_ID": "BC-0364",
+        }
+        with pytest.raises(Exception, match="Well Casing Stickup is null"):
+            list(
+                bernco_manual_backfill_readings(
+                    client=_Dummy_Client,
+                    locations=[location],
+                    location_ids=["4f92c895-6b41-42d6-be6b-508ee44812fa"],
+                    start_ts=123,
+                    end_ts=456,
+                )
+            )
+
 
 # -- _locations_by_id --
 
