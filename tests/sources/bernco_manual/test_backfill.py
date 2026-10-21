@@ -147,16 +147,16 @@ class TestBerncoManualBackfillReadings:
             "Well_Casing_Stickup": None,
             "NMT_ID": "BC-0364",
         }
-        with pytest.raises(Exception, match="Well Casing Stickup is null"):
-            list(
-                bernco_manual_backfill_readings(
-                    client=_Dummy_Client,
-                    locations=[location],
-                    location_ids=["4f92c895-6b41-42d6-be6b-508ee44812fa"],
-                    start_ts=123,
-                    end_ts=456,
-                )
+        rows = list(
+            bernco_manual_backfill_readings(
+                client=_Dummy_Client,
+                locations=[location],
+                location_ids=["4f92c895-6b41-42d6-be6b-508ee44812fa"],
+                start_ts=123,
+                end_ts=456,
             )
+        )
+        assert rows == []
 
 
 # -- _locations_by_id --

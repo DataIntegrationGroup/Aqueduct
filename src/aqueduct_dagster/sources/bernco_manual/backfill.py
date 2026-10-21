@@ -55,11 +55,10 @@ def bernco_manual_backfill_readings(
         if location_id not in allowed:
             continue
         if location["Well_Casing_Stickup"] is None:
-            window_start_iso = datetime.fromtimestamp(start_ts, tz=UTC).isoformat()
-            window_end_iso = datetime.fromtimestamp(end_ts, tz=UTC).isoformat()
-            raise RuntimeError(
-                f"Backfill fetch failed for location {location_id} in window {window_start_iso} to {window_end_iso}: Well Casing Stickup is null"
+            logger.warning(
+                "Backfill fetch failed for location %s, Well Casing Stickup is null", location_id
             )
+            continue
         data, err = _fetch_readings_for_location(client, location_id, start_ts, end_ts)
         if err is not None:
             window_start_iso = datetime.fromtimestamp(start_ts, tz=UTC).isoformat()
