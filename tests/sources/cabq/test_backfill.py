@@ -156,7 +156,7 @@ class TestCabqBackfillPreparation:
             default_backfill_location_ids()
 
     @patch("aqueduct_dagster.sources.cabq.backfill._fetch_locations")
-    @patch("aqueduct_dagster.sources.cabq.backfill.build_cabq_client")
+    @patch("aqueduct_dagster.sources.cabq.backfill.build_arcrest_client")
     @patch("aqueduct_dagster.sources.cabq.backfill.load_source_config")
     def test_prepare_backfill_locations(self, mock_cfg, mock_build_client, mock_fetch_locations):
         mock_cfg.return_value = {"api_base_url": "https://api"}
@@ -171,7 +171,7 @@ class TestCabqBackfillPreparation:
         mock_fetch_locations.assert_called_once_with(_DUMMY_CLIENT)
 
     @patch("aqueduct_dagster.sources.cabq.backfill._fetch_locations")
-    @patch("aqueduct_dagster.sources.cabq.backfill.build_cabq_client")
+    @patch("aqueduct_dagster.sources.cabq.backfill.build_arcrest_client")
     @patch("aqueduct_dagster.sources.cabq.backfill.load_source_config")
     def test_prepare_backfill_closes_client_if_fetch_locations_fails(
         self, mock_cfg, mock_build_client, mock_fetch_locations

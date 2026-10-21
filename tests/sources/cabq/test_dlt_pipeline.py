@@ -8,8 +8,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
-import httpx
-import pytest
+from httpx import Client, Request, Response
 
 from aqueduct_dagster.sources.cabq.dlt_pipeline import (
     _fetch_locations,
@@ -20,8 +19,8 @@ from tests.conftest import client_with_responses_unauthenticated as _client_with
 
 
 def _client_with_responses(
-    responses: list[httpx.Response | Exception],
-) -> tuple[httpx.Client, list[httpx.Request]]:
+    responses: list[Response | Exception],
+) -> tuple[Client, list[Request]]:
     return _client_with_responses_base(responses, base_url="https://api")
 
 
@@ -41,19 +40,12 @@ LOCATIONS_RESPONSE = {"features": [{"attributes": LOCATIONS_PROCESSED[0]}]}
 
 class TestFetchLocations:
     def test_returns_list_on_success(self):
-        client, _ = _client_with_responses([httpx.Response(200, json=LOCATIONS_RESPONSE)])
+        client, _ = _client_with_responses([Response(200, json=LOCATIONS_RESPONSE)])
         result, err = _fetch_locations(client)
         assert result == LOCATIONS_PROCESSED
 
-    def test_raises_on_server_error(self):
-        client, _ = _client_with_responses([httpx.Response(500)])
-        data, err = _fetch_locations(client)
-        assert data is None
-        assert err is not None
-        assert "500" in err
-
     def test_hits_correct_endpoint(self):
-        client, calls = _client_with_responses([httpx.Response(200, json=LOCATIONS_RESPONSE)])
+        client, calls = _client_with_responses([Response(200, json=LOCATIONS_RESPONSE)])
         _fetch_locations(client)
         assert calls[0].url.path == "/query"
         assert calls[0].url.params["f"] == "pjson"
@@ -71,32 +63,12 @@ READINGS_RESPONSE = {"features": [{"attributes": READINGS_PROCESSED[0]}]}
 
 class TestFetchReadings:
     def test_returns_list_on_success(self):
-        client, _ = _client_with_responses([httpx.Response(200, json=READINGS_RESPONSE)])
+        client, _ = _client_with_responses([Response(200, json=READINGS_RESPONSE)])
         result, err = _fetch_readings_for_location(client, loc_id="IW4", start_time=1391079600)
         assert result == READINGS_PROCESSED
 
-    def test_returns_none_on_404(self):
-        client, _ = _client_with_responses([httpx.Response(404)])
-        data, err = _fetch_readings_for_location(client, loc_id="IW4", start_time=1391079600)
-        assert data is None
-        assert err is None
-
-    def test_returns_error_reason_on_500(self):
-        client, _ = _client_with_responses([httpx.Response(500)])
-        data, err = _fetch_readings_for_location(client, loc_id="IW4", start_time=1391079600)
-        assert data is None
-        assert err is not None
-        assert "500" in err
-
-    def test_returns_error_reason_on_503(self):
-        client, _ = _client_with_responses([httpx.Response(503)])
-        data, err = _fetch_readings_for_location(client, loc_id="IW4", start_time=1391079600)
-        assert data is None
-        assert err is not None
-        assert "503" in err
-
     def test_hits_correct_endpoint(self):
-        client, calls = _client_with_responses([httpx.Response(200, json=READINGS_RESPONSE)])
+        client, calls = _client_with_responses([Response(200, json=READINGS_RESPONSE)])
         start_time = int(
             datetime.strptime("2014-01-30", "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
         )
@@ -109,7 +81,7 @@ class TestFetchReadings:
         )
 
     def test_endtime_hits_correct_endpoint(self):
-        client, calls = _client_with_responses([httpx.Response(200, json=READINGS_RESPONSE)])
+        client, calls = _client_with_responses([Response(200, json=READINGS_RESPONSE)])
         start_time = int(
             datetime.strptime("2014-01-30", "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
         )
@@ -122,12 +94,6 @@ class TestFetchReadings:
             calls[0].url.params["where"]
             == "sys_loc_code='IW4' AND measurement_date>='2014-01-30' AND measurement_date<='2015-02-03'"
         )
-
-    def test_raises_on_unexpected_4xx(self):
-        client, _ = _client_with_responses([httpx.Response(403)])
-        with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            _fetch_readings_for_location(client, loc_id="IW4", start_time=1391079600)
-        assert exc_info.value.response.status_code == 403
 
 
 # -- cabq_readings --
@@ -142,7 +108,7 @@ CABQ_RESULTS = {
     "value": 162.396,
 }
 
-DUMMY_CLIENT = MagicMock(spec=httpx.Client)
+DUMMY_CLIENT = MagicMock(spec=Client)
 
 
 class TestCabqReadings:

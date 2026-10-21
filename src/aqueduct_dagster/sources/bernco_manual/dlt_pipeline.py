@@ -4,35 +4,24 @@ readings fetched from an unauthenticated ArcGIS FeatureServer, written to GCS.
 """
 
 import logging
-import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
 import dlt
-import httpx
+from httpx import Client
 
-from aqueduct_dagster.shared.http import DEFAULT_MAX_RETRIES as _MAX_RETRIES
-from aqueduct_dagster.shared.http import TRANSIENT_HTTP_ERRORS as _TRANSIENT_ERRORS
-from aqueduct_dagster.shared.http import build_unauthenticated_client, retry_transient
 from aqueduct_dagster.shared.pipeline import build_source_pipeline
+from aqueduct_dagster.sources.arcrest_common import (
+    build_arcrest_client,
+    fetch_locations,
+    fetch_readings_for_location,
+)
 
 logger = logging.getLogger(__name__)
 
-_429_BACKOFF = 60.0  # seconds to wait on 429 when Retry-After header is absent
-_MAX_RATE_LIMIT_RETRIES = 3
 
-
-def _transform_result(data: dict) -> list[dict]:
-    """Extracts the "attributes" dict from each entry in the BernCo ArcREST
-    response's "features" list — the only part of the response actually used."""
-    all_attributes: list[dict] = []
-    for feature in data["features"]:
-        all_attributes.append(feature["attributes"])
-    return all_attributes
-
-
-def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | None]:
+def _fetch_locations(client: Client) -> tuple[list[dict] | None, str | None]:
     """Fetches location info from the BernCo ArcREST API.
 
     Location shape: GlobalID (UUID), Well_Name, Well_Location_Latitude/Longitude,
@@ -44,55 +33,11 @@ def _fetch_locations(client: httpx.Client) -> tuple[list[dict] | None, str | Non
         "returnDistinctValues": "true",
         "f": "pjson",
     }
-    rate_limit_retries = 0
-    result: dict[Any, Any] = {}
-    while True:
-
-        def _fetch_location_info() -> httpx.Response:
-            return client.get(path, params=params)
-
-        try:
-            response = retry_transient(
-                _fetch_location_info,
-                on_retry=lambda exc, attempt, seconds: logger.warning(
-                    "Location: error (%s) on attempt %d - retrying in %.0fs", exc, attempt, seconds
-                ),
-            )
-        except _TRANSIENT_ERRORS as err:
-            logger.warning(
-                "Transient error fetching locations after %d attempts",
-                _MAX_RETRIES,
-            )
-            return None, f"transient network error after {_MAX_RETRIES} attempts: {err}"
-        if response.status_code == 429:
-            rate_limit_retries += 1
-            if rate_limit_retries > _MAX_RATE_LIMIT_RETRIES:
-                return None, f"HTTP 429: rate limited after {_MAX_RATE_LIMIT_RETRIES} retries"
-            retry_after = response.headers.get("Retry-After")
-            try:
-                delay = float(retry_after) if retry_after else _429_BACKOFF
-            except (ValueError, TypeError):
-                # Retry-After can be an HTTP-date string ("Thu, 01 Jan ...") — fall back.
-                delay = _429_BACKOFF
-            logger.warning(
-                "Locations: 429 rate limited — waiting %.0fs (attempt %d/%d)",
-                delay,
-                rate_limit_retries,
-                _MAX_RATE_LIMIT_RETRIES,
-            )
-            time.sleep(delay)
-            continue
-        if response.status_code >= 500:
-            logger.warning("Location: HTTP %s", response.status_code)
-            return None, f"HTTP {response.status_code}"
-        response.raise_for_status()
-        result = response.json()
-        break
-    return _transform_result(result), None
+    return fetch_locations(client, path, params)
 
 
 def _fetch_readings_for_location(
-    client: httpx.Client, location_id: str, start_time: int, end_time: int | None = None
+    client: Client, location_id: str, start_time: int, end_time: int | None = None
 ) -> tuple[list[dict] | None, str | None]:
     """Fetches readings for one location from the BernCo ArcREST API.
 
@@ -116,69 +61,16 @@ def _fetch_readings_for_location(
         "outFields": "MSRMNT_Date,Depth_To_Water_At_Msrmnt_Point",
         "f": "pjson",
     }
-    rate_limit_retries = 0
-    result: dict[Any, Any] = {}
-    while True:
-
-        def _fetch_readings() -> httpx.Response:
-            return client.get(path, params=params)
-
-        try:
-            response = retry_transient(
-                _fetch_readings,
-                on_retry=lambda exc, attempt, seconds: logger.warning(
-                    "Location %s: error (%s) on attempt %d - retrying in %.0fs",
-                    location_id,
-                    exc,
-                    attempt,
-                    seconds,
-                ),
-            )
-        except _TRANSIENT_ERRORS as err:
-            logger.warning(
-                "Location %s: transient error after %d attempts — skipping",
-                location_id,
-                _MAX_RETRIES,
-            )
-            return None, f"transient network error after {_MAX_RETRIES} attempts: {err}"
-        if response.status_code == 404:
-            logger.warning("Location %s: 404 — no data endpoint", location_id)
-            return None, None
-        if response.status_code == 429:
-            rate_limit_retries += 1
-            if rate_limit_retries > _MAX_RATE_LIMIT_RETRIES:
-                return None, f"HTTP 429: rate limited after {_MAX_RATE_LIMIT_RETRIES} retries"
-            retry_after = response.headers.get("Retry-After")
-            try:
-                delay = float(retry_after) if retry_after else _429_BACKOFF
-            except (ValueError, TypeError):
-                # Retry-After can be an HTTP-date string ("Thu, 01 Jan ...") — fall back.
-                delay = _429_BACKOFF
-            logger.warning(
-                "Location %s: 429 rate limited — waiting %.0fs (attempt %d/%d)",
-                location_id,
-                delay,
-                rate_limit_retries,
-                _MAX_RATE_LIMIT_RETRIES,
-            )
-            time.sleep(delay)
-            continue
-        if response.status_code >= 500:
-            logger.warning("Location %s: HTTP %s — skipping", location_id, response.status_code)
-            return None, f"HTTP {response.status_code}"
-        response.raise_for_status()
-        result = response.json()
-        break
-    rows = _transform_result(result)
-    if end_time is not None:
+    rows, err = fetch_readings_for_location(client, path, params, location_id)
+    if rows is not None and end_time is not None:
+        # The API's MSRMNT_Date query only accepts date literals, so it's
+        # inclusive of the entire end date — a reading exactly at end_time's
+        # midnight instant would otherwise pass this query but violate the
+        # strict half-open [start, end) window load_window() enforces. Trim it
+        # client-side, mirroring hydrovu_common.py's fetch_location_data()
+        # end_time handling. MSRMNT_Date is epoch ms; end_time is epoch s.
         rows = [row for row in rows if row["MSRMNT_Date"] < end_time * 1000]
-    return rows, None
-
-
-def build_bernco_manual_client(api_base_url: str) -> httpx.Client:
-    return build_unauthenticated_client(
-        api_base_url, timeout=httpx.Timeout(connect=30.0, read=60.0, write=30.0, pool=30.0)
-    )
+    return rows, err
 
 
 @dlt.source(name="bernco_manual")
@@ -192,7 +84,7 @@ def bernco_manual_source(
     start_ts = int(
         datetime.strptime(initial_start_date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
     )
-    client = build_bernco_manual_client(api_base_url)
+    client = build_arcrest_client(api_base_url)
     locations, err = _fetch_locations(client)
     if locations is None:
         logger.error("No locations found")
@@ -225,7 +117,7 @@ def bernco_manual_locations(locations: list[dict]) -> Iterator[dict]:
 
 @dlt.resource(name="bernco_manual_readings", write_disposition="append", primary_key="reading_id")
 def bernco_manual_readings(
-    client: httpx.Client,
+    client: Client,
     locations: list[dict],
     start_ts: int,
     _stats: dict | None = None,

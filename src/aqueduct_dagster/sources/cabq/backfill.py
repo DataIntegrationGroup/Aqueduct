@@ -24,11 +24,11 @@ from aqueduct_dagster.shared.backfill import (
     run_backfill_ingest,
 )
 from aqueduct_dagster.shared.gcs import read_parquet_rows_for_load_id
+from aqueduct_dagster.sources.arcrest_common import build_arcrest_client
 from aqueduct_dagster.sources.cabq.adapter import CabqAdapter
 from aqueduct_dagster.sources.cabq.dlt_pipeline import (
     _fetch_locations,
     _fetch_readings_for_location,
-    build_cabq_client,
 )
 from aqueduct_dagster.sources.cabq.transform import GCS_DATASET, _group_rows_by_location
 
@@ -102,7 +102,7 @@ def default_backfill_location_ids() -> list[str]:
 def prepare_backfill() -> tuple[httpx.Client, list[dict], dict[str, dict]]:
     """One-time client + location list setup, shared by every chunk."""
     cfg = load_source_config("cabq")
-    client = build_cabq_client(cfg["api_base_url"])
+    client = build_arcrest_client(cfg["api_base_url"])
     try:
         locations, err = _fetch_locations(client)
         if locations is None:
