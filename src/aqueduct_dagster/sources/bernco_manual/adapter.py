@@ -33,6 +33,7 @@ class BerncoManualAdapter(BaseAdapter):
         yield from self._records
 
     def to_thing(self, record: dict) -> CanonicalThing:
+        print(record)
         source_id = record["location_id"]
         external_key = self.make_location_key(source_id)
         return CanonicalThing(
@@ -58,7 +59,10 @@ class BerncoManualAdapter(BaseAdapter):
                 "agency": self.agency,
                 "source_id": source_id,
                 "alternate_id": record["alternate_id"],
-                "source_specific": {},
+                "source_specific": {
+                    "well_depth": record["well_depth"],
+                    "well_casing_stickup": record["well_casing_stickup"],
+                },
             },
         )
 
@@ -70,8 +74,12 @@ class BerncoManualAdapter(BaseAdapter):
             observations.append(
                 CanonicalObservation(
                     phenomenon_time=datetime.fromtimestamp(reading["timestamp"], tz=UTC),
-                    result=reading["value"],
+                    result=reading["value"] - reading["measurement_point_height"],
                     datastream_external_key=ds_key,
+                    parameters={
+                        "measurement_point_height": reading["measurement_point_height"],
+                        "measurement_method": reading["measurement_method"],
+                    },
                 )
             )
         return observations

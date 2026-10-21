@@ -62,10 +62,9 @@
 
 **properties.source_specific:**
 
-| Source Field | Type                                  | Notes                                               |
-|--------------|---------------------------------------|-----------------------------------------------------|
-| `well_depth` | {value: float, unit: str} \| None     | Always `{value: X, unit: "ft"}` — convert if needed |
-| `screens`    | [{top: float, bottom: float}] \| None | Screen intervals, or N/A                            |
+| Source Field | Type         | Notes               |
+|--------------|--------------|---------------------|
+| `Well_Depth` | float\| None | Total depth of well |
 
 ---
 
@@ -134,30 +133,30 @@ One per (Thing, ObservedProperty, Sensor) combination.
 
 **Standard SensorThings fields:**
 
-| Canonical Field  | Type        | Status   | Source Field                     | Notes                                     |
-|------------------|-------------|----------|----------------------------------|-------------------------------------------|
-| `phenomenonTime` | datetime    | Required | `MSRMNT_Date`                    | Unix epoch milliseconds                   |
-| `result`         | float       | Required | `Depth_To_Water_At_Msrmnt_Point` | Raw value, units ft, no conversion needed |
-| `resultTime`     | datetime    | Optional | (not in API)                     | Not applicable                            |
-| `resultQuality`  | str \| None | Optional | (not in API)                     | Not applicable                            |
-| `validTime`      | period      | Optional | (not in API)                     | Not applicable                            |
+| Canonical Field  | Type        | Status   | Source Field                     | Notes                                                                                                        |
+|------------------|-------------|----------|----------------------------------|--------------------------------------------------------------------------------------------------------------|
+| `phenomenonTime` | datetime    | Required | `MSRMNT_Date`                    | Unix epoch milliseconds                                                                                      |
+| `result`         | float       | Required | `Depth_To_Water_At_Msrmnt_Point` | Raw value, units ft, the depth-to-water field is measured from the measuring point, not from ground surface. |
+| `resultTime`     | datetime    | Optional | (not in API)                     | Not applicable                                                                                               |
+| `resultQuality`  | str \| None | Optional | (not in API)                     | Not applicable                                                                                               |
+| `validTime`      | period      | Optional | (not in API)                     | Not applicable                                                                                               |
 
 **parameters — standard keys:**
 
-| Canonical Field            | Type          | Source Field         | Notes            |
-|----------------------------|---------------|----------------------|------------------|
-| `measuring_agency`         | str \| None   | (not in API)         | Not available    |
-| `measurement_method`       | str \| None   | `Measurement_Method` | How it was taken |
-| `data_source`              | str \| None   | (Not in API)         | Not available    |
-| `water_level_status`       | str \| None   | (Not in API)         | Not available    |
-| `measurement_point_height` | float \| None | (Not in API)         | Not available    |
-| `water_level_accuracy`     | float \| None | (Not in API)         | Not available    |
+| Canonical Field            | Type          | Source Field         | Notes                       |
+|----------------------------|---------------|----------------------|-----------------------------|
+| `measuring_agency`         | str \| None   | (not in API)         | Not available               |
+| `measurement_method`       | str \| None   | `Measurement_Method` | How it was taken            |
+| `data_source`              | str \| None   | (Not in API)         | Not available               |
+| `water_level_status`       | str \| None   | (Not in API)         | Not available               |
+| `measurement_point_height` | float \| None | `MeasuringPt`        | Height above ground surface |
+| `water_level_accuracy`     | float \| None | (Not in API)         | Not available               |
 
 **parameters.source_specific:**
 
-| Source Field | Type | Notes |
-|--------------|------|-------|
-|              |      |       |
+| Source Field          | Type          | Notes                                                                                                                    |
+|-----------------------|---------------|--------------------------------------------------------------------------------------------------------------------------|
+| `Well_Casing_Stickup` | float \| None | Usable as `measurement_point_height` if `MeasuringPt` is none, locations where this value is None are ignored and logged |
 
 ---
 
