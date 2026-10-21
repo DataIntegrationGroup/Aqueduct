@@ -235,3 +235,27 @@ class TestBerncoManualReadings:
         assert stats["locations_fetched"] == 1
         assert stats["locations_errored"] == 1
         assert stats["failed_location_ids"] == ["4f92c895-6b41-42d6-be6b-508ee44812fb"]
+
+    @patch("dlt.current.resource_state", return_value={"location_cursors": {}})
+    @patch("aqueduct_dagster.sources.bernco_manual.dlt_pipeline._fetch_readings_for_location")
+    def test_partial_failure_stats_null_well_stickup(self, mock_fetch_readings, mock_state):
+        locations = [
+            {
+                "GlobalID": "4f92c895-6b41-42d6-be6b-508ee44812fa",
+                "Well_Name": "9-Mile Hill LF",
+                "Well_Depth": 740,
+                "Well_Location_Latitude": 35.071526,
+                "Well_Location_Longitude": -106.778477,
+                "Well_Casing_Stickup": None,
+                "NMT_ID": "BC-0364",
+            },
+        ]
+        mock_fetch_readings.side_effect = [(READINGS_PROCESSED, None)]
+        stats: dict = {}
+        list(
+            bernco_manual_readings(
+                client=DUMMY_CLIENT, locations=locations, start_ts=1000, _stats=stats
+            )
+        )
+        assert stats["locations_errored"] == 1
+        assert stats["failed_location_ids"] == ["4f92c895-6b41-42d6-be6b-508ee44812fa"]
