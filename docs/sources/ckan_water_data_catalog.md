@@ -103,6 +103,11 @@ package_show(dataset_id)                       one API call per dataset
   - Snapshots are small (EBWPC's whole dataset is ~35 MB), so keeping every version is cheap and gives
     an audit trail.
 - Keep fingerprints in `dlt.current.resource_state()`, as `cabq` and `bernco_manual` do for their cursors.
+- Land the `package_show` resource list as its own `ckan_resources` table (`write_disposition="replace"`,
+  every run): one row per resource with its name, format, `description`, `last_modified`,
+  `metadata_modified`, `size` and URL. Editing a description moves only `metadata_modified`, not the
+  file fingerprint, so a description must not ride on the reading rows. EBWPC's elevation and formation
+  live only in descriptions.
 - Select resources per agency by name and normalised format, never by a hardcoded ID list. Agencies don't
   always update in place: OSE published revised files as new resources alongside the old ones (see
   [OSE Roswell](#ose-roswell-district-2)). Surface added and removed resources in asset metadata so a
@@ -118,7 +123,8 @@ columns, parse the agency's date/time formats to ISO, unpivot split depth column
 `manual_depth_bgs`) into `depth_to_water` + `measurement_type`, null junk values (`N/A`, `#VALUE!`,
 `#REF!`, `<Null>`, blank), drop exact-duplicate rows, swap reversed lat/lon, convert UTM to lat/lon.
 
-**2. Shared WDI adapter.** Maps WDI rows to `CanonicalBundle` and enforces the best-practice rules: drop
+**2. Shared WDI adapter** (`WdiWaterLevelAdapter` in `sources/ckan_transform_common.py`). Maps WDI rows
+to `CanonicalBundle` and enforces the best-practice rules: drop
 measurements whose `site_id` has no location with x/y, require `depth_to_water_unit` (convert to feet,
 refuse unknown units), and pick the Manual vs continuous datastream from `measurement_type`.
 
@@ -146,7 +152,7 @@ changed" mode) and is future work after the migration.
 | Module | Owns |
 |---|---|
 | `sources/ckan_common.py` | httpx client (`build_unauthenticated_client` plus the `x-cf-bypass` header from Secret Manager, overriding `Accept` for file downloads), `package_show`, fingerprinting, download, CSV -> string rows, provenance columns |
-| `sources/wdi_transform_common.py` | The WDI location + measurement -> `CanonicalBundle` adapter and its validation rules |
+| `sources/ckan_transform_common.py` | The WDI location + measurement -> `CanonicalBundle` adapter and its validation rules, plus reading the `ckan_*` tables and keeping each file's newest snapshot |
 | `sources/<agency>_ckan/` | Dataset UUID, resource selector, agency shim, `raw_<key>` dataset, dlt resource names. One `SourceConfig` entry each. |
 
 **Source keys and agency codes:** `ebwpc_ckan` / `EBWPC` and `nmose_ckan` / `NMOSE`, following the
@@ -406,7 +412,7 @@ which fits how rarely the data moves.
 1. **Access (exception granted):** store the `x-cf-bypass` value in GCP Secret Manager, confirm it
    works from a Dagster+ run, and ask datHere whether the exception is also scoped by IP address or
    path. See [Access](#access-cloudflare).
-1. **`ckan_common` + `wdi_transform_common`:** shared discover/fingerprint/parse, with the bypass header
+1. **`ckan_common` + `ckan_transform_common`:** shared discover/fingerprint/parse, with the bypass header
    on the client, and the WDI -> canonical adapter. Offline unit tests against a synthetic WDI-template fixture. No agency yet.
 1. **Feedback to WDI** on the best-practices document: add a timezone field, and ask providers to update
    resources in place instead of adding new ones (OSE added `_r2` copies next to its old files).

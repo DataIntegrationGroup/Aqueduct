@@ -40,6 +40,12 @@ hazard specific to that tenant):
 | Ingest | `sources/hydrovu_common.py`: OAuth, pagination, retries, the per-location fetch loop                                    | secret name, allowlist, dlt state, dataset |
 | Transform | `sources/hydrovu_transform_common.py`: the DTW mapping (`HydroVuDtwAdapter`), locations read, grouping, output metadata | agency code, GCS dataset, watermark path, result type, sanity floor |
 
+CKAN agencies (NM Water Data Catalog) split the same way: `sources/ckan_common.py`
+for ingest and `sources/ckan_transform_common.py` for transform. There, an agency's
+shim translates its raw rows into the WDI best-practice shape, and the shared
+`WdiWaterLevelAdapter` maps that shape. Each agency subclass sets only `AGENCY` and
+`SOURCE_TZ`. See `sources/ebwpc_ckan/`.
+
 ## The one rule that explains the design
 
 **The canonical model is the only contract between stages.** Adapters produce
@@ -66,6 +72,7 @@ src/aqueduct_dagster/
 │   ├── hydrovu_common.py  # HydroVu API client (ingest), shared by every HydroVu tenant
 │   ├── hydrovu_transform_common.py  # HydroVu DTW mapping + GCS read/group, shared the same way
 │   ├── ckan_common.py     # NM Water Data Catalog (CKAN) client + per-file fingerprint cursor, shared by every CKAN agency
+│   ├── ckan_transform_common.py  # WDI water-level adapter (WdiWaterLevelAdapter) + ckan_* table reads, shared the same way
 │   └── <name>/
 │       ├── adapter.py       # raw rows → CanonicalBundle (source-specific)
 │       ├── dlt_pipeline.py  # dlt source/resource/pipeline factory

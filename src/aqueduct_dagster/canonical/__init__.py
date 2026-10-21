@@ -5,6 +5,7 @@ from .canonical_constants import (
     HYDROVU_SENSOR,
     MANUAL_SENSOR,
     METRES_TO_FEET,
+    TRANSDUCER_SENSOR,
     UNIT_CFS,
     UNIT_FOOT,
     UNIT_METRE,
@@ -13,6 +14,7 @@ from .canonical_constants import (
     gwl_datastream_meta,
     make_datastream_key,
     make_location_key,
+    manual_gwl_datastream_meta,
 )
 from .canonical_model import (
     CanonicalBundle,
@@ -39,11 +41,13 @@ __all__ = [
     "METRES_TO_FEET",
     "MANUAL_SENSOR",
     "HYDROVU_SENSOR",
+    "TRANSDUCER_SENSOR",
     "DTW_OBS_PROP",
     "ELEV_OBS_PROP",
     "make_location_key",
     "make_datastream_key",
     "gwl_datastream_meta",
+    "manual_gwl_datastream_meta",
     "gwe_datastream_meta",
     "BaseAdapter",
 ]
