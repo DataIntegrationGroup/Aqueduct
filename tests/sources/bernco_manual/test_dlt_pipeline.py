@@ -29,6 +29,7 @@ LOCATIONS_PROCESSED = [
     {
         "GlobalID": "4f92c895-6b41-42d6-be6b-508ee44812fa",
         "Well_Name": "9-Mile Hill LF",
+        "Well_Casing_Stickup": 0,
         "Well_Location_Latitude": 35.071526,
         "Well_Location_Longitude": -106.778477,
         "NMT_ID": "BC-0364",
@@ -52,7 +53,7 @@ class TestFetchLocations:
         assert calls[0].url.params["returnDistinctValues"] == "true"
         assert (
             calls[0].url.params["outFields"]
-            == "GlobalID,Well_Name,Well_Location_Latitude,Well_Location_Longitude,NMT_ID"
+            == "GlobalID,Well_Name,Well_Casing_Stickup,Well_Location_Latitude,Well_Location_Longitude,NMT_ID"
         )
         assert calls[0].url.params["where"] == "OBJECTID>0"
 
@@ -63,6 +64,7 @@ READINGS_PROCESSED = [
     {
         "MSRMNT_Date": 1573689600000,
         "Depth_To_Water_At_Msrmnt_Point": 711.11,
+        "MeasuringPt": None,
     }
 ]
 
@@ -87,7 +89,10 @@ class TestFetchReadings:
         )
         assert calls[0].url.path == "/1/query"
         assert calls[0].url.params["f"] == "pjson"
-        assert calls[0].url.params["outFields"] == "MSRMNT_Date,Depth_To_Water_At_Msrmnt_Point"
+        assert (
+            calls[0].url.params["outFields"]
+            == "MSRMNT_Date,Depth_To_Water_At_Msrmnt_Point,MeasuringPt"
+        )
         assert (
             calls[0].url.params["where"]
             == "Well_ID='4f92c895-6b41-42d6-be6b-508ee44812fa' AND MSRMNT_Date>='2019-11-14'"
@@ -107,7 +112,10 @@ class TestFetchReadings:
         )
         assert calls[0].url.path == "/1/query"
         assert calls[0].url.params["f"] == "pjson"
-        assert calls[0].url.params["outFields"] == "MSRMNT_Date,Depth_To_Water_At_Msrmnt_Point"
+        assert (
+            calls[0].url.params["outFields"]
+            == "MSRMNT_Date,Depth_To_Water_At_Msrmnt_Point,MeasuringPt"
+        )
         assert (
             calls[0].url.params["where"]
             == "Well_ID='4f92c895-6b41-42d6-be6b-508ee44812fa' AND MSRMNT_Date>='2019-11-14' AND MSRMNT_Date<='2019-11-15'"
@@ -120,10 +128,12 @@ BERNCO_MANUAL_RESULTS = {
     "reading_id": "4f92c895-6b41-42d6-be6b-508ee44812fa_1573689600000",
     "location_id": "4f92c895-6b41-42d6-be6b-508ee44812fa",
     "location_name": "9-Mile Hill LF",
+    "well_casing_stickup": 0,
     "latitude": 35.071526,
     "longitude": -106.778477,
     "timestamp": 1573689600000,
     "value": 711.11,
+    "measurement_point": None,
     "alternate_id": "BC-0364",
 }
 
@@ -195,6 +205,7 @@ class TestBerncoManualReadings:
             {
                 "GlobalID": "4f92c895-6b41-42d6-be6b-508ee44812fa",
                 "Well_Name": "9-Mile Hill LF",
+                "Well_Casing_Stickup": 0,
                 "Well_Location_Latitude": 35.071526,
                 "Well_Location_Longitude": -106.778477,
                 "NMT_ID": "BC-0364",
@@ -202,6 +213,7 @@ class TestBerncoManualReadings:
             {
                 "GlobalID": "4f92c895-6b41-42d6-be6b-508ee44812fb",
                 "Well_Name": "8-Mile Hill LF",
+                "Well_Casing_Stickup": 0,
                 "Well_Location_Latitude": 35.071526,
                 "Well_Location_Longitude": -106.778477,
                 "NMT_ID": "BC-0365",

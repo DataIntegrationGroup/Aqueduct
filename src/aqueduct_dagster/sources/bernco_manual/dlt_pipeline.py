@@ -29,7 +29,7 @@ def _fetch_locations(client: Client) -> tuple[list[dict] | None, str | None]:
     path = "/0/query"
     params = {
         "where": "OBJECTID>0",
-        "outFields": "GlobalID,Well_Name,Well_Location_Latitude,Well_Location_Longitude,NMT_ID",
+        "outFields": "GlobalID,Well_Name,Well_Casing_Stickup,Well_Location_Latitude,Well_Location_Longitude,NMT_ID",
         "returnDistinctValues": "true",
         "f": "pjson",
     }
@@ -58,7 +58,7 @@ def _fetch_readings_for_location(
         )
     params = {
         "where": query,
-        "outFields": "MSRMNT_Date,Depth_To_Water_At_Msrmnt_Point",
+        "outFields": "MSRMNT_Date,Depth_To_Water_At_Msrmnt_Point,MeasuringPt",
         "f": "pjson",
     }
     rows, err = fetch_readings_for_location(client, path, params, location_id)
@@ -109,6 +109,7 @@ def bernco_manual_locations(locations: list[dict]) -> Iterator[dict]:
             "id": location["GlobalID"],
             "name": location["Well_Name"],
             "description": "Location of well where measurements are made",
+            "well_casing_stickup": location["Well_Casing_Stickup"],
             "latitude": location["Well_Location_Latitude"],
             "longitude": location["Well_Location_Longitude"],
             "alternate_id": location["NMT_ID"],
@@ -174,10 +175,12 @@ def bernco_manual_readings(
                     "reading_id": f"{location_id}_{measurement['MSRMNT_Date']}",
                     "location_id": location_id,
                     "location_name": location["Well_Name"],
+                    "well_casing_stickup": location["Well_Casing_Stickup"],
                     "latitude": location["Well_Location_Latitude"],
                     "longitude": location["Well_Location_Longitude"],
                     "timestamp": measurement["MSRMNT_Date"],
                     "value": measurement["Depth_To_Water_At_Msrmnt_Point"],
+                    "measurement_point": measurement["MeasuringPt"],
                     "alternate_id": location["NMT_ID"],
                 }
             cursors[str(location_id)] = max_timestamp
