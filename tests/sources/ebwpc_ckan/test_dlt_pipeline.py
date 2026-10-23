@@ -1,8 +1,8 @@
 """
-Unit tests for ebwpc_ckan_source and its two resources. The fingerprint
+Unit tests for ebwpc_ckan_source and its three resources. The fingerprint
 cursor itself is covered agency-agnostically in tests/sources/test_ckan_common.py;
 this module covers what EBWPC owns (config block, resource selection, the
-locations table, client lifetime) and runs the real dlt pipeline end to end
+resources and locations tables, client lifetime) and runs the real dlt pipeline end to end
 into a local file:// bucket, so the cursor is proven through real dlt state.
 """
 
@@ -28,6 +28,7 @@ from tests.sources.ebwpc_ckan.conftest import (
     CATALOG,
     DATASET_ID,
     E_8428,
+    E_8428_DESCRIPTION,
     E_9407_ARCHIVED,
     LOCATIONS,
     PACKAGE_SHOW_PATH,
@@ -69,8 +70,8 @@ class TestSourceConfig:
         _source()
         assert all(request.headers["x-cf-bypass"] for request in catalog.runs[-1])
 
-    def test_exposes_both_resources_under_platform_table_names(self, catalog: FakeCatalog):
-        assert _table_names(_source()) == {"ckan_locations", "ckan_readings"}
+    def test_exposes_every_resource_under_platform_table_names(self, catalog: FakeCatalog):
+        assert _table_names(_source()) == {"ckan_resources", "ckan_locations", "ckan_readings"}
 
     def test_skips_the_xlsx_archive_and_reports_it(self, catalog: FakeCatalog):
         stats: dict = {}
@@ -80,6 +81,31 @@ class TestSourceConfig:
 
     def test_disables_iso_timestamp_detection_so_raw_cells_stay_strings(self, catalog: FakeCatalog):
         assert "iso_timestamp" not in _source().schema.settings.get("detections", [])
+
+
+class TestCatalogResources:
+    def test_lists_every_resource_including_skipped_and_locations(self, catalog: FakeCatalog):
+        stats: dict = {}
+        rows = list(_source(stats).resources["ckan_resources"])
+        assert stats["catalog_resources"] == 5
+        assert {row["resource_name"] for row in rows} == {
+            "E-8428",
+            "E-1639-POD1",
+            "E-9407-Archived",
+            "E-9673",
+            "EBWPC Well Locations",
+        }
+
+    def test_carries_the_free_text_description(self, catalog: FakeCatalog):
+        rows = list(_source().resources["ckan_resources"])
+        e_8428 = next(row for row in rows if row["resource_id"] == E_8428["id"])
+        assert e_8428["resource_description"] == E_8428_DESCRIPTION
+
+    def test_an_empty_dataset_omits_the_table_rather_than_blanking_it(self, catalog: FakeCatalog):
+        catalog.routes[PACKAGE_SHOW_PATH] = package_show_response([])
+        stats: dict = {}
+        assert _table_names(_source(stats)) == {"ckan_readings"}
+        assert stats["catalog_resources"] == 0
 
 
 class TestLocations:
@@ -97,20 +123,20 @@ class TestLocations:
         # must still run.
         catalog.routes[path_of(LOCATIONS)] = httpx.Response(500)
         stats: dict = {}
-        assert _table_names(_source(stats)) == {"ckan_readings"}
+        assert _table_names(_source(stats)) == {"ckan_resources", "ckan_readings"}
         assert stats["locations_error"] == "HTTP 500"
         assert stats["locations_rows"] == 0
 
     def test_missing_locations_resource_omits_the_table(self, catalog: FakeCatalog):
         catalog.routes[PACKAGE_SHOW_PATH] = package_show_response(WELLS)
         stats: dict = {}
-        assert _table_names(_source(stats)) == {"ckan_readings"}
+        assert _table_names(_source(stats)) == {"ckan_resources", "ckan_readings"}
         assert "EBWPC Well Locations" in stats["locations_error"]
 
     def test_header_only_locations_file_omits_the_table(self, catalog: FakeCatalog):
         catalog.routes[path_of(LOCATIONS)] = httpx.Response(200, content=b"NMBG_ID,Datum\r\n")
         stats: dict = {}
-        assert _table_names(_source(stats)) == {"ckan_readings"}
+        assert _table_names(_source(stats)) == {"ckan_resources", "ckan_readings"}
         assert stats["locations_error"] == "file has no data rows"
 
 
@@ -182,6 +208,9 @@ class TestEndToEnd:
         table = _read(readings)
         assert table.num_rows == WELL_ROWS
         assert _read(locations).num_rows == 3
+        catalog_resources = _read(parquet_files(local_bucket, "ckan_resources"))
+        assert catalog_resources.num_rows == 5
+        assert catalog_resources.schema.field("resource_description").type == pa.string()
 
     def test_every_source_cell_lands_as_a_string(self, catalog: FakeCatalog, local_bucket: Path):
         _run()
@@ -210,8 +239,9 @@ class TestEndToEnd:
         assert stats["resources_unchanged"] == 3
         assert stats["rows_yielded"] == 0
         assert parquet_files(local_bucket, "ckan_readings") == readings_before
-        # Replace keeps exactly one locations snapshot.
+        # Replace keeps exactly one snapshot of each metadata table.
         assert len(parquet_files(local_bucket, "ckan_locations")) == 1
+        assert len(parquet_files(local_bucket, "ckan_resources")) == 1
 
         # A re-upload with new content lands that one well again, and only it.
         catalog.routes[PACKAGE_SHOW_PATH] = package_show_response(

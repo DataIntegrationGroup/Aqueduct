@@ -1,7 +1,8 @@
 """
 Dagster asset: raw_ebwpc_ckan_readings. Runs the EBWPC CKAN dlt source,
-writing two GCS resources: ckan_locations (replace, every run) and
-ckan_readings (append, a full snapshot of each well file that changed).
+writing three GCS resources: ckan_resources and ckan_locations (replace,
+every run) and ckan_readings (append, a full snapshot of each well file that
+changed).
 
 An unchanged dataset is the normal weekly case: nothing is downloaded but
 package_show and the tiny locations file, and the run is green.
@@ -96,6 +97,7 @@ def raw_ebwpc_ckan_readings(context: AssetExecutionContext) -> MaterializeResult
             "pipeline_name": MetadataValue.text(pipeline.pipeline_name),
             "dataset_name": MetadataValue.text(pipeline.dataset_name),
             "rows_yielded": MetadataValue.int(stats.get("rows_yielded", 0)),
+            "catalog_resources": MetadataValue.int(stats.get("catalog_resources", 0)),
             "resources_selected": MetadataValue.int(stats.get("resources_selected", 0)),
             "resources_landed": MetadataValue.int(stats.get("resources_landed", 0)),
             "resources_unchanged": MetadataValue.int(stats.get("resources_unchanged", 0)),

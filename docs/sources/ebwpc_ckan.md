@@ -62,7 +62,9 @@ downloads return 200.
 **Free-text well metadata.** Four well resources (`E-8428`, `Smith-1`, `E-7545`, `Magnum Steel`) describe
 the well in their `description`: county, UTM coordinates, `Elevation NNNN (ft AMSL)`, depth and
 formation. The other 17 give only a rough place ("About 5 miles south of Moriarty, NM"). Smith-1's
-description carries E-10652's coordinates, so take coordinates from the locations file only.
+description carries E-10652's coordinates, so take coordinates from the locations file only. Ingest lands
+every resource's metadata, description included, in the `ckan_resources` table (replaced every run),
+because editing a description moves only `metadata_modified`, not the file fingerprint.
 
 ---
 
@@ -77,7 +79,7 @@ CRLF line endings, 21 rows (14 active wells, then the 7 archived ones).
 |---|---|---|---|---|
 | `name` | str | Required | `NMBG_ID` | Trimmed, with the `-archived` suffix removed. Old FROST used the same names (`E-2298`, `Magnum Steel`). |
 | `description` | str | Required | *(fixed)* | Fixed: `Location of well where measurements are made` |
-| `encodingType` | str | Required | *(fixed)* | Fixed: `application/vnd.geo+json` |
+| `encodingType` | str | Required | *(fixed)* | Fixed: `application/geo+json`, the canonical default every source uses |
 | `location` (longitude) | float | Required | `UTM_Zone13N_Easting`, `UTM_Zone13N_Northing` | NAD83 / UTM zone 13N (EPSG:26913) → WGS84. See Unit Conversions. |
 | `location` (latitude) | float | Required | `UTM_Zone13N_Easting`, `UTM_Zone13N_Northing` | As above |
 
@@ -97,7 +99,7 @@ CRLF line endings, 21 rows (14 active wells, then the 7 archived ones).
 | `utm_northing` | float | `UTM_Zone13N_Northing` as published |
 | `utm_zone` | str | Fixed `13N` (from the column names) |
 | `horizontal_datum` | str | `Datum`. `NAD83` on every row. |
-| `elevation` | {value: float, unit: "m"} \| None | Only 4 wells, parsed from the resource `description` (`Elevation 6712 (ft AMSL)`) and converted to metres to match `pvacd_hydrovu.md` and `ebid.md`. `None` for the other 17. See Open Questions. |
+| `elevation` | {value: float, unit: "m"} \| None | Only 4 wells, parsed from the resource description (`ckan_resources.resource_description`, `Elevation 6712 (ft AMSL)`) and converted to metres to match `pvacd_hydrovu.md` and `ebid.md`. `None` for the other 17. See Open Questions. |
 | `is_archived` | bool | True when `NMBG_ID` ends in `archived` |
 
 **Matching measurements to locations.** The locations file, the resource names and the file's `site_id`
@@ -148,7 +150,7 @@ Map `E-2043` to `E-2034` with a one-line alias in the shim, and ask EBWPC to cor
 |---|---|---|
 | `well_depth` | {value: float, unit: str} \| None | Not provided. The four descriptions that mention depth all say "Approximate Depth Unknown". |
 | `screens` | [{top: float, bottom: float}] \| None | Not provided |
-| `lithology` | str \| None | The formation from the same four descriptions (`Madera Formation`, `Alluvium/Yeso`, `Alluvium/Abo Formation`, `Alluvium`). Named after the WDI best-practice field. `None` elsewhere. |
+| `lithology` | str \| None | The formation from the same four descriptions, the last comma-separated part after the elevation that isn't the depth phrase (`Madera Formation`, `Alluvium/Yeso`, `Alluvium/Abo Formation`, `Alluvium`). Named after the WDI best-practice field. `None` elsewhere. |
 
 ---
 
@@ -157,11 +159,11 @@ Map `E-2043` to `E-2034` with a one-line alias in the shim, and ask EBWPC to cor
 | Existing Constant | Use for this source? |
 |---|---|
 | `MANUAL_SENSOR` (Manual) | **Yes**, for `manual_depth_bgs` |
-| Transducer | **Yes**, for `transducer_depth_bgs`. Listed in `_mapping_template.md` but not yet defined in `canonical_constants.py`. |
+| `TRANSDUCER_SENSOR` (Transducer) | **Yes**, for `transducer_depth_bgs`. Added for this source, see below. |
 | `HYDROVU_SENSOR` (VuLink) | No |
 | All others (Pressure, Acoustic, VanEssenDiver, Bubbler, Satellite, Radio, RadioTower, AVFM, OneRain, NoSensor) | No |
 
-**New sensor needed? Yes, `TRANSDUCER_SENSOR`.** Old FROST has it as `Sensors(13)`: `{"name":
+**New sensor needed? Yes, `TRANSDUCER_SENSOR`, now in `canonical_constants.py`.** Old FROST has it as `Sensors(13)`: `{"name":
 "Transducer", "description": "No Description", "encodingType": "application/pdf", "metadata": "No
 Metadata"}`. Following this repo's convention (`NO_DEFINITION` in the description slot, as in `ebid.md`):
 
@@ -175,7 +177,7 @@ TRANSDUCER_SENSOR = CanonicalSensor(
 )
 ```
 
-The make and model of the transducers isn't published. Adding the constant is a later ticket.
+The make and model of the transducers isn't published.
 
 ---
 
@@ -240,8 +242,8 @@ manual one is qualified, mirroring old FROST's naming.
 |---|---|---|
 | `is_continuous` | bool | *(not in source)*. Old FROST sets `true` on the transducer stream. Same key as `ebid.md` and `san_acacia.md`. |
 
-**New datastream template.** `canonical_constants.py` has `gwl_datastream_meta` ("Groundwater Levels")
-only. Add a manual counterpart in the same later ticket as `TRANSDUCER_SENSOR`:
+**New datastream template.** `canonical_constants.py` had `gwl_datastream_meta` ("Groundwater Levels")
+only, so it now also has the manual counterpart:
 
 ```python
 def manual_gwl_datastream_meta(agency: str, location_name: str) -> dict:
@@ -356,8 +358,6 @@ example, E-8428's last transducer reading is `2024-04-26T08:18:00Z` in old FROST
 | `measurement_date` + `measurement_time` | Naive, fixed UTC−07:00 | UTC | +7 hours |
 | `elevation` (resource `description`, 4 wells) | Feet AMSL | Metres | ÷ 3.28084 (`METRES_TO_FEET`) |
 | `manual_depth_BTOC`, `manual_depth_Below_TOC` | Feet below top of casing | - | Not mapped (needs a measuring-point height) |
-
-`pyproj` is not a project dependency yet. Add it with `uv add pyproj` in the pipeline ticket.
 
 ---
 
@@ -567,5 +567,6 @@ None of these blocks the load. Each has a workaround above.
 
 ## Open Questions
 
-1. **Elevation and formation.** Proposal: parse them from the free-text descriptions (4 of 21 wells)
-   until EBWPC adds the columns (request 5).
+1. **Elevation and formation.** Resolved for now: parsed from the free-text descriptions (4 of 21 wells),
+   landed in `ckan_resources`, until EBWPC adds the columns (request 5). Elevation must be right on a
+   well's first load, because the FROST loader creates Locations and never updates them.

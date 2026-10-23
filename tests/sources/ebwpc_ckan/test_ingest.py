@@ -59,6 +59,7 @@ def _metadata(result: MaterializeResult) -> dict:
 
 
 _FIRST_RUN = {
+    "catalog_resources": 5,
     "rows_yielded": 11,
     "resources_selected": 3,
     "resources_landed": 3,
@@ -84,6 +85,7 @@ _QUIET_WEEK = {
 class TestMetadata:
     def test_reports_extraction_counts(self):
         metadata = _metadata(_run_asset(_FIRST_RUN))
+        assert metadata["catalog_resources"] == 5
         assert metadata["rows_yielded"] == 11
         assert metadata["resources_selected"] == 3
         assert metadata["resources_landed"] == 3
@@ -174,7 +176,7 @@ class TestWhereDataLands:
         assert metadata["resources_landed"] == 3
         assert list(metadata["resources_skipped"]) == ["E-9407-Archived"]
         # gs://<bucket>/raw_<source_key>/<table>/year=/month=/day=/<load_id>.<file_id>.parquet
-        for table in ("ckan_readings", "ckan_locations"):
+        for table in ("ckan_readings", "ckan_locations", "ckan_resources"):
             files = parquet_files(local_bucket, table)
             assert files, table
             assert all(path.parent.parent.parent.name.startswith("year=") for path in files)

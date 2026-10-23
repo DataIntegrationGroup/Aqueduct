@@ -23,6 +23,7 @@ from aqueduct_dagster.sources.ckan_common import (
     package_show,
     parse_csv,
     resolve_cf_bypass,
+    resource_metadata_rows,
     snapshot_rows,
     split_resources,
 )
@@ -183,6 +184,39 @@ class TestSplitResources:
         assert found is None
         assert measurements == [_WELL_A]
         assert "XLSX" in skipped["Archive"]
+
+
+class TestResourceMetadataRows:
+    def test_one_row_per_resource_including_skipped_ones(self):
+        xlsx = _resource("xxxx", "Archive", "archive.xlsx", format="XLSX")
+        rows = resource_metadata_rows([_WELL_A, xlsx])
+        assert [row["resource_id"] for row in rows] == ["aaaa", "xxxx"]
+
+    def test_names_columns_like_the_readings_provenance(self):
+        well = _resource(
+            "aaaa",
+            "Well-A",
+            "well-a.csv",
+            description="Elevation 6712 (ft AMSL)\r\n",
+            metadata_modified="2025-03-12T18:11:36.629889",
+        )
+        assert resource_metadata_rows([well]) == [
+            {
+                "resource_id": "aaaa",
+                "resource_name": "Well-A",
+                "resource_format": "CSV",
+                "resource_description": "Elevation 6712 (ft AMSL)\r\n",
+                "resource_last_modified": "2025-03-12T18:11:29.830723",
+                "resource_metadata_modified": "2025-03-12T18:11:36.629889",
+                "resource_size": 100,
+                "source_url": well["url"],
+            }
+        ]
+
+    def test_missing_optional_fields_are_none(self):
+        row = resource_metadata_rows([{"id": "zzzz"}])[0]
+        assert row["resource_name"] == "zzzz"
+        assert row["resource_description"] is None
 
 
 # ── download_resource ─────────────────────────────────────────────────────────

@@ -129,6 +129,25 @@ def split_resources(
     return locations, measurements, skipped
 
 
+def resource_metadata_rows(resources: list[dict]) -> list[dict[str, Any]]:
+    """One row per resource in package_show, skipped ones included, named like
+    the readings' provenance columns. Description edits don't move the file
+    fingerprint (only metadata_modified), so this is landed every run."""
+    return [
+        {
+            "resource_id": resource["id"],
+            "resource_name": resource_label(resource),
+            "resource_format": resource.get("format"),
+            "resource_description": resource.get("description"),
+            "resource_last_modified": resource.get("last_modified"),
+            "resource_metadata_modified": resource.get("metadata_modified"),
+            "resource_size": resource.get("size"),
+            "source_url": resource.get("url"),
+        }
+        for resource in resources
+    ]
+
+
 def download_resource(client: httpx.Client, resource: dict) -> tuple[bytes | None, str | None]:
     """Downloads resource["url"], which is always taken fresh from package_show.
     Refuses any URL not on the catalog's own scheme and host.
