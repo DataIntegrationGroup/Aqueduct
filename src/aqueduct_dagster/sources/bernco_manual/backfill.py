@@ -54,6 +54,11 @@ def bernco_manual_backfill_readings(
         location_id = location["GlobalID"]
         if location_id not in allowed:
             continue
+        if location["Well_Casing_Stickup"] is None:
+            logger.warning(
+                "Backfill fetch failed for location %s, Well Casing Stickup is null", location_id
+            )
+            continue
         data, err = _fetch_readings_for_location(client, location_id, start_ts, end_ts)
         if err is not None:
             window_start_iso = datetime.fromtimestamp(start_ts, tz=UTC).isoformat()
@@ -64,14 +69,22 @@ def bernco_manual_backfill_readings(
         if data is None:
             continue  # 404 location has no data
         for measurement in data:
+            if measurement["MeasuringPt"] is None:
+                mph = location["Well_Casing_Stickup"]
+            else:
+                mph = measurement["MeasuringPt"]
             yield {
                 "reading_id": f"{location_id}_{measurement['MSRMNT_Date']}",
                 "location_id": location_id,
                 "location_name": location["Well_Name"],
+                "well_depth": location["Well_Depth"],
+                "well_casing_stickup": str(location["Well_Casing_Stickup"]),
                 "latitude": location["Well_Location_Latitude"],
                 "longitude": location["Well_Location_Longitude"],
                 "timestamp": measurement["MSRMNT_Date"],
                 "value": measurement["Depth_To_Water_At_Msrmnt_Point"],
+                "measurement_point_height": str(mph),
+                "measurement_method": measurement["Measurement_Method"],
                 "alternate_id": location["NMT_ID"],
             }
 
@@ -81,6 +94,8 @@ def _locations_by_id(locations: list[dict]) -> dict[str, dict]:
         location["GlobalID"]: {
             "name": location["Well_Name"],
             "description": "Location of well where measurements are made",
+            "well_depth": location["Well_Depth"],
+            "well_casing_stickup": location["Well_Casing_Stickup"],
             "latitude": location["Well_Location_Latitude"],
             "longitude": location["Well_Location_Longitude"],
             "alternate_id": location["NMT_ID"],

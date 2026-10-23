@@ -7,10 +7,19 @@ from aqueduct_dagster.sources.bernco_manual.adapter import BerncoManualAdapter
 _record = {
     "location_id": "4f92c895-6b41-42d6-be6b-508ee44812fa",
     "location_name": "9-Mile Hill LF",
+    "well_depth": 740,
+    "well_casing_stickup": "0",
     "latitude": 35.071526,
     "longitude": -106.778477,
     "alternate_id": [{"id": "BC-0364", "agency": "BERNCO"}],
-    "readings": [{"timestamp": 1573689600, "value": 711.11}],
+    "readings": [
+        {
+            "timestamp": 1573689600,
+            "value": 711.11,
+            "measurement_point_height": "0",
+            "measurement_method": "unknown",
+        }
+    ],
 }
 
 
@@ -19,6 +28,8 @@ def test_to_thing_produces_correct_key():
     assert thing.external_key == "bernco-4f92c895-6b41-42d6-be6b-508ee44812fa"
     assert thing.location.external_key == "bernco-4f92c895-6b41-42d6-be6b-508ee44812fa"
     assert thing.properties["alternate_id"][0] == {"id": "BC-0364", "agency": "BERNCO"}
+    assert thing.properties["source_specific"]["well_depth"] == 740.0
+    assert thing.properties["source_specific"]["well_casing_stickup"] == 0
     assert thing.location.properties["alternate_id"][0] == {"id": "BC-0364", "agency": "BERNCO"}
     assert thing.location.name == "9-Mile Hill LF"
     assert thing.location.geometry["coordinates"] == [-106.778477, 35.071526]

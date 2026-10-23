@@ -40,6 +40,8 @@ def _group_rows_by_location(rows: list[dict]) -> list[dict]:
             groups[loc_id] = {
                 "location_id": loc_id,
                 "location_name": row["location_name"],
+                "well_depth": row["well_depth"],
+                "well_casing_stickup": row["well_casing_stickup"],
                 "latitude": row["latitude"],
                 "longitude": row["longitude"],
                 "alternate_id": [],
@@ -53,7 +55,12 @@ def _group_rows_by_location(rows: list[dict]) -> list[dict]:
                     {"id": row["alternate_id"], "agency": "BERNCO"}
                 )
         groups[loc_id]["readings"].append(
-            {"timestamp": row["timestamp"] / 1000, "value": row["value"]}
+            {
+                "timestamp": row["timestamp"] / 1000,
+                "value": row["value"],
+                "measurement_point_height": row["measurement_point_height"],
+                "measurement_method": row["measurement_method"],
+            }
         )
     return list(groups.values())
 

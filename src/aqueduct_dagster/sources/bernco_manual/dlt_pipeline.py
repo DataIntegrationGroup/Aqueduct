@@ -29,7 +29,7 @@ def _fetch_locations(client: Client) -> tuple[list[dict] | None, str | None]:
     path = "/0/query"
     params = {
         "where": "OBJECTID>0",
-        "outFields": "GlobalID,Well_Name,Well_Location_Latitude,Well_Location_Longitude,NMT_ID",
+        "outFields": "GlobalID,Well_Name,Well_Depth,Well_Casing_Stickup,Well_Location_Latitude,Well_Location_Longitude,NMT_ID",
         "returnDistinctValues": "true",
         "f": "pjson",
     }
@@ -58,7 +58,7 @@ def _fetch_readings_for_location(
         )
     params = {
         "where": query,
-        "outFields": "MSRMNT_Date,Depth_To_Water_At_Msrmnt_Point",
+        "outFields": "MSRMNT_Date,Depth_To_Water_At_Msrmnt_Point,MeasuringPt,Measurement_Method",
         "f": "pjson",
     }
     rows, err = fetch_readings_for_location(client, path, params, location_id)
@@ -109,6 +109,8 @@ def bernco_manual_locations(locations: list[dict]) -> Iterator[dict]:
             "id": location["GlobalID"],
             "name": location["Well_Name"],
             "description": "Location of well where measurements are made",
+            "well_depth": location["Well_Depth"],
+            "well_casing_stickup": location["Well_Casing_Stickup"],
             "latitude": location["Well_Location_Latitude"],
             "longitude": location["Well_Location_Longitude"],
             "alternate_id": location["NMT_ID"],
@@ -138,6 +140,12 @@ def bernco_manual_readings(
         rows_yielded = 0
         for location in locations:
             location_id = location["GlobalID"]
+            # well casing stickup is needed for accurate depth measurements, skip location if null and log
+            if location["Well_Casing_Stickup"] is None:
+                logger.warning("No well casing stickup for location %s, skipping", location_id)
+                failed_ids.append(location_id)
+                errored += 1
+                continue
             loc_start = max(cursors.get(str(location_id), 0), start_ts)
             logger.info(
                 "Fetching readings for location %s (%s) from Unix timestamp %s",
@@ -169,15 +177,24 @@ def bernco_manual_readings(
                 timestamp = int(measurement["MSRMNT_Date"] / 1000)
                 if timestamp > max_timestamp:
                     max_timestamp = timestamp
+                # measuring point might be null, if so then use well casing stickup as standin
+                if measurement["MeasuringPt"] is None:
+                    mph = location["Well_Casing_Stickup"]
+                else:
+                    mph = measurement["MeasuringPt"]
                 rows_yielded += 1
                 yield {
                     "reading_id": f"{location_id}_{measurement['MSRMNT_Date']}",
                     "location_id": location_id,
                     "location_name": location["Well_Name"],
+                    "well_depth": location["Well_Depth"],
+                    "well_casing_stickup": str(location["Well_Casing_Stickup"]),
                     "latitude": location["Well_Location_Latitude"],
                     "longitude": location["Well_Location_Longitude"],
                     "timestamp": measurement["MSRMNT_Date"],
                     "value": measurement["Depth_To_Water_At_Msrmnt_Point"],
+                    "measurement_point_height": str(mph),
+                    "measurement_method": measurement["Measurement_Method"],
                     "alternate_id": location["NMT_ID"],
                 }
             cursors[str(location_id)] = max_timestamp

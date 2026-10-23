@@ -27,8 +27,10 @@ _LOCATIONS = [
     {
         "GlobalID": "4f92c895-6b41-42d6-be6b-508ee44812fa",
         "Well_Name": "9-Mile Hill LF",
+        "Well_Depth": 740.0,
         "Well_Location_Latitude": 35.071526,
         "Well_Location_Longitude": -106.778477,
+        "Well_Casing_Stickup": 0,
         "NMT_ID": "BC-0364",
     }
 ]
@@ -37,6 +39,8 @@ _READINGS_DATA = [
     {
         "MSRMNT_Date": 1573689600000,
         "Depth_To_Water_At_Msrmnt_Point": 711.11,
+        "MeasuringPt": None,
+        "Measurement_Method": "unknown",
     }
 ]
 
@@ -44,10 +48,14 @@ BERNCO_MANUAL_RESULTS = {
     "reading_id": "4f92c895-6b41-42d6-be6b-508ee44812fa_1573689600000",
     "location_id": "4f92c895-6b41-42d6-be6b-508ee44812fa",
     "location_name": "9-Mile Hill LF",
+    "well_depth": 740.0,
+    "well_casing_stickup": "0",
     "latitude": 35.071526,
     "longitude": -106.778477,
     "timestamp": 1573689600000,
     "value": 711.11,
+    "measurement_point_height": "0",
+    "measurement_method": "unknown",
     "alternate_id": "BC-0364",
 }
 
@@ -129,6 +137,27 @@ class TestBerncoManualBackfillReadings:
                 )
             )
 
+    def test_raises_on_well_casing_null(self):
+        location = {
+            "GlobalID": "4f92c895-6b41-42d6-be6b-508ee44812fa",
+            "Well_Name": "9-Mile Hill LF",
+            "Well_depth": 740.0,
+            "Well_Location_Latitude": 35.071526,
+            "Well_Location_Longitude": -106.778477,
+            "Well_Casing_Stickup": None,
+            "NMT_ID": "BC-0364",
+        }
+        rows = list(
+            bernco_manual_backfill_readings(
+                client=_Dummy_Client,
+                locations=[location],
+                location_ids=["4f92c895-6b41-42d6-be6b-508ee44812fa"],
+                start_ts=123,
+                end_ts=456,
+            )
+        )
+        assert rows == []
+
 
 # -- _locations_by_id --
 
@@ -138,6 +167,8 @@ def test_locations_by_id_shape():
     assert result["4f92c895-6b41-42d6-be6b-508ee44812fa"] == {
         "name": "9-Mile Hill LF",
         "description": "Location of well where measurements are made",
+        "well_depth": 740.0,
+        "well_casing_stickup": 0,
         "latitude": 35.071526,
         "longitude": -106.778477,
         "alternate_id": "BC-0364",
