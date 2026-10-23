@@ -137,7 +137,7 @@ def ebwpc_measurements(rows: list[dict]) -> tuple[list[dict], Counter[str]]:
     """Unpivots raw well rows into WDI measurements, up to two per row (one per
     depth column), with site_id as its site_key. Returns them with a tally of
     what was left out: rows yielding none, by reason (no_usable_depth,
-    no_site_id, no_usable_date), and toc_reading_skipped."""
+    no_site_id, missing_or_junk_date, unparseable_date), and toc_reading_skipped."""
     measurements: list[dict] = []
     dropped: Counter[str] = Counter()
     warned: set[str] = set()
@@ -170,9 +170,13 @@ def ebwpc_measurements(rows: list[dict]) -> tuple[list[dict], Counter[str]]:
                 raw_site,
             )
 
-        day = _parse_date(row.get("measurement_date"))
+        raw_date = clean_cell(row.get("measurement_date"))
+        if raw_date is None:
+            dropped["missing_or_junk_date"] += 1
+            continue
+        day = _parse_date(raw_date)
         if day is None:
-            dropped["no_usable_date"] += 1
+            dropped["unparseable_date"] += 1
             continue
         clock = _parse_time(row.get("measurement_time"))
 
@@ -201,21 +205,16 @@ def _parse_depth(value: object) -> float | None:
     return depth if math.isfinite(depth) else None
 
 
-def _parse_date(value: object) -> date | None:
-    """M/D/YYYY or M/D/YY. None for junk and impossible dates such as 1/0/1900
-    (Excel's zero date)."""
-    text = clean_cell(value)
-    if text is None:
-        return None
+def _parse_date(text: str) -> date | None:
+    """M/D/YYYY or M/D/YY. None for impossible dates such as 1/0/1900 (Excel's
+    zero date). A four-digit year keeps its century; a two-digit one takes
+    strptime's pivot (00-68 -> 2000-2068, 69-99 -> 1969-1999), which puts every
+    EBWPC reading (2007 onward) in the 2000s."""
     for fmt in _DATE_FORMATS:
         try:
-            parsed = datetime.strptime(text, fmt).date()
+            return datetime.strptime(text, fmt).date()
         except ValueError:
             continue
-        # Two-digit years are 20xx; strptime would put 69-99 in the 1900s.
-        if fmt == "%m/%d/%y" and parsed.year < 2000:
-            parsed = parsed.replace(year=parsed.year + 100)
-        return parsed
     return None
 
 

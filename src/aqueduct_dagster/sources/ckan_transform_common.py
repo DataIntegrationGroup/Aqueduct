@@ -104,8 +104,9 @@ class WdiWaterLevelAdapter(BaseAdapter):
                          "measurement_type": "transducer" | "manual", ...}]}
 
     A missing measurement_time is 00:00 local, flagged time_missing. Measurements
-    that can't be mapped are dropped and tallied in `dropped` by reason; a
-    Datastream is built only for a type the site has observations of."""
+    that can't be mapped, or are dated in the future, are dropped and tallied in
+    `dropped` by reason; a Datastream is built only for a type the site has
+    observations of."""
 
     #: Agency code seeding every external_key. Set by each agency's subclass.
     AGENCY: str = ""
@@ -121,6 +122,7 @@ class WdiWaterLevelAdapter(BaseAdapter):
         super().__init__(agency=self.AGENCY)
         self._records = records
         self.dropped: Counter[str] = Counter()
+        self._now = datetime.now(UTC)
         # Suffixes to_observations() produced per site. run() calls it before
         # _build_datastreams(), which builds only these.
         self._suffixes: dict[str, set[str]] = {}
@@ -192,6 +194,12 @@ class WdiWaterLevelAdapter(BaseAdapter):
             )
             if phenomenon_time is None:
                 self._drop("unusable_timestamp", source_id, measurement)
+                continue
+            if phenomenon_time > self._now:
+                # A year typo or misread century. Loaded, it would move the
+                # datastream's FROST watermark into the future and skip every
+                # real reading after it.
+                self._drop("future_timestamp", source_id, measurement)
                 continue
 
             ds_key = self.make_datastream_key(source_id, spec.suffix)

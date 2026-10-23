@@ -208,7 +208,7 @@ class TestObservationCount:
         bundle = bundles["ebwpc-E-9673"]
         assert [ds.external_key for ds in bundle.datastreams] == ["ebwpc-E-9673-dtw"]
         assert len(_observations(bundle, "dtw")) == 1
-        assert dropped == {"no_usable_date": 2}
+        assert dropped == {"missing_or_junk_date": 2}
 
     def test_one_bundle_per_well(self):
         rows = [
@@ -316,6 +316,19 @@ class TestUtcTimestamps:
             datetime(2018, 4, 13, 23, 0, tzinfo=UTC),
         ]
 
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (b"4/13/18", "2018-04-13"),
+            (b"6/1/68", "2068-06-01"),
+            (b"6/1/85", "1985-06-01"),  # never 2085
+            (b"6/1/1985", "1985-06-01"),  # an explicit century is kept
+        ],
+    )
+    def test_two_digit_years_use_the_standard_century_pivot(self, raw, expected):
+        [measurement] = ebwpc_measurements(_well(E_8428, b"e-8428," + raw + b",9:00,55.1,"))[0]
+        assert measurement["measurement_date"] == expected
+
     def test_a_spring_forward_hour_is_not_shifted_or_rejected(self):
         """02:30 doesn't exist on 2024-03-10 in America/Denver; the loggers' fixed clock has it."""
         rows = _well(E_8428, b"e-8428,3/10/2024,2:30,55.1,")
@@ -366,12 +379,18 @@ class TestEmptyAndMissingData:
     def test_blank_trailing_rows_are_dropped(self):
         rows = _landed(E_9673, FILES[E_9673["id"]] + b",,,,,,,,\r\n,,,,,,,,\r\n")
         _, dropped = ebwpc_measurements(rows)
-        assert dropped == {"no_usable_date": 2, "no_usable_depth": 2}
+        assert dropped == {"missing_or_junk_date": 2, "no_usable_depth": 2}
 
-    def test_excel_zero_date_is_dropped(self):
+    def test_excel_zero_date_is_dropped_as_unparseable(self):
         measurements, dropped = ebwpc_measurements(_well(E_8428, b"e-8428,1/0/1900,0:00,,58.0"))
         assert measurements == []
-        assert dropped == {"no_usable_date": 1}
+        assert dropped == {"unparseable_date": 1}
+
+    def test_a_blank_date_is_told_apart_from_an_unparseable_one(self):
+        _, dropped = ebwpc_measurements(
+            _well(E_8428, b"e-8428,,0:00,,58.0", b"e-8428,13/45/2009,0:00,,58.0")
+        )
+        assert dropped == {"missing_or_junk_date": 1, "unparseable_date": 1}
 
     def test_a_row_without_site_id_is_dropped(self):
         measurements, dropped = ebwpc_measurements(_well(E_8428, b",4/15/2009,0:00,,58.0"))
