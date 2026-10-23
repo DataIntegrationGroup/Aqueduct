@@ -27,7 +27,7 @@ _LOCATIONS = [
     {
         "GlobalID": "4f92c895-6b41-42d6-be6b-508ee44812fa",
         "Well_Name": "9-Mile Hill LF",
-        "Well_depth": 740.0,
+        "Well_Depth": 740.0,
         "Well_Location_Latitude": 35.071526,
         "Well_Location_Longitude": -106.778477,
         "Well_Casing_Stickup": 0,
@@ -49,12 +49,12 @@ BERNCO_MANUAL_RESULTS = {
     "location_id": "4f92c895-6b41-42d6-be6b-508ee44812fa",
     "location_name": "9-Mile Hill LF",
     "well_depth": 740.0,
-    "well_casing_stickup": 0,
+    "well_casing_stickup": "0",
     "latitude": 35.071526,
     "longitude": -106.778477,
     "timestamp": 1573689600000,
     "value": 711.11,
-    "measurement_point_height": 0,
+    "measurement_point_height": "0",
     "measurement_method": "unknown",
     "alternate_id": "BC-0364",
 }

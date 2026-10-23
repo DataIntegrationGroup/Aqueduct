@@ -61,7 +61,7 @@ class BerncoManualAdapter(BaseAdapter):
                 "alternate_id": record["alternate_id"],
                 "source_specific": {
                     "well_depth": record["well_depth"],
-                    "well_casing_stickup": record["well_casing_stickup"],
+                    "well_casing_stickup": float(record["well_casing_stickup"]),
                 },
             },
         )
@@ -74,10 +74,10 @@ class BerncoManualAdapter(BaseAdapter):
             observations.append(
                 CanonicalObservation(
                     phenomenon_time=datetime.fromtimestamp(reading["timestamp"], tz=UTC),
-                    result=reading["value"] - reading["measurement_point_height"],
+                    result=reading["value"] - float(reading["measurement_point_height"]),
                     datastream_external_key=ds_key,
                     parameters={
-                        "measurement_point_height": reading["measurement_point_height"],
+                        "measurement_point_height": float(reading["measurement_point_height"]),
                         "measurement_method": reading["measurement_method"],
                     },
                 )

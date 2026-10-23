@@ -8,7 +8,7 @@ _record = {
     "location_id": "4f92c895-6b41-42d6-be6b-508ee44812fa",
     "location_name": "9-Mile Hill LF",
     "well_depth": 740,
-    "well_casing_stickup": 0,
+    "well_casing_stickup": "0",
     "latitude": 35.071526,
     "longitude": -106.778477,
     "alternate_id": [{"id": "BC-0364", "agency": "BERNCO"}],
@@ -16,7 +16,7 @@ _record = {
         {
             "timestamp": 1573689600,
             "value": 711.11,
-            "measurement_point_height": 0,
+            "measurement_point_height": "0",
             "measurement_method": "unknown",
         }
     ],
