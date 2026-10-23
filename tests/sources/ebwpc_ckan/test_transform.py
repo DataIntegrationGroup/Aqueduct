@@ -91,7 +91,7 @@ class TestFirstRun:
         assert result.max_load_id is not None
         assert metadata["rows_read"] == WELL_ROWS
         assert metadata["rows_superseded"] == 0
-        assert metadata["rows_dropped"] == {"no_usable_date": 2}
+        assert metadata["rows_dropped"] == {"missing_or_junk_date": 2}
         assert metadata["measurements_mapped"] == 12
         assert metadata["observations_produced"] == 12
         assert metadata["bundles_produced"] == 3

@@ -207,6 +207,13 @@ class TestToObservations:
         assert adapter.to_observations(rec) == []
         assert adapter.dropped == {"unusable_timestamp": 1}
 
+    def test_a_future_timestamp_is_dropped(self):
+        """It would move the datastream's FROST watermark past every real reading."""
+        adapter = _WdiAgencyAdapter([])
+        rec = _record([_measurement(measurement_date="2085-06-01"), _measurement()])
+        assert len(adapter.to_observations(rec)) == 1
+        assert adapter.dropped == {"future_timestamp": 1}
+
     def test_exact_duplicates_are_dropped(self):
         adapter = _WdiAgencyAdapter([])
         rec = _record([_measurement(), _measurement(), _measurement(depth_to_water="55.0")])
