@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import fsspec
 import httpx
+import pytest
 from dagster import build_asset_context
 
 from aqueduct_dagster.canonical.canonical_constants import METRES_TO_FEET
@@ -172,6 +173,51 @@ class TestIncremental:
         assert counts["ebwpc-E-8428-dtw-manual"] == 5
         assert metadata["rows_superseded"] == 4  # E-8428's first snapshot
         assert metadata["observations_dropped"] == {}
+
+
+class TestMetadataTables:
+    def test_an_empty_dataset_is_an_empty_result(self, catalog: FakeCatalog, local_bucket: Path):
+        """Ingest lands neither metadata table; with no readings they aren't read."""
+        catalog.routes[PACKAGE_SHOW_PATH] = package_show_response([])
+        _ingest()
+        result, metadata = _transform(local_bucket)
+        assert result.bundles == []
+        assert result.max_load_id is None
+        assert metadata["rows_read"] == 0
+
+    def test_a_run_that_skips_locations_maps_with_the_last_snapshot(
+        self, catalog: FakeCatalog, local_bucket: Path
+    ):
+        _ingest()
+        first, _ = _transform(local_bucket)
+        _commit(local_bucket, first.max_load_id)
+
+        catalog.routes[path_of(LOCATIONS)] = httpx.Response(500)
+        _reupload_e_8428(catalog)
+        _ingest()
+        result, metadata = _transform(local_bucket)
+        assert _observation_counts(result) == {
+            "ebwpc-E-8428-dtw": 3,
+            "ebwpc-E-8428-dtw-manual": 5,
+        }
+        assert metadata["sites_without_location"] == {}
+
+    def test_readings_before_locations_ever_land_fail_and_are_retried(
+        self, catalog: FakeCatalog, local_bucket: Path
+    ):
+        """Read as empty, every well would be dropped as sites_without_location
+        and the load would still commit the watermark past its readings."""
+        catalog.routes[path_of(LOCATIONS)] = httpx.Response(500)
+        _ingest()
+        with pytest.raises(FileNotFoundError, match="ckan_locations"):
+            _transform(local_bucket)
+
+        catalog.routes[path_of(LOCATIONS)] = httpx.Response(200, content=FILES[LOCATIONS["id"]])
+        _ingest()  # the wells are unchanged, so only the locations land
+        result, metadata = _transform(local_bucket)
+        assert metadata["rows_read"] == WELL_ROWS
+        assert metadata["bundles_produced"] == 3
+        assert metadata["watermark_before"] == "None"
 
 
 class TestWatermarkWiring:

@@ -303,9 +303,11 @@ def _parameters(measurement: dict) -> dict:
 
 
 def read_ckan_table(bucket: str, dataset: str, table: str, fs: gcsfs.GCSFileSystem) -> list[dict]:
-    """Every row of a replace table (ckan_resources, ckan_locations), which
-    always holds one current snapshot. Raises FileNotFoundError if it has
-    never landed."""
+    """Every row of a replace table (ckan_resources, ckan_locations). Ingest
+    omits such a table on a run with no rows for it, so this reads the last
+    good snapshot. Raises FileNotFoundError if it has never landed: read as
+    empty, every reading would be dropped for want of a location, yet the
+    load would still commit the watermark past them."""
     pattern = f"{bucket}/{dataset}/{table}/**/*.parquet"
     files = fs.glob(pattern)
     if not files:

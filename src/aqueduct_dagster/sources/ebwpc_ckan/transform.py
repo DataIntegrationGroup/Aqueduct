@@ -10,6 +10,8 @@ changed, so what's past the watermark is the complete current contents of each
 changed well and nothing for unchanged ones.
 
 ckan_locations and ckan_resources are tiny replace tables, read in full every run.
+An ingest run that couldn't fetch one leaves its last snapshot in place. If one has
+never landed, the transform raises (watermark unchanged) rather than drop every well.
 Caveat: a well with no matching location is dropped and counted (sites_without_location),
 and isn't revisited until its file changes again.
 
