@@ -25,10 +25,18 @@ BYPASS_VALUE = "test-bypass-value"
 PACKAGE_SHOW_PATH = "/api/3/action/package_show"
 
 
-def _resource(rid: str, name: str, filename: str, fmt: str = "CSV", size: int = 100) -> dict:
+def _resource(
+    rid: str,
+    name: str,
+    filename: str,
+    fmt: str = "CSV",
+    size: int = 100,
+    description: str = "",
+) -> dict:
     return {
         "id": rid,
         "name": name,
+        "description": description,
         "format": fmt,
         "last_modified": "2025-03-12T18:11:29.830723",
         "size": size,
@@ -38,7 +46,21 @@ def _resource(rid: str, name: str, filename: str, fmt: str = "CSV", size: int = 
     }
 
 
-E_8428 = _resource("0c306f4d-1474-4d00-9d77-45b73513abfd", "E-8428", "e-8428.csv", size=2530586)
+# Verbatim from the live package_show sample: one of the four wells whose
+# description carries elevation and formation.
+E_8428_DESCRIPTION = (
+    "About 5 miles north of Tajique, NM\r\n"
+    "Torrance County, New Mexico\r\n"
+    "UTM Easting 386426, Northing 3853603, Zone 13, NAD83\r\n"
+    "Elevation 6712 (ft AMSL), Approximate Depth Unknown,  Madera Formation\r\n"
+)
+E_8428 = _resource(
+    "0c306f4d-1474-4d00-9d77-45b73513abfd",
+    "E-8428",
+    "e-8428.csv",
+    size=2530586,
+    description=E_8428_DESCRIPTION,
+)
 E_1639 = _resource("1e9a0c55-9a43-4e57-8f4b-2f0cbb1f3a10", "E-1639-POD1", "e-1639-pod1.csv", ".csv")
 E_9673 = _resource("5d7c2b1a-3c55-4f0e-9d0a-7b8e6f2a4c11", "E-9673", "e-9673.csv")
 E_9407_ARCHIVED = _resource(
@@ -46,9 +68,14 @@ E_9407_ARCHIVED = _resource(
     "E-9407-Archived",
     "e-9407_hydrographdata_data.xlsx",
     "XLSX",
+    description="About 6 miles uproad east of Lucy, NM",
 )
 LOCATIONS = _resource(
-    "2f186d78-02d0-4d89-bb4f-540acb398774", "EBWPC Well Locations", "ebwpc_locations.csv", size=763
+    "2f186d78-02d0-4d89-bb4f-540acb398774",
+    "EBWPC Well Locations",
+    "ebwpc_locations.csv",
+    size=763,
+    description="This table contains the locations of EBWPC wells in UTM Zone13 coordinates. ",
 )
 WELLS = [E_8428, E_1639, E_9673]
 ALL_RESOURCES = [E_8428, E_1639, E_9407_ARCHIVED, E_9673, LOCATIONS]

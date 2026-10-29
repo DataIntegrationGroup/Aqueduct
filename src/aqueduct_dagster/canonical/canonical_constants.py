@@ -64,6 +64,14 @@ HYDROVU_SENSOR = CanonicalSensor(
     metadata=NO_METADATA,
 )
 
+TRANSDUCER_SENSOR = CanonicalSensor(
+    external_key="sensor-transducer",
+    name="Transducer",
+    description=NO_DEFINITION,
+    encoding_type="application/pdf",
+    metadata=NO_METADATA,
+)
+
 # ── Observed properties ───────────────────────────────────────────────────────
 
 DTW_OBS_PROP = CanonicalObservedProperty(
@@ -87,6 +95,13 @@ def gwl_datastream_meta(agency: str, location_name: str) -> dict:
     return {
         "name": "Groundwater Levels",
         "description": "Measurement of groundwater depth in a water well, as measured below ground surface",
+    }
+
+
+def manual_gwl_datastream_meta(agency: str, location_name: str) -> dict:
+    return {
+        "name": "Manual Groundwater Levels",
+        "description": "Manual measurement of groundwater depth in a water well, as measured below ground surface",
     }
 
 

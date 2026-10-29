@@ -1,8 +1,9 @@
 """
-dlt pipeline for EBWPC's wells on the NM Water Data Catalog (CKAN). Two
-resources from ebwpc_ckan_source(): ckan_locations (replace, the locations
-file every run) and ckan_readings (append, one snapshot per changed well
-file, per-resource fingerprint cursor). Both share one client.
+dlt pipeline for EBWPC's wells on the NM Water Data Catalog (CKAN). Three
+resources from ebwpc_ckan_source(): ckan_resources (replace, the dataset's
+resource metadata from package_show every run), ckan_locations (replace, the
+locations file every run) and ckan_readings (append, one snapshot per changed
+well file, per-resource fingerprint cursor). The two downloads share one client.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from aqueduct_dagster.sources.ckan_common import (
     iter_resource_snapshots,
     package_show,
     resolve_cf_bypass,
+    resource_metadata_rows,
     snapshot_rows,
     split_resources,
 )
@@ -40,7 +42,8 @@ def ebwpc_ckan_source(
 ) -> Any:
     """Calls package_show and downloads the locations file up front; the well
     files are downloaded lazily by ckan_readings. Raises if package_show
-    fails.
+    fails. A replace table with no rows is omitted rather than yielded empty,
+    so it keeps its last good snapshot.
 
     _stats is populated with extraction counts as the resources run."""
     stats = _stats if _stats is not None else {}
@@ -53,6 +56,8 @@ def ebwpc_ckan_source(
     client = build_ckan_client(api_base_url, resolve_cf_bypass(cf_bypass, gcp_secret))
     try:
         package = package_show(client, dataset_id)
+        catalog_rows = resource_metadata_rows(package.get("resources", []))
+        stats["catalog_resources"] = len(catalog_rows)
         locations, wells, skipped = split_resources(
             package.get("resources", []), locations_resource_name
         )
@@ -65,10 +70,13 @@ def ebwpc_ckan_source(
         client.close()
         raise
 
-    readings = ckan_readings(client=client, resources=wells, _stats=stats)
-    if not location_rows:
-        return readings
-    return ckan_locations(rows=location_rows), readings
+    resources: list[Any] = []
+    if catalog_rows:
+        resources.append(ckan_resources(rows=catalog_rows))
+    if location_rows:
+        resources.append(ckan_locations(rows=location_rows))
+    resources.append(ckan_readings(client=client, resources=wells, _stats=stats))
+    return resources
 
 
 def _locations_snapshot(
@@ -97,6 +105,15 @@ def _locations_snapshot(
     stats["locations_rows"] = len(rows)
     stats["locations_error"] = error
     return rows
+
+
+@dlt.resource(name="ckan_resources", write_disposition="replace")
+def ckan_resources(rows: list[dict]) -> Iterator[dict]:
+    """Full replace every run. The transform reads resource descriptions from
+    here (EBWPC's elevation and formation live only in them), and a description
+    edit doesn't move the file fingerprint, so it can't ride on ckan_readings."""
+    logger.info("Extracting ckan_resources (full replace, %d rows)", len(rows))
+    yield from rows
 
 
 @dlt.resource(name="ckan_locations", write_disposition="replace")
