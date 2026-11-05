@@ -9,6 +9,13 @@
 The data is served via a REST Api that can be access at `metermanager.pvacd.com/api/v1`. Doing so requires and API key
 given in an Authorization header as a Bearer token. 
 
+API Endpoints:
+
+| Endpoint  | URL                                                                                                   |
+|-----------|-------------------------------------------------------------------------------------------------------|
+| Locations | `GET http://metermanager.pvacd.com/api/v1/aqueduct/wells`                                             |
+| Readings  | `GET http://metermanager.pvacd.com/api/v1/aqueduct/wells/{id}/measurements?start_timestamp={unix_ts}` |
+
 ---
 
 ## Location
@@ -85,7 +92,7 @@ Shared constants — pick one or describe a new one.
 | OneRain           |                      |
 | NoSensor          |                      |
 
-**New sensor needed?** None
+**New sensor needed?** Name and description: None
 
 ---
 
@@ -103,7 +110,7 @@ Shared constants — check all that apply.
 | OSERealTimeDischarge                | No        |                         |       |
 | OSERealTimeGageHeight               | No        |                         |       |
 
-**New observed property needed?** Name, definition URI, and description:
+**New observed property needed?** Name, definition URI, and description: None
 
 ---
 
@@ -123,8 +130,8 @@ One per (Thing, ObservedProperty, Sensor) combination.
 
 | Canonical Field  | Type         | Status   | Source Field | Notes                          |
 |------------------|--------------|----------|--------------|--------------------------------|
-| `topic`          | str \| None  | Optional |              | `Water Quantity` if applicable |
-| `is_provisional` | bool \| None | Optional |              | True if QC not completed       |
+| `topic`          | str \| None  | Optional | Not Provided | `Water Quantity` if applicable |
+| `is_provisional` | bool \| None | Optional | Not Provided | True if QC not completed       |
 
 **properties.source_specific:**
 
@@ -134,7 +141,7 @@ One per (Thing, ObservedProperty, Sensor) combination.
 
 **Datastream suffix(es):** e.g. `dtw`
 
-**How many datastreams per station?**
+**How many datastreams per station?** 1
 
 ---
 
