@@ -117,6 +117,54 @@ def test_remote_url_attaches_handler(monkeypatch):
     assert captured["audience"] == "https://frost-sensorthings-abc123-uw.a.run.app"
 
 
+def test_remote_url_attaches_handler_with_basic_auth_secret(monkeypatch):
+    creds = _StubCredentials()
+    captured = {}
+
+    def _fake_fetch(audience):
+        captured["audience"] = audience
+        return creds
+
+    def _fake_resolve_auth(secret):
+        return "user", "pass"
+
+    monkeypatch.setattr(frost_auth, "fetch_id_token_credentials", _fake_fetch)
+    monkeypatch.setattr(frost_auth, "ensure_adc", lambda: None)
+    monkeypatch.setattr(
+        frost_auth,
+        "load_config",
+        lambda: {"destination": {"frost": {"gcp_secret": "frost_auth_secret"}}},
+    )
+    monkeypatch.setattr(frost_auth, "resolve_frost_auth", _fake_resolve_auth)
+
+    service = fsc.SensorThingsService(f"{REMOTE}/v1.1")
+    assert attach_id_token_auth(service, f"{REMOTE}/v1.1") is True
+    assert isinstance(service.auth_handler, IdTokenAuthHandler)
+    assert captured["audience"] == "https://frost-sensorthings-abc123-uw.a.run.app"
+
+
+def test_remote_url_attaches_handler_with_basic_auth_no_secret(monkeypatch):
+    creds = _StubCredentials()
+    captured = {}
+
+    def _fake_fetch(audience):
+        captured["audience"] = audience
+        return creds
+
+    monkeypatch.setattr(frost_auth, "fetch_id_token_credentials", _fake_fetch)
+    monkeypatch.setattr(frost_auth, "ensure_adc", lambda: None)
+    monkeypatch.setattr(
+        frost_auth,
+        "load_config",
+        lambda: {"destination": {"frost": {"gcp_secret": ""}}},
+    )
+
+    service = fsc.SensorThingsService(f"{REMOTE}/v1.1")
+    assert attach_id_token_auth(service, f"{REMOTE}/v1.1") is True
+    assert isinstance(service.auth_handler, IdTokenAuthHandler)
+    assert captured["audience"] == "https://frost-sensorthings-abc123-uw.a.run.app"
+
+
 def test_remote_url_calls_ensure_adc(monkeypatch):
     """ID tokens come from ADC, so the bootstrap must run before minting."""
     calls = []
@@ -191,3 +239,11 @@ def test_expired_credentials_refreshed_mid_run():
 
     assert creds.refresh_calls == 2
     assert second.headers["X-Serverless-Authorization"] == "Bearer tok-2"
+
+
+def test_basic_auth():
+    creds = _StubCredentials(token="cached", valid=True)
+    prepared = _apply(IdTokenAuthHandler(creds, "user", "pass", object()))
+    assert creds.refresh_calls == 0
+    assert prepared.headers["X-Serverless-Authorization"] == "Bearer cached"
+    assert prepared.headers["Authorization"] == "Basic dXNlcjpwYXNz"
