@@ -151,7 +151,7 @@ def test_service_accepts_id_token_auth_handler():
     a library upgrade tightening that fails loudly here, not as a ValueError
     inside a production load."""
     service = fsc.SensorThingsService(f"{REMOTE}/v1.1")
-    service.auth_handler = IdTokenAuthHandler(_StubCredentials(), object())
+    service.auth_handler = IdTokenAuthHandler(_StubCredentials(), None, None, object())
     assert isinstance(service.auth_handler, IdTokenAuthHandler)
 
 
@@ -165,29 +165,29 @@ def _apply(handler: IdTokenAuthHandler) -> requests.PreparedRequest:
 
 def test_header_set_and_credentials_refreshed_when_invalid():
     creds = _StubCredentials(valid=False)
-    prepared = _apply(IdTokenAuthHandler(creds, object()))
+    prepared = _apply(IdTokenAuthHandler(creds, None, None, object()))
     assert creds.refresh_calls == 1
-    assert prepared.headers["Authorization"] == "Bearer tok-1"
+    assert prepared.headers["X-Serverless-Authorization"] == "Bearer tok-1"
 
 
 def test_valid_credentials_not_refreshed_again():
     creds = _StubCredentials(token="cached", valid=True)
-    prepared = _apply(IdTokenAuthHandler(creds, object()))
+    prepared = _apply(IdTokenAuthHandler(creds, None, None, object()))
     assert creds.refresh_calls == 0
-    assert prepared.headers["Authorization"] == "Bearer cached"
+    assert prepared.headers["X-Serverless-Authorization"] == "Bearer cached"
 
 
 def test_expired_credentials_refreshed_mid_run():
     """ID tokens last an hour; a backfill can post longer — the same handler
     must mint a new token once the old one goes invalid, not reuse a stale one."""
     creds = _StubCredentials(valid=False)
-    handler = IdTokenAuthHandler(creds, object())
+    handler = IdTokenAuthHandler(creds, None, None, object())
 
     first = _apply(handler)
-    assert first.headers["Authorization"] == "Bearer tok-1"
+    assert first.headers["X-Serverless-Authorization"] == "Bearer tok-1"
 
     creds.valid = False  # token expires mid-run
     second = _apply(handler)
 
     assert creds.refresh_calls == 2
-    assert second.headers["Authorization"] == "Bearer tok-2"
+    assert second.headers["X-Serverless-Authorization"] == "Bearer tok-2"
