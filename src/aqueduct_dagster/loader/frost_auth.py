@@ -155,8 +155,8 @@ def attach_id_token_auth(service: object, url: str) -> bool:
     audience = _audience(url)
     try:
         credentials = fetch_id_token_credentials(audience)
-        gcp_secret = load_config()["destination"]["frost"]["gcp_secret"]
-        if gcp_secret is not None and gcp_secret != "":
+        gcp_secret = load_config()["destination"]["frost"].get("gcp_secret") or None
+        if gcp_secret is not None and isinstance(gcp_secret, str) and gcp_secret != "":
             username, password = resolve_frost_auth(gcp_secret)
         else:
             username, password = None, None
