@@ -156,7 +156,7 @@ def test_remote_url_attaches_handler_with_basic_auth_no_secret(monkeypatch):
     monkeypatch.setattr(
         frost_auth,
         "load_config",
-        lambda: {"destination": {"frost": {"gcp_secret": ""}}},
+        lambda: {"destination": {"frost": {"gcp_secret": None}}},
     )
 
     service = fsc.SensorThingsService(f"{REMOTE}/v1.1")
