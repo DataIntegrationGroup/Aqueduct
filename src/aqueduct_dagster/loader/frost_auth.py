@@ -1,17 +1,29 @@
 """
 Resolves the FROST service root URL and, when that URL is remote, authenticates
-to it with a Google-signed OIDC ID token.
+to it with a Google-signed OIDC ID token. Will also authenticate against FROST
+service with Basic Auth with credential received from secret.
 
-Why: production FROST runs on Cloud Run behind IAM, requiring an
-`Authorization: Bearer <id_token>` header; local `docker compose` FROST has no
-auth. Both go through this loader, so the auth decision derives from the
-resolved host, not a separate mode flag that could drift from the URL:
+Why: production FROST runs on Cloud Run behind IAM, requiring a
+`X-Serverless-Authorization: Bearer <id_token>` header; local `docker compose`
+FROST has no auth. Both go through this loader, so the auth decision derives
+from the resolved host, not a separate mode flag that could drift from the URL:
 **localhost gets no auth, anything else gets a token.**
 
 Credentials come from ADC (bootstrapped by shared/gcp_auth.py from
 GCP_SERVICE_ACCOUNT_KEY_B64) — no new secret, just a `roles/run.invoker`
 binding added to the same service account that already reaches GCS and
 Secret Manager.
+
+In addition to authentication against Cloud Run, the FRSOT service implements
+Basic Auth to ensure that writes are only performed with clients that
+authenticate with a user profile that has write permissions. This requires an
+"Authorization: Basic <auth_string>" header; local 'docker compose' FROST does
+not have Basic Auth.
+
+Credentials for Basic Auth come from a secret, the name of which is provided
+in `.dlt/config.toml`, consisting of a username and password. If no secret is
+provided then the Basic Auth header is skipped and only the Cloud Run auth is
+used.
 
 Two library constraints:
   * `SensorThingsService.auth_handler` requires an `AuthHandler` instance, so
@@ -23,6 +35,8 @@ Two library constraints:
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import os
 from urllib.parse import urlparse
@@ -34,7 +48,7 @@ from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2.id_token import fetch_id_token_credentials
 
 from aqueduct_dagster.shared.config import load_config
-from aqueduct_dagster.shared.gcp_auth import ENV_ADC_PATH, ENV_KEY_B64, ensure_adc
+from aqueduct_dagster.shared.gcp_auth import ENV_ADC_PATH, ENV_KEY_B64, ensure_adc, fetch_secret
 
 logger = logging.getLogger(__name__)
 
@@ -86,14 +100,30 @@ class _IdTokenBearerAuth(requests.auth.AuthBase):
     pre-first-refresh and once within google-auth's expiry threshold, so one
     check covers both."""
 
-    def __init__(self, credentials: object, request: GoogleAuthRequest) -> None:
+    def __init__(
+        self,
+        credentials: object,
+        username: str | None,
+        password: str | None,
+        request: GoogleAuthRequest,
+    ) -> None:
         self._credentials = credentials
         self._request = request
+        self._username = username
+        self._password = password
 
     def __call__(self, r: requests.PreparedRequest) -> requests.PreparedRequest:
         if not self._credentials.valid:  # type: ignore[attr-defined]
             self._credentials.refresh(self._request)  # type: ignore[attr-defined]
-        r.headers["Authorization"] = f"Bearer {self._credentials.token}"  # type: ignore[attr-defined]
+        r.headers["X-Serverless-Authorization"] = f"Bearer {self._credentials.token}"  # type: ignore[attr-defined]
+        if self._username and self._password:
+            r.headers["Authorization"] = (
+                f"Basic {base64.b64encode(f'{self._username}:{self._password}'.encode()).decode()}"
+            )
+        else:
+            logger.warning(
+                "No basic auth username and/or password set, will attempt to proceed without basic auth"
+            )
         return r
 
 
@@ -102,12 +132,26 @@ class IdTokenAuthHandler(AuthHandler):
     Subclassing is required (auth_handler's setter does an isinstance check),
     not stylistic — the inherited username/password fields go unused."""
 
-    def __init__(self, credentials: object, request: GoogleAuthRequest) -> None:
+    def __init__(
+        self,
+        credentials: object,
+        username: str | None,
+        password: str | None,
+        request: GoogleAuthRequest,
+    ) -> None:
         super().__init__()
-        self._auth = _IdTokenBearerAuth(credentials, request)
+        self._auth = _IdTokenBearerAuth(credentials, username, password, request)
 
     def add_auth_header(self) -> requests.auth.AuthBase:
         return self._auth
+
+
+def resolve_frost_auth(gcp_secret: str) -> tuple[str, str]:
+    """
+    Fetches secret from secret manager to get credentials to authenticate against FROST service Basic Auth
+    """
+    payload = json.loads(fetch_secret(gcp_secret))
+    return payload["username"], payload["password"]
 
 
 def attach_id_token_auth(service: object, url: str) -> bool:
@@ -129,7 +173,18 @@ def attach_id_token_auth(service: object, url: str) -> bool:
             f"point {ENV_ADC_PATH} at a key file. Note that user credentials from "
             f"`gcloud auth application-default login` cannot mint ID tokens."
         ) from exc
+    try:
+        gcp_secret = load_config()["destination"]["frost"].get("gcp_secret") or None
+        if gcp_secret is not None and isinstance(gcp_secret, str) and gcp_secret != "":
+            username, password = resolve_frost_auth(gcp_secret)
+        else:
+            username, password = None, None
+    except Exception as exc:
+        raise FrostAuthError(
+            "Failed to fetch FROST basic auth credentials from secret. Make sure to set `destination.frost.gcp_secret`"
+            "in config.toml to a valid secret in Secret Manager"
+        ) from exc
 
-    service.auth_handler = IdTokenAuthHandler(credentials, GoogleAuthRequest())  # type: ignore[attr-defined]
+    service.auth_handler = IdTokenAuthHandler(credentials, username, password, GoogleAuthRequest())  # type: ignore[attr-defined]
     logger.info("FROST at %s is remote — ID token auth attached (aud=%s).", url, audience)
     return True
