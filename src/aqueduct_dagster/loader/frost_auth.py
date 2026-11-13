@@ -1,17 +1,29 @@
 """
 Resolves the FROST service root URL and, when that URL is remote, authenticates
-to it with a Google-signed OIDC ID token.
+to it with a Google-signed OIDC ID token. Will also authenticate against FROST
+service with Basic Auth with credential received from secret.
 
-Why: production FROST runs on Cloud Run behind IAM, requiring an
-`Authorization: Bearer <id_token>` header; local `docker compose` FROST has no
-auth. Both go through this loader, so the auth decision derives from the
-resolved host, not a separate mode flag that could drift from the URL:
+Why: production FROST runs on Cloud Run behind IAM, requiring a
+`X-Serverless-Authorization: Bearer <id_token>` header; local `docker compose`
+FROST has no auth. Both go through this loader, so the auth decision derives
+from the resolved host, not a separate mode flag that could drift from the URL:
 **localhost gets no auth, anything else gets a token.**
 
 Credentials come from ADC (bootstrapped by shared/gcp_auth.py from
 GCP_SERVICE_ACCOUNT_KEY_B64) — no new secret, just a `roles/run.invoker`
 binding added to the same service account that already reaches GCS and
 Secret Manager.
+
+In addition to authentication against Cloud Run, the FRSOT service implements
+Basic Auth to ensure that writes are only performed with clients that
+authenticate with a user profile that has write permissions. This requires an
+"Authorization: Basic <auth_string>" header; local 'docker compose' FROST does
+not have Basic Auth.
+
+Credentials for Basic Auth come from a secret, the name of which is provided
+in `.dlt/config.toml`, consisting of a username and password. If no secret is
+provided then the Basic Auth header is skipped and only the Cloud Run auth is
+used.
 
 Two library constraints:
   * `SensorThingsService.auth_handler` requires an `AuthHandler` instance, so
@@ -109,6 +121,10 @@ class _IdTokenBearerAuth(requests.auth.AuthBase):
             r.headers["Authorization"] = (
                 f"Basic {base64.b64encode(f'{self._username}:{self._password}'.encode()).decode()}"
             )
+        else:
+            logger.warning(
+                "No basic auth username and/or password set, will attempt to proceed without basic auth"
+            )
         return r
 
 
@@ -155,17 +171,23 @@ def attach_id_token_auth(service: object, url: str) -> bool:
     audience = _audience(url)
     try:
         credentials = fetch_id_token_credentials(audience)
-        gcp_secret = load_config()["destination"]["frost"].get("gcp_secret") or None
-        if gcp_secret is not None and isinstance(gcp_secret, str) and gcp_secret != "":
-            username, password = resolve_frost_auth(gcp_secret)
-        else:
-            username, password = None, None
     except google.auth.exceptions.DefaultCredentialsError as exc:
         raise FrostAuthError(
             f"Cannot mint an ID token for {audience}. ID tokens require service "
             f"account credentials: set {ENV_KEY_B64} to a base64-encoded key, or "
             f"point {ENV_ADC_PATH} at a key file. Note that user credentials from "
             f"`gcloud auth application-default login` cannot mint ID tokens."
+        ) from exc
+    try:
+        gcp_secret = load_config()["destination"]["frost"].get("gcp_secret") or None
+        if gcp_secret is not None and isinstance(gcp_secret, str) and gcp_secret != "":
+            username, password = resolve_frost_auth(gcp_secret)
+        else:
+            username, password = None, None
+    except Exception as exc:
+        raise FrostAuthError(
+            "Failed to fetch FROST basic auth credentials from secret. Make sure to set `destination.frost.gcp_secret`"
+            "in config.toml to a valid secret in Secret Manager"
         ) from exc
 
     service.auth_handler = IdTokenAuthHandler(credentials, username, password, GoogleAuthRequest())  # type: ignore[attr-defined]
