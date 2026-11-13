@@ -23,10 +23,8 @@ from collections.abc import Iterator
 from typing import Any
 
 import httpx
-from google.cloud import secretmanager
 
-from aqueduct_dagster.shared.config import load_config
-from aqueduct_dagster.shared.gcp_auth import ensure_adc
+from aqueduct_dagster.shared.gcp_auth import fetch_secret
 from aqueduct_dagster.shared.http import (
     DEFAULT_MAX_RETRIES as _MAX_RETRIES,
 )
@@ -55,16 +53,7 @@ def resolve_cf_bypass(cf_bypass: str, gcp_secret: str) -> str:
     already supplied (tests/local overrides). The payload is the bare value."""
     if cf_bypass:
         return cf_bypass
-
-    project_number = load_config()["destination"]["filesystem"]["gcp_project_number"]
-
-    # Secret Manager authenticates via ADC, so the bootstrap must run first. Idempotent.
-    ensure_adc()
-    sm_client = secretmanager.SecretManagerServiceClient()
-    name = sm_client.secret_version_path(project_number, gcp_secret, "latest")
-    response = sm_client.access_secret_version(name=name)
-    value: str = response.payload.data.decode("UTF-8").strip()
-    return value
+    return fetch_secret(gcp_secret).strip()
 
 
 def build_ckan_client(api_base_url: str, cf_bypass: str) -> httpx.Client:

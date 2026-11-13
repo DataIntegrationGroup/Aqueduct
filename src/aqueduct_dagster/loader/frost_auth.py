@@ -45,11 +45,10 @@ import google.auth.exceptions
 import requests.auth
 from frost_sta_client.service.auth_handler import AuthHandler
 from google.auth.transport.requests import Request as GoogleAuthRequest
-from google.cloud import secretmanager
 from google.oauth2.id_token import fetch_id_token_credentials
 
 from aqueduct_dagster.shared.config import load_config
-from aqueduct_dagster.shared.gcp_auth import ENV_ADC_PATH, ENV_KEY_B64, ensure_adc
+from aqueduct_dagster.shared.gcp_auth import ENV_ADC_PATH, ENV_KEY_B64, ensure_adc, fetch_secret
 
 logger = logging.getLogger(__name__)
 
@@ -149,13 +148,9 @@ class IdTokenAuthHandler(AuthHandler):
 
 def resolve_frost_auth(gcp_secret: str) -> tuple[str, str]:
     """
-    Fetches secret from secret manager for basic auth against
+    Fetches secret from secret manager to get credentials to authenticate against FROST service Basic Auth
     """
-    project_number = load_config()["destination"]["filesystem"]["gcp_project_number"]
-    sm_client = secretmanager.SecretManagerServiceClient()
-    name = sm_client.secret_version_path(project_number, gcp_secret, "latest")
-    response = sm_client.access_secret_version(name=name)
-    payload = json.loads(response.payload.data.decode("UTF-8"))
+    payload = json.loads(fetch_secret(gcp_secret))
     return payload["username"], payload["password"]
 
 
