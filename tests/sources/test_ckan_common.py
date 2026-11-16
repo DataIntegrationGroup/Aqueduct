@@ -85,13 +85,13 @@ def _drive(
 
 class TestResolveCfBypass:
     def test_returns_immediately_when_value_already_given(self):
-        with patch("aqueduct_dagster.sources.ckan_common.secretmanager") as mock_sm:
+        with patch("aqueduct_dagster.shared.gcp_auth.secretmanager") as mock_sm:
             assert resolve_cf_bypass("given", "ignored-secret") == "given"
         mock_sm.SecretManagerServiceClient.assert_not_called()
 
-    @patch("aqueduct_dagster.sources.ckan_common.secretmanager.SecretManagerServiceClient")
-    @patch("aqueduct_dagster.sources.ckan_common.ensure_adc")
-    @patch("aqueduct_dagster.sources.ckan_common.load_config")
+    @patch("aqueduct_dagster.shared.gcp_auth.secretmanager.SecretManagerServiceClient")
+    @patch("aqueduct_dagster.shared.gcp_auth.ensure_adc")
+    @patch("aqueduct_dagster.shared.gcp_auth.load_config")
     def test_reads_the_bare_value_from_secret_manager(
         self, mock_load_config, mock_ensure_adc, mock_sm_cls
     ):

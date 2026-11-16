@@ -283,6 +283,15 @@ localhost default and its `frost_load_*` assets fail on connection — deliberat
 PR runs cannot write into the production SensorThings store. Verify branch deployments
 against the ingest and transform assets.
 
+In addition, FROST has an optional Basic Auth to enable authenticated writes. The 
+credentials for the Basic Auth are provided via a secret in Secret Manager. If running 
+locally via `docker compose`, then FROST will not require Basic Auth, and Dagster will 
+attempt to proceed without setting Basic Auth credentials if no secret is provided, hence 
+why it is optional. The secret is provided in `.dlt/config.toml` as `destination.frost.gcp_secret`. 
+The Basic Auth credentials are set via the `Authorization` URL header, so to support this 
+the ADC token is set via the `X-Serverless-Authorization` header. This allows authentication 
+against both GCS and FROST at the same time without conflicting over auth headers.
+
 ## Troubleshooting
 
 | Symptom | Cause |

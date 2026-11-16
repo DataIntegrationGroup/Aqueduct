@@ -22,6 +22,10 @@ import os
 import tempfile
 from typing import Any
 
+from google.cloud import secretmanager
+
+from aqueduct_dagster.shared.config import load_config
+
 logger = logging.getLogger(__name__)
 
 #: Environment variable holding the base64-encoded service account key JSON.
@@ -157,3 +161,18 @@ def ensure_adc() -> None:
         key["client_email"],
         key["project_id"],
     )
+
+
+def fetch_secret(gcp_secret: str) -> str:
+    """
+    Fetches the contents of a secret in GCP Secret Manager, returns the content of the
+    payload, it is left to the code calling this function to know the structure of the
+    payload and what to do with it.
+    """
+    project_number = load_config()["destination"]["filesystem"]["gcp_project_number"]
+    # Secret Manager authenticates via ADC, so the bootstrap must run first. Idempotent.
+    ensure_adc()
+    sm_client = secretmanager.SecretManagerServiceClient()
+    name = sm_client.secret_version_path(project_number, gcp_secret, "latest")
+    response = sm_client.access_secret_version(name=name)
+    return response.payload.data.decode("UTF-8")

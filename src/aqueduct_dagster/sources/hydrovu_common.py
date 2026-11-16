@@ -19,10 +19,8 @@ import time
 from collections.abc import Iterator
 
 import httpx
-from google.cloud import secretmanager
 
-from aqueduct_dagster.shared.config import load_config
-from aqueduct_dagster.shared.gcp_auth import ensure_adc
+from aqueduct_dagster.shared.gcp_auth import fetch_secret
 from aqueduct_dagster.shared.http import (
     DEFAULT_MAX_RETRIES as _MAX_RETRIES,
 )
@@ -221,16 +219,7 @@ def resolve_hydrovu_credentials(
     {"id": ..., "secret": ...}."""
     if client_id:
         return client_id, client_secret
-
-    project_number = load_config()["destination"]["filesystem"]["gcp_project_number"]
-
-    # Secret Manager authenticates via ADC just like GCS does, so the same
-    # bootstrap has to run before the client is constructed. Idempotent.
-    ensure_adc()
-    sm_client = secretmanager.SecretManagerServiceClient()
-    name = sm_client.secret_version_path(project_number, gcp_secret, "latest")
-    response = sm_client.access_secret_version(name=name)
-    payload = json.loads(response.payload.data.decode("UTF-8"))
+    payload = json.loads(fetch_secret(gcp_secret))
     return payload["id"], payload["secret"]
 
 

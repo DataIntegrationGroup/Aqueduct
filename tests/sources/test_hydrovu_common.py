@@ -302,9 +302,9 @@ class TestResolveHydroVuCredentials:
         result = resolve_hydrovu_credentials("cid", "csecret", "ignored-secret-name")
         assert result == ("cid", "csecret")
 
-    @patch("aqueduct_dagster.sources.hydrovu_common.secretmanager.SecretManagerServiceClient")
-    @patch("aqueduct_dagster.sources.hydrovu_common.ensure_adc")
-    @patch("aqueduct_dagster.sources.hydrovu_common.load_config")
+    @patch("aqueduct_dagster.shared.gcp_auth.secretmanager.SecretManagerServiceClient")
+    @patch("aqueduct_dagster.shared.gcp_auth.ensure_adc")
+    @patch("aqueduct_dagster.shared.gcp_auth.load_config")
     def test_fetches_from_secret_manager_when_client_id_empty(
         self, mock_load_config, mock_ensure_adc, mock_sm_cls
     ):
