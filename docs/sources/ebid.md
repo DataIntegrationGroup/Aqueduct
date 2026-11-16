@@ -294,18 +294,16 @@ EBID Things in old FROST has exactly one Datastream.
 
 | Field                                       | Source Unit | Source Evidence | Canonical Unit | Conversion Factor |
 |---------------------------------------------|---|---|---|---|
-| `result` (DTW reading)                      | feet, sign inverted | **UNVERIFIED.** Inferred from `_transform_value(self, v, record): return v * -1` in the old transform, plus old FROST results being positive (`14.6496`) where DTW below ground would be reported negative | feet | **`× -1`** |
+| `result` (DTW reading)                      | feet, sign inverted | **CONFIRMED** via a live `GetSensorData` pull (site 1164, 2026-11-16): `data_value=-17.37400000`, negative as predicted. Matches `_transform_value(self, v, record): return v * -1` in the old transform, plus old FROST results being positive (`14.6496`) where DTW below ground would be reported negative | feet | **`× -1`** |
 | `elevation` - `GetSensorMetaData.reference` | feet | Old transform: `(cast(reference as FLOAT64)/3.28084) as reference`, then passed as the geometry elevation | metres | `÷ 3.28084` |
 | `elevation` - `GetSiteMetaData.elevation`   | feet (assumed) | Old FROST `properties.elevation`: `0.0` for five of six sites, `3896.0` for one | — | Unreliable, see below |
 
 **On the sign flip.** Nothing needs rescaling. Contrail already applies each
 sensor's `slope` and `offset` to produce `data_value`, and DTW comes out in
-feet. The sign is the only transform. The old pipeline negated unconditionally,
-which means EBID's Contrail almost certainly stores depth to water as a negative
-number, with the water surface below the reference datum. **Confirm this against
-a live `GetSensorData` response before implementing.** A wrongly applied
-negation produces plausible-looking data that is off by a factor of -1 and fails    
-no test.
+feet. The sign is the only transform. **Confirmed live (2026-11-16, site 1164):
+`data_value` is negative (`-17.374`)**, so the old pipeline's unconditional
+negation is the right call — EBID's Contrail stores depth to water as a
+negative number, with the water surface below the reference datum.
 
 **On elevation.** Two candidate sources disagree, and neither is trustworthy as
 it stands. `GetSiteMetaData.elevation` came back `0.0` for five of six sites, so
@@ -322,9 +320,9 @@ response proves otherwise.
 
 ## Open Questions
 
-1. **Sign convention (blocking).** Is `data_value` really negative for DTW?
-   Resolve this from a live `GetSensorData` response before anyone writes
-   adapter code.
+1. ~~**Sign convention (blocking).**~~ **RESOLVED (2026-11-16).** Confirmed
+   negative via a live `GetSensorData` pull on site 1164: `data_value=-17.374`.
+   No longer blocks adapter work.
 1. **`topic` and `is_continuous` provenance.** Old FROST carries
    `{"is_continuous": true, "topic": "Water Quantity"}` identically on all 6
    EBID datastreams, but the old transform code sets `properties = {}`. Those
@@ -333,19 +331,24 @@ response proves otherwise.
    new adapter reuse the values, or is this a team decision rather than
    something to inherit silently? Worth settling once for both sources.
 1. **`data_quality` -> `resultQuality`.** The old pipeline dropped `data_quality`
-   entirely. The vendor example shows `A`, presumably *Approved*, and the
-   Airbyte schema calls it a data quality flag without giving a value domain.
-   Confirm the domain from a live response, then decide whether it populates
+   entirely. A live 24h pull on site 1164 showed `A` on all 48 rows, matching
+   the vendor example, presumably *Approved* — but that single value isn't
+   enough to confirm the full domain. The Airbyte schema calls it a data
+   quality flag without giving a value domain. Still need a response that
+   contains a non-`A` value before deciding whether it populates
    `resultQuality`, drives `is_provisional`, or both.
 1. **`data_source` parameter.** Set a fixed `"OneRain Contrail"` on every
    observation, or leave `None`? `pvacd_hydrovu.md` raises the same question for
    `"HydroVu"`. Answer both the same way.
-1. **Current site list.** The six wells in old FROST are `or_site_id` 1164,
-   1165, 1171, 1179, 1180, 1181. The site linked in the ticket
-   ([`site_id=1146`](https://onerain.ebid-nm.org/site/?site_id=1146)) falls
-   outside that set, so EBID has monitoring wells that were never ingested.
-   Enumerate the current set from `GetSiteMetaData` once the key is available
-   rather than assuming the historical six.
+1. ~~**Current site list.**~~ **RESOLVED (2026-11-16).** `GetSiteMetaData`
+   returns 9 sites under the `ebid_onerain` key: the historical six wells
+   (`or_site_id` 1164, 1165, 1171, 1179, 1180, 1181) plus three river-gauge
+   sites (840, 817, 1111 — e.g. "River Gauge 1 - Caballo Cable") that were
+   never in old FROST and aren't DTW wells at all. **Confirmed via a full
+   pipeline run (2026-11-16):** `_fetch_dtw_sensor`'s `"Well" in location`
+   filter excludes them correctly — the real `raw_ebid/ebid_readings` parquet
+   landed with rows for only the 6 wells, zero rows for 840/817/1111. The
+   ticket's linked site (`site_id=1146`) still doesn't appear in this list.
 1. **Backfill horizon.** Old FROST data spans 2024-06-30 to 2024-09-04 only, and
    the old pipeline started from `datetime.strptime('2020', '%Y')`. How far back
    does EBID's Contrail retain data? The vendor doc notes that readings older
@@ -357,23 +360,13 @@ response proves otherwise.
 
 ## Raw Response Example
 
-> **RECONSTRUCTED. NOT A CAPTURED RESPONSE.** No `system_key` was available
-> when this was written, so these payloads combine three verified inputs: the
-> XML envelope and field order from the vendor doc (`DataExchangeAPI_Get.pdf`
-> v8.2), the field names and types from the retired Airbyte connector's
-> `schemas/*.json`, and real EBID values read back off the old FROST server. The
-> two labels below separate the real values from the placeholders. Replace this
-> whole section with genuine captures before using it as fixture data.
+> **REAL, CAPTURED 2026-11-16** via a live pull against the production API
+> using the `ebid_onerain` key. `client_id` is sanitized (it's a Contrail
+> GUID, not a secret, but still not ours to publish); every other value below
+> is exactly what the server returned.
 
-**Real, recovered from old FROST:** `or_site_id=1164`, `site_id=209-0000-M19R`,
-`location=Monitoring Well - MES_19R`, `latitude_dec=32.38739`,
-`longitude_dec=-106.85369`, and the five `data_time`/`data_value` pairs, negated
-back to their presumed raw form.
-
-**Placeholder:** `system_id`, `client_id`, everything in `GetSensorMetaData`
-except the IDs, and all `receive_time`, `raw_value` and `data_quality` values.
-
-**Site metadata** (`GET ...?method=GetSiteMetaData&system_key={key}&or_site_id=1164`):
+**Site metadata** (`GET ...?method=GetSiteMetaData&system_key={key}`, trimmed to
+site 1164 — the real response returns all 9 sites, see Open Questions):
 
 ```xml
 <onerain>
@@ -384,10 +377,10 @@ except the IDs, and all `receive_time`, `raw_value` and `data_quality` values.
         <site_id>209-0000-M19R</site_id>
         <location>Monitoring Well - MES_19R</location>
         <owner>DEPRECATED</owner>
-        <system_id>101</system_id>
+        <system_id>6</system_id>
         <client_id>00000000-0000-0000-0000-000000000000</client_id>
-        <latitude_dec>32.38739</latitude_dec>
-        <longitude_dec>-106.85369</longitude_dec>
+        <latitude_dec>32.3873900</latitude_dec>
+        <longitude_dec>-106.8536900</longitude_dec>
         <elevation>0</elevation>
       </row>
     </general>
@@ -396,8 +389,8 @@ except the IDs, and all `receive_time`, `raw_value` and `data_quality` values.
 ```
 
 **Sensor metadata** (`GET ...?method=GetSensorMetaData&system_key={key}&or_site_id=1164`).
-Field list and descriptions come from the Airbyte schema. The DTW sensor is the
-`sensor_class=102` row:
+The DTW sensor is the `sensor_class=102` row — confirmed real, along with
+`or_sensor_id=4` and `units=ft`:
 
 ```xml
 <onerain>
@@ -405,50 +398,58 @@ Field list and descriptions come from the Airbyte schema. The DTW sensor is the
     <general>
       <row>
         <site_id>209-0000-M19R</site_id>
-        <sensor_id>4</sensor_id>
+        <sensor_id>97</sensor_id>
         <or_site_id>1164</or_site_id>
         <or_sensor_id>4</or_sensor_id>
         <location>Monitoring Well - MES_19R</location>
-        <description>Depth to Water</description>
+        <description>Depth to Water - Surface</description>
         <sensor_class>102</sensor_class>
-        <sensor_type>SDI-12</sensor_type>
+        <sensor_type>equation</sensor_type>
         <units>ft</units>
         <translate>false</translate>
-        <precision>4</precision>
-        <last_time>2024-09-04 21:08:21</last_time>
-        <last_value>-14.6496</last_value>
-        <last_time_received>2024-09-04 21:12:03</last_time_received>
-        <last_value_received>-14.6496</last_value_received>
-        <last_raw_value>-14.6496</last_raw_value>
-        <last_raw_value_received>-14.6496</last_raw_value_received>
-        <change_time>2024-06-30 21:39:11</change_time>
+        <precision>2</precision>
+        <last_time>2026-11-16 05:09:08</last_time>
+        <last_value>-17.37400000</last_value>
+        <last_time_received>2026-11-16 05:09:08</last_time_received>
+        <last_value_received>-17.37400000</last_value_received>
+        <last_raw_value>-17.37400000</last_raw_value>
+        <last_raw_value_received>-17.37400000</last_raw_value_received>
         <normal>1</normal>
         <active>1</active>
         <valid>1</valid>
-        <validation>NONE</validation>
-        <value_max>0</value_max>
-        <value_min>-100</value_min>
-        <delta_pos>0</delta_pos>
-        <delta_neg>0</delta_neg>
-        <time_max>0</time_max>
+        <change_rate>0</change_rate>
+        <time_min_consec_zeros>0</time_min_consec_zeros>
+        <validation>normal</validation>
+        <value_max>0.00000000</value_max>
+        <value_min>-32.00000000</value_min>
+        <delta_pos>2.00000000</delta_pos>
+        <delta_neg>2.00000000</delta_neg>
+        <rate_pos>0</rate_pos>
+        <rate_neg>0</rate_neg>
+        <time_max>120</time_max>
         <time_min>0</time_min>
-        <slope>1</slope>
-        <offset>0</offset>
-        <reference>0</reference>
+        <slope>0.00000000</slope>
+        <offset>0.00000000</offset>
+        <reference>0.00000000</reference>
         <utc_offset>0</utc_offset>
-        <conversion>NONE</conversion>
+        <using_dst>0</using_dst>
+        <conversion>equation</conversion>
+        <usage>local</usage>
+        <protocol>0</protocol>
       </row>
     </general>
   </response>
 </onerain>
 ```
 
-The Airbyte schema documents seven more fields that carry no signal:
-`change_rate`, `time_min_consec_zeros`, `rate_pos`, `rate_neg`, `using_dst`,
-`usage` and `protocol`. They are omitted here. Expect them in a real response
-and ignore them.
+Note the real `sensor_type`/`conversion` are `equation`, not the vendor doc's
+`SDI-12`/`NONE` — this sensor applies a conversion equation rather than
+reading a raw SDI-12 value. `reference=0`, consistent with the Unit
+Conversions section's conclusion that elevation isn't usable from this field
+for this site.
 
-**Readings** (`GET ...?method=GetSensorData&system_key={key}&or_site_id=1164&or_sensor_id=4&data_start=2024-09-04%2019:00:00&data_end=2024-09-04%2022:00:00`):
+**Readings** (`GET ...?method=GetSensorData&system_key={key}&or_site_id=1164&or_sensor_id=4&data_start=2026-11-15%2005:39:15`),
+first and last of 48 rows returned for a trailing-24h window:
 
 ```xml
 <onerain>
@@ -457,52 +458,28 @@ and ignore them.
       <row>
         <or_site_id>1164</or_site_id>
         <or_sensor_id>4</or_sensor_id>
-        <receive_time>2024-09-04 19:12:04</receive_time>
-        <data_time>2024-09-04 19:08:55</data_time>
-        <data_value>-14.63910000</data_value>
-        <raw_value>-14.63910000</raw_value>
+        <receive_time>2026-11-15 05:39:18</receive_time>
+        <data_time>2026-11-15 05:39:15</data_time>
+        <data_value>-17.38450000</data_value>
+        <raw_value>-17.38450000</raw_value>
         <data_quality>A</data_quality>
       </row>
       <row>
         <or_site_id>1164</or_site_id>
         <or_sensor_id>4</or_sensor_id>
-        <receive_time>2024-09-04 19:42:01</receive_time>
-        <data_time>2024-09-04 19:38:54</data_time>
-        <data_value>-14.62860000</data_value>
-        <raw_value>-14.62860000</raw_value>
-        <data_quality>A</data_quality>
-      </row>
-      <row>
-        <or_site_id>1164</or_site_id>
-        <or_sensor_id>4</or_sensor_id>
-        <receive_time>2024-09-04 20:12:07</receive_time>
-        <data_time>2024-09-04 20:08:56</data_time>
-        <data_value>-14.63910000</data_value>
-        <raw_value>-14.63910000</raw_value>
-        <data_quality>A</data_quality>
-      </row>
-      <row>
-        <or_site_id>1164</or_site_id>
-        <or_sensor_id>4</or_sensor_id>
-        <receive_time>2024-09-04 20:41:58</receive_time>
-        <data_time>2024-09-04 20:38:35</data_time>
-        <data_value>-14.63910000</data_value>
-        <raw_value>-14.63910000</raw_value>
-        <data_quality>A</data_quality>
-      </row>
-      <row>
-        <or_site_id>1164</or_site_id>
-        <or_sensor_id>4</or_sensor_id>
-        <receive_time>2024-09-04 21:11:44</receive_time>
-        <data_time>2024-09-04 21:08:21</data_time>
-        <data_value>-14.64960000</data_value>
-        <raw_value>-14.64960000</raw_value>
+        <receive_time>2026-11-16 05:09:11</receive_time>
+        <data_time>2026-11-16 05:09:08</data_time>
+        <data_value>-17.37400000</data_value>
+        <raw_value>-17.37400000</raw_value>
         <data_quality>A</data_quality>
       </row>
     </general>
   </response>
 </onerain>
 ```
+
+All 48 rows carried `data_quality=A`; no other value has been observed yet
+(Open Questions).
 
 An empty result set returns
 `<onerain><response><general /></response></onerain>`, so the adapter must
@@ -512,8 +489,10 @@ Errors come back as `<onerain><error>...</error></onerain>` with **HTTP 200**.
 Status-code checks are not enough; the parser has to look for an `<error>`
 element.
 
-**Capturing the real payloads.** Once a `system_key` exists, export it to the
-shell rather than pasting it into a file, then run the three commands below.
+**Capturing more real payloads.** The example above came from a live pull on
+2026-11-16 (site 1164 only). Use the same approach for the other 8 sites or a
+longer time window — export the key to the shell rather than pasting it into
+a file, then run the three commands below.
 
 ```bash
 export EBID_SYSTEM_KEY='<paste-key-here>'
@@ -531,22 +510,20 @@ curl -sS "http://onerain.ebid-nm.org:8080/OneRain/DataAPI?method=GetSensorMetaDa
 curl -sS "http://onerain.ebid-nm.org:8080/OneRain/DataAPI?method=GetSensorData&system_key=$EBID_SYSTEM_KEY&or_site_id=1164&or_sensor_id=4&data_start=2024-09-04%2000:00:00&data_end=2024-09-04%2023:59:59" -o ebid_sensor_data.xml
 ```
 
-Re-verify against those captures, in this order:
+What's still open from captures only covering site 1164 / one 24h window:
 
-1. **The sign of `data_value`.** The one mapping that silently corrupts data if
-   it is wrong (Open Question 1).
-1. `sensor_class` for the DTW sensors. Is it really `102`, and is `or_sensor_id`
-   still `4`?
-1. The `units` string on the DTW sensor. Confirm `ft`, not `m` or `in`.
-1. The `data_quality` value domain. Which flags actually appear?
-1. That `data_time` is genuinely UTC. Cross-check a reading's `data_time`
-   against `GetTime`, which returns UTC, and against the 30-minute reporting
-   cadence.
-1. `reference` and `elevation`. Does either carry a usable ground elevation (see
-   Unit Conversions)?
-1. The current site list. Which sites exist now, versus the historical six (Open
-   Question 5)?
+1. ~~The sign of `data_value`.~~ **Confirmed** (Open Question 1).
+1. ~~`sensor_class`/`or_sensor_id` for the DTW sensor.~~ **Confirmed**: `102` /
+   `4`.
+1. ~~The `units` string on the DTW sensor.~~ **Confirmed**: `ft`.
+1. The `data_quality` value domain. Only `A` has been observed so far (48/48
+   rows) — need a capture that includes a non-`A` value.
+1. That `data_time` is genuinely UTC. Still need to cross-check a reading's
+   `data_time` against `GetTime`.
+1. `reference` and `elevation`. Site 1164's `reference=0`, consistent with
+   "unusable," but not checked across the other 8 sites.
+1. ~~The current site list.~~ **Confirmed**: 9 sites, see Open Questions.
 
-Sanitize before committing as a fixture. The `system_key` never appears in the
-response body, but `client_id` is a Contrail GUID, so replace it the way the
-reconstructed example above does.
+Sanitize before committing new captures as a fixture. The `system_key` never
+appears in the response body, but `client_id` is a Contrail GUID, so replace
+it the way the example above does.
