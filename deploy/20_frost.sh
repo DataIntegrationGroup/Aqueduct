@@ -74,6 +74,14 @@ ENV_VARS="${ENV_VARS}@plugins_multiDatastream_enable=false"
 ENV_VARS="${ENV_VARS}@plugins_actuation_enable=false"
 ENV_VARS="${ENV_VARS}@http_cors_enable=true"
 ENV_VARS="${ENV_VARS}@http_cors_allowed_origins=*"
+# values needed to enable basic auth with anonymous reads
+ENV_VARS="${ENV_VARS}@auth_provider=de.fraunhofer.iosb.ilt.frostserver.auth.basic.BasicAuthProvider"
+ENV_VARS="${ENV_VARS}@auth_autoUpdateDatabase=true"
+ENV_VARS="${ENV_VARS}@auth_allowAnonymousRead=true"
+ENV_VARS="${ENV_VARS}@auth_plainTextPassword=true"
+ENV_VARS="${ENV_VARS}@auth_db_driver=org.postgresql.Driver"
+ENV_VARS="${ENV_VARS}@auth_db_url=jdbc:postgresql://${SQL_PRIVATE_IP}:5432/${SQL_DB}"
+ENV_VARS="${ENV_VARS}@auth_db_username=${SQL_USER}"
 
 # Record what is serving now, so a bad deploy has an obvious way back. Empty on a
 # first-ever deploy, which is fine — there is nothing to roll back to.

@@ -19,6 +19,15 @@ services:
       - persistence_db_username=${POSTGRES_USER:-sensorthings}
       - persistence_db_password=${POSTGRES_PASSWORD}
       - persistence_autoUpdateDatabase=true
+      # The following values are for enabling basic auth on a local dagster, holding onto these in case they are useful
+      #- auth_provider=de.fraunhofer.iosb.ilt.frostserver.auth.basic.BasicAuthProvider
+      #- auth_autoUpdateDatabase=true
+      #- auth_allowAnonymousRead=true
+      #- auth_plainTextPassword=true
+      #- auth_db_driver=org.postgresql.Driver
+      #- auth_db_url=jdbc:postgresql://database:5432/${POSTGRES_DB:-sensorthings}
+      #- auth_db_username=${POSTGRES_USER:-sensorthings}
+      #- auth_db_password=${POSTGRES_PASSWORD}
     ports:
       - "8081:8080"
       - "1883:1883"
