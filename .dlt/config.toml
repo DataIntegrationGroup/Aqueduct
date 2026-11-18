@@ -87,6 +87,13 @@ gcp_secret = "ckan_cf_bypass"
 api_base_url = "gs://roswellbubbler"
 initial_start_date = "2026-05-01"
 
+[sources.ebid]
+# Host root only — the servlet path is joined per call, not via base_url (see docs/sources/ebid.md).
+api_base_url = "http://onerain.ebid-nm.org:8080"
+initial_start_date = "2026-05-01"
+# Secret Manager secret holding the bare OneRain system_key (6 monitoring wells).
+gcp_secret = "ebid_onerain"
+
 [cabq]
 api_base_url       = "https://cabq-api-url.com"   # TODO: confirm CABQ API endpoint
 initial_start_date = "2026-01-01"   # change to limit initial load
