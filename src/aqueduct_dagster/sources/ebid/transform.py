@@ -1,8 +1,6 @@
 """
-Dagster asset: canonical_bundles_ebid — not implemented yet. Deferred to a
-follow-up ticket; see docs/sources/ebid.md Open Questions.
-
-Upstream: raw_ebid_readings. Downstream: frost_load_ebid.
+Dagster asset: canonical_bundles_ebid — not implemented yet, deferred to a
+follow-up ticket (see docs/sources/ebid.md Open Questions).
 """
 
 from dataclasses import dataclass

@@ -1,7 +1,6 @@
 """
 Dagster asset: raw_ebid_readings — runs the EBID dlt source, writing
-ebid_sites (replace, full list every run) and ebid_readings (append,
-per-site incremental).
+ebid_sites (replace) and ebid_readings (append, per-site incremental).
 """
 
 from dagster import AssetExecutionContext, Failure, MaterializeResult, MetadataValue, asset

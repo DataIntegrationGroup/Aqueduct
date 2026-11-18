@@ -55,8 +55,7 @@ def resolve_ebid_system_key(system_key: str, gcp_secret: str) -> str:
 
 def build_ebid_client(api_base_url: str, system_key: str) -> httpx.Client:
     """Unauthenticated client with system_key as a default query param.
-    api_base_url is the host root; _DATA_API_PATH is joined per call so
-    base_url's trailing slash can't turn it into a 404."""
+    _DATA_API_PATH is joined per call so base_url's trailing slash can't 404."""
     client = build_unauthenticated_client(api_base_url, timeout=_TIMEOUT)
     client.params = {"system_key": system_key}
     return client
@@ -64,8 +63,7 @@ def build_ebid_client(api_base_url: str, system_key: str) -> httpx.Client:
 
 def _parse_onerain_xml(content: bytes) -> list[dict[str, str]]:
     """Parses <onerain><response><general><row>...</row></general></response>
-    </onerain> into one dict per row. OneRain answers HTTP 200 even on
-    error, so <error> is the only failure signal."""
+    </onerain> into one dict per row — <error> is the only failure signal."""
     root = ElementTree.fromstring(content)
     error = root.find("error")
     if error is not None:
@@ -82,9 +80,8 @@ def _parse_onerain_xml(content: bytes) -> list[dict[str, str]]:
 
 
 def _get(client: httpx.Client, params: dict) -> tuple[list[dict[str, str]] | None, str | None]:
-    """GETs the OneRain servlet with the given method/params, retried on
-    transient network errors. Returns (rows, None) on success, (None, reason)
-    otherwise — a bad system_key or parameter is not retryable."""
+    """GETs the OneRain servlet, retried on transient network errors.
+    Returns (rows, None) on success, (None, reason) otherwise."""
     try:
         resp = retry_transient(
             lambda: client.get(_DATA_API_PATH, params=params),
@@ -109,6 +106,14 @@ def _get(client: httpx.Client, params: dict) -> tuple[list[dict[str, str]] | Non
         return _parse_onerain_xml(resp.content), None
     except (EbidApiError, ElementTree.ParseError) as exc:
         return None, str(exc)
+
+
+def _to_float(value: str | None) -> float | None:
+    """None for a missing, empty, or non-numeric cell, so one bad row can't abort the extract."""
+    try:
+        return float(value) if value else None
+    except ValueError:
+        return None
 
 
 def _fetch_sites(client: httpx.Client) -> tuple[list[dict[str, str]] | None, str | None]:
@@ -139,8 +144,7 @@ def _fetch_readings(
     end_time: int | None = None,
 ) -> tuple[list[dict[str, str]] | None, str | None]:
     """GetSensorData for one (site, sensor). No timezone= param, so Contrail
-    defaults to UTC. Caller windows start_time/end_time to stay under the
-    5000-row cap."""
+    defaults to UTC."""
     params = {
         "method": "GetSensorData",
         "or_site_id": or_site_id,
@@ -171,9 +175,8 @@ def _iter_site_readings(
         sensor, err = _fetch_dtw_sensor(client, or_site_id)
         if sensor is None:
             if err == _NOT_A_WELL:
-                # Not a real failure — some sites in the key's own site list
-                # (e.g. river gauges) were never DTW wells. Keeping this out
-                # of errored/failed_ids so a real failure isn't lost in the noise.
+                # Not a real failure — some sites (e.g. river gauges) were
+                # never DTW wells. Kept out of errored/failed_ids.
                 skipped += 1
             else:
                 logger.warning("Site %s: %s — skipping", or_site_id, err)
@@ -183,6 +186,7 @@ def _iter_site_readings(
         or_sensor_id = sensor["or_sensor_id"]
 
         window_start = max(cursors.get(or_site_id, 0), start_ts)
+        max_ts_seen = cursors.get(or_site_id, 0)
         site_failed = False
         while window_start < now_ts:
             window_end = min(window_start + _WINDOW_SECONDS, now_ts)
@@ -210,39 +214,58 @@ def _iter_site_readings(
                     _MAX_ROWS_PER_RESPONSE,
                 )
 
-            # Sorted only on truncation, where resuming from the max
-            # timestamp seen depends on it — otherwise window_end already
-            # bounds the next start regardless of row order.
+            # Sorted only on truncation — resuming from the max timestamp
+            # seen depends on it; window_end bounds the rest regardless.
             rows_to_process = (
-                sorted(rows or [], key=lambda r: r["data_time"]) if truncated else (rows or [])
+                sorted(rows or [], key=lambda r: r.get("data_time", ""))
+                if truncated
+                else (rows or [])
             )
             last_ts = window_start
             for row in rows_to_process:
-                ts = int(
-                    datetime.strptime(row["data_time"], "%Y-%m-%d %H:%M:%S")
-                    .replace(tzinfo=UTC)
-                    .timestamp()
-                )
+                try:
+                    ts = int(
+                        datetime.strptime(row.get("data_time", ""), "%Y-%m-%d %H:%M:%S")
+                        .replace(tzinfo=UTC)
+                        .timestamp()
+                    )
+                except ValueError:
+                    # No timestamp means no reading_id, so skip the row.
+                    logger.warning(
+                        "Site %s: unparseable data_time %r — skipping row",
+                        or_site_id,
+                        row.get("data_time"),
+                    )
+                    continue
                 last_ts = max(last_ts, ts)
+                max_ts_seen = max(max_ts_seen, ts)
+                value = _to_float(row.get("data_value"))
+                if value is None:
+                    # Kept in raw with value=None; the adapter decides whether to drop it.
+                    logger.warning(
+                        "Site %s: bad data_value %r at %s — keeping row with value=None",
+                        or_site_id,
+                        row.get("data_value"),
+                        ts,
+                    )
                 rows_yielded += 1
                 yield {
                     "reading_id": f"{or_site_id}_{or_sensor_id}_{ts}",
                     "or_site_id": or_site_id,
                     "or_sensor_id": or_sensor_id,
                     "timestamp": ts,
-                    "value": float(row["data_value"]),
-                    "raw_value": float(row["raw_value"]) if row.get("raw_value") else None,
+                    "value": value,
+                    "raw_value": _to_float(row.get("raw_value")),
                     "receive_time": row.get("receive_time") or None,
                     "data_quality": row.get("data_quality") or None,
                 }
 
-            # Advance past window_end normally; +1 past a row landing exactly
-            # on it avoids a dupe if data_end is inclusive. On truncation,
-            # resume right after the last row fetched instead of window_end,
-            # so the untruncated remainder gets re-fetched narrower, not lost.
-            next_start = last_ts + 1 if truncated else max(window_end, last_ts + 1)
-            cursors[or_site_id] = next_start
-            window_start = next_start
+            # Pages through history via window_end; +1 past a boundary row
+            # avoids a dupe, and on truncation resumes right after the last row.
+            window_start = last_ts + 1 if truncated else max(window_end, last_ts + 1)
+            # HydroVu-style: next run starts from the newest reading actually
+            # seen, never window_end/now, so a late-arriving reading isn't skipped.
+            cursors[or_site_id] = max_ts_seen
 
         if not site_failed:
             fetched += 1

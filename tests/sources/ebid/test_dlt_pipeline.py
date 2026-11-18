@@ -1,8 +1,6 @@
 """
-Unit tests for sources/ebid/dlt_pipeline.py's XML parsing, fetch helpers, and
-the ebid_sites/ebid_readings resources. No real API calls — httpx.MockTransport
-simulates OneRain's XML responses. Fixtures are trimmed from a real live pull
-against the OneRain API (site 1164 / MES_19R).
+Unit tests for sources/ebid/dlt_pipeline.py. No real API calls —
+httpx.MockTransport simulates OneRain's XML, fixtures are from a real live pull.
 """
 
 from __future__ import annotations
@@ -120,9 +118,8 @@ class TestParseOnerainXml:
 
 class TestGet:
     def test_hits_the_exact_servlet_path_with_no_trailing_slash(self):
-        # Regression: httpx.Client.base_url always normalizes with a trailing
-        # slash, so the servlet path must be passed explicitly per call — not
-        # joined into base_url — or this exact-match path 404s.
+        # Regression: base_url always gets a trailing slash from httpx, so
+        # the servlet path must be passed explicitly per call, not joined in.
         client, calls = _client_with_responses(
             [httpx.Response(200, content=_onerain_xml([SITE_1164]))]
         )
@@ -151,10 +148,8 @@ class TestGet:
         assert "transient" in err.lower()
 
     def test_returns_error_reason_on_a_real_http_error(self):
-        # OneRain's own errors come back as HTTP 200 (see TestParseOnerainXml),
-        # so a real 5xx here means a proxy/gateway problem in front of it —
-        # this must degrade like every other source's fetch helper, not raise
-        # and abort every other site in the run.
+        # OneRain's own errors come back as HTTP 200, so a real 5xx means a
+        # proxy problem in front of it — must degrade, not raise.
         client, _ = _client_with_responses([httpx.Response(503)])
         rows, err = _get(client, {"method": "GetSiteMetaData"})
         assert rows is None
@@ -313,12 +308,30 @@ class TestIterSiteReadings:
 
     @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_readings")
     @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_dtw_sensor")
-    def test_cursor_advances_past_start_ts_on_success(self, mock_sensor, mock_readings):
+    def test_cursor_advances_to_the_newest_reading_actually_seen(self, mock_sensor, mock_readings):
+        # HydroVu-style: the cursor is the newest reading's own timestamp,
+        # not window_end/now — so a late-arriving reading isn't skipped.
         mock_sensor.return_value = (SENSOR_1164_DTW, None)
-        mock_readings.return_value = ([READING_ROW], None)
         start_ts = int(time.time()) - 3600
+        row_ts = start_ts + 100
+        row = {
+            **READING_ROW,
+            "data_time": datetime.fromtimestamp(row_ts, tz=UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        mock_readings.return_value = ([row], None)
         _, cursors, _ = _drive([SITE_1164], start_ts=start_ts)
-        assert cursors["1164"] > start_ts
+        assert cursors["1164"] == row_ts
+
+    @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_readings")
+    @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_dtw_sensor")
+    def test_an_empty_response_does_not_advance_the_cursor_to_now(self, mock_sensor, mock_readings):
+        # A window reaching "now" but returning zero rows must not move the
+        # cursor past data that just hasn't arrived yet.
+        mock_sensor.return_value = (SENSOR_1164_DTW, None)
+        start_ts = int(time.time()) - 3600
+        mock_readings.return_value = ([], None)
+        _, cursors, _ = _drive([SITE_1164], start_ts=start_ts)
+        assert cursors.get("1164", 0) <= start_ts
 
     @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_readings")
     @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_dtw_sensor")
@@ -338,7 +351,7 @@ class TestIterSiteReadings:
         assert mock_readings.call_count == 2
         second_call_start = mock_readings.call_args_list[1].args[3]
         assert second_call_start == window_end + 1
-        assert cursors["1164"] > window_end
+        assert cursors["1164"] == window_end
 
     @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_readings")
     @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_dtw_sensor")
@@ -360,9 +373,8 @@ class TestIterSiteReadings:
     @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_readings")
     @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_dtw_sensor")
     def test_non_well_site_is_skipped_not_errored(self, mock_sensor, mock_readings):
-        # A site genuinely not a DTW well (e.g. a river gauge) isn't a
-        # failure — it must not pollute sites_errored/failed_site_ids, or a
-        # real failure could get lost in that permanent, expected noise.
+        # A non-well site (e.g. a river gauge) isn't a failure — it must not
+        # pollute sites_errored/failed_site_ids.
         mock_sensor.side_effect = [(None, _NOT_A_WELL), (SENSOR_1164_DTW, None)]
         mock_readings.return_value = ([READING_ROW], None)
         stats: dict = {}
@@ -385,6 +397,33 @@ class TestIterSiteReadings:
         assert "1164" not in cursors
         assert stats["sites_errored"] == 1
         assert stats["failed_site_ids"] == ["1164"]
+
+    @pytest.mark.parametrize("bad_value", [None, "", "N/A"])
+    @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_readings")
+    @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_dtw_sensor")
+    def test_a_bad_data_value_keeps_the_row_with_value_none(
+        self, mock_sensor, mock_readings, bad_value
+    ):
+        # A bad cell must not raise and abort the remaining sites.
+        mock_sensor.return_value = (SENSOR_1164_DTW, None)
+        bad_row = {**READING_ROW, "raw_value": "N/A"}
+        if bad_value is None:
+            del bad_row["data_value"]
+        else:
+            bad_row["data_value"] = bad_value
+        mock_readings.return_value = ([bad_row], None)
+        rows, _, stats = _drive([SITE_1165, SITE_1164])
+        assert len(rows) == 2
+        assert all(r["value"] is None and r["raw_value"] is None for r in rows)
+        assert stats["sites_fetched"] == 2
+
+    @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_readings")
+    @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_dtw_sensor")
+    def test_an_unparseable_data_time_skips_only_that_row(self, mock_sensor, mock_readings):
+        mock_sensor.return_value = (SENSOR_1164_DTW, None)
+        mock_readings.return_value = ([{**READING_ROW, "data_time": ""}, READING_ROW], None)
+        rows, _, _ = _drive([SITE_1164])
+        assert len(rows) == 1
 
     @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_readings")
     @patch("aqueduct_dagster.sources.ebid.dlt_pipeline._fetch_dtw_sensor")
@@ -409,7 +448,7 @@ class TestIterSiteReadings:
             rows, cursors, _ = _drive([SITE_1164], start_ts=start_ts)
         assert any("cap" in record.message for record in caplog.records)
         assert len(rows) == 5000
-        assert cursors["1164"] == start_ts + 5000
+        assert cursors["1164"] == start_ts + 4999
 
 
 # -- ebid_sites --
@@ -459,9 +498,8 @@ class TestEbidReadingsClientLifetime:
 
 
 class TestEbidSourceConfig:
-    """@dlt.source(name="ebid") binds these defaults to [sources.ebid] in
-    .dlt/config.toml — nothing cross-checks the two, so a typo there silently
-    points at the wrong endpoint/secret."""
+    """Binds defaults to [sources.ebid] in .dlt/config.toml — nothing
+    cross-checks the two, so a typo there silently points at the wrong secret."""
 
     @staticmethod
     def _resolved_config() -> dict:

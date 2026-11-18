@@ -1,8 +1,6 @@
 """
-Unit tests for raw_ebid_readings' failure policy: a partial site failure
-still materializes (cursors unchanged, retried next run), but total failure
-raises — a quiet green run would hide an expired system_key or dead API.
-Offline: build_pipeline/ebid_source are patched.
+Unit tests for raw_ebid_readings' failure policy: partial failure still
+materializes, total failure raises. Offline: build_pipeline/ebid_source patched.
 """
 
 from __future__ import annotations
@@ -18,9 +16,8 @@ _MODULE = "aqueduct_dagster.sources.ebid.ingest"
 
 
 def _run_asset(stats: dict) -> MaterializeResult:
-    """Materializes the asset with a fake dlt pipeline whose run() reports
-    `stats`. The asset passes its own dict into the source and reads it back
-    after run(), so the fake must copy into that same dict, not return a new one."""
+    """Materializes the asset with a fake pipeline whose run() reports `stats`
+    by copying into the asset's own dict, not returning a new one."""
     pipeline = MagicMock()
     pipeline.pipeline_name = "ebid"
     pipeline.dataset_name = "raw_ebid"
@@ -71,9 +68,8 @@ class TestMetadata:
         assert metadata["dataset_name"] == "raw_ebid"
 
     def test_empty_stats_fall_back_to_zeros_rather_than_raising(self):
-        # If dlt abandons the resource generator mid-run the stats dict is never
-        # populated. Metadata showing zeros is the intended outcome — a KeyError here
-        # would turn a partial extract into a hard asset failure.
+        # If dlt abandons the generator mid-run, stats stays empty — zeros
+        # here, not a KeyError, is the intended outcome.
         result = _run_asset({})
         metadata = {key: value.value for key, value in result.metadata.items()}
         assert metadata["rows_yielded"] == 0
