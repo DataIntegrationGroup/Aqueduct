@@ -123,9 +123,8 @@ class _IdTokenBearerAuth(requests.auth.AuthBase):
 
 
 class IdTokenAuthHandler(AuthHandler):
-    """AuthHandler subclass supplying ID-token auth instead of BasicAuth.
-    Subclassing is required (auth_handler's setter does an isinstance check),
-    not stylistic — the inherited username/password fields go unused."""
+    """AuthHandler subclass supplying ID-token auth and BasicAuth if supplied via secret.
+    Subclassing is required (auth_handler's setter does an isinstance check), not stylistic"""
 
     def __init__(
         self,
