@@ -122,11 +122,11 @@ IAM binding:
 
 ## FROST users
 
-FROST's BasicAuth users live in the `sensorthings` database (`USERS`, `ROLES`,
-`USER_ROLES`) and are managed with SQL — there is no API. The tables are created on the
-first login attempt, seeded with `admin/admin`, `write/write`, `read/read`, which must
-be deleted before going public. The writer needs `delete` as well as
-`read`/`create`/`update`, because backfills delete observations before reloading.
+FROST's BasicAuth users live in the `sensorthings` database (`USERS`, `USER_ROLES`)
+and are managed with SQL — there is no API. The tables are created on the first login 
+attempt, seeded with `admin`, `write`, and `read` default users, which must be deleted
+before going public. The writer needs `delete` as well as `read`/`create`/`update`
+roles, because backfills delete observations before reloading.
 
 **1. Create the tables**: make a login attempt through the gate (`GATE` from
 [Verify](#verify-while-frost_publicfalse)); expect 401, or 500 if `pgcrypto` is missing:

@@ -19,7 +19,7 @@ services:
       - persistence_db_username=${POSTGRES_USER:-sensorthings}
       - persistence_db_password=${POSTGRES_PASSWORD}
       - persistence_autoUpdateDatabase=true
-      # The following values are for enabling basic auth on a local dagster, holding onto these in case they are useful
+      # The following values are for enabling basic auth on local FROST, holding onto these in case they are useful
       #- auth_provider=de.fraunhofer.iosb.ilt.frostserver.auth.basic.BasicAuthProvider
       #- auth_autoUpdateDatabase=true
       #- auth_allowAnonymousRead=true
