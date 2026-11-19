@@ -4,13 +4,15 @@
 # Shared configuration for the private FROST/SensorThings + PostGIS provisioning
 # scripts. Sourced by 10_sql.sh and 20_frost.sh — not run directly.
 #
-# Contains NO secrets. The Cloud SQL password lives in Secret Manager
-# (${SECRET_FROST_DB_PW}); nothing in this file is sensitive.
+# Contains NO secrets. The Cloud SQL password (${SECRET_FROST_DB_PW}) and the FROST
+# writer login (${SECRET_FROST_WRITER}) live in Secret Manager; nothing in this file
+# is sensitive.
 #
-# Security model: FROST runs on Cloud Run with ingress=all but
-# --no-allow-unauthenticated, so it is reachable only by callers holding
-# roles/run.invoker — currently just ${DAGSTER_SA}. Its database stays private-IP
-# only. See deploy/README.md for why isolation is IAM-layer and not network-layer.
+# Security model: FROST runs on Cloud Run with ingress=all and its own BasicAuth
+# enabled with anonymous reads. Reads are open; every create/update/delete needs
+# the ${FROST_WRITER_USER} login, which only ${DAGSTER_SA} can read from Secret
+# Manager. FROST_PUBLIC (below) controls whether Cloud Run's IAM gate sits in front
+# of that as well. The database stays private-IP only. See deploy/README.md.
 
 # --- Project / region -------------------------------------------------------
 export PROJECT_ID="waterdatainitiative-271000"
@@ -58,9 +60,12 @@ export SECRET_BERNCO_HYDROVU="hydrovu_bernco"
 export SECRET_CKAN_CF_BYPASS="ckan_cf_bypass"
 # Bare OneRain system_key for EBID's Contrail API
 export SECRET_EBID_ONERAIN="ebid_onerain"
+# FROST BasicAuth login the loader writes with, as JSON {"username": ..., "password": ...}
+export SECRET_FROST_WRITER="frost_writer"
+export FROST_WRITER_USER="aqueduct_writer"
 # Every secret the Dagster service account must be able to read. 30_dagster_gcp_auth.sh
 # grants secretAccessor on each.
-SECRETS_DAGSTER=("${SECRET_PVACD_HYDROVU}" "${SECRET_BERNCO_HYDROVU}" "${SECRET_CKAN_CF_BYPASS}" "${SECRET_EBID_ONERAIN}")
+SECRETS_DAGSTER=("${SECRET_PVACD_HYDROVU}" "${SECRET_BERNCO_HYDROVU}" "${SECRET_CKAN_CF_BYPASS}" "${SECRET_EBID_ONERAIN}" "${SECRET_FROST_WRITER}")
 
 # --- GCS buckets ------------------------------------------------------------
 # Where Dagster+ writes raw parquet. BUCKET_PROD is the deployment target;
@@ -78,6 +83,9 @@ export DAGSTER_SA="${DAGSTER_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 export FROST_SERVICE="frost-sensorthings"
 # Pinned to match the tested docker-compose.yml.
 export FROST_IMAGE="docker.io/fraunhoferiosb/frost-server:2.6"
+# false: Use this while the writer user is being set up (--no-allow-unauthenticated)
+# true: anyone can reach FROST (--allow-unauthenticated), BasicAuth guards writes
+export FROST_PUBLIC="${FROST_PUBLIC:-false}"
 
 # --- Preflight helpers --------------------------------------------------------
 # require_apis <api>... — fail fast with a clear message if a required Google

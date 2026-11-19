@@ -45,6 +45,25 @@ def _clean_env(monkeypatch):
     monkeypatch.delenv(ENV_FROST_URL, raising=False)
 
 
+#: Stand-in for the Secret Manager payload of [destination.frost] gcp_secret.
+_WRITER_SECRET = '{"username": "aqueduct_writer", "password": "s3cret"}'
+
+
+@pytest.fixture(autouse=True)
+def _offline_secret(monkeypatch):
+    """The committed config names a real FROST writer secret, so any remote-URL
+    test that doesn't stub load_config would otherwise call Secret Manager.
+    Stub the fetch for every test so none can leave the process."""
+    fetched: list[str] = []
+
+    def _fake_fetch_secret(secret_id: str) -> str:
+        fetched.append(secret_id)
+        return _WRITER_SECRET
+
+    monkeypatch.setattr(frost_auth, "fetch_secret", _fake_fetch_secret)
+    return fetched
+
+
 # --- URL resolution -------------------------------------------------------
 
 
@@ -163,6 +182,33 @@ def test_remote_url_attaches_handler_with_basic_auth_no_secret(monkeypatch):
     assert attach_id_token_auth(service, f"{REMOTE}/v1.1") is True
     assert isinstance(service.auth_handler, IdTokenAuthHandler)
     assert captured["audience"] == "https://frost-sensorthings-abc123-uw.a.run.app"
+
+
+def test_committed_config_names_writer_secret(monkeypatch, _offline_secret):
+    """The committed .dlt/config.toml must point a remote FROST at the writer
+    login — without gcp_secret the loader sends no Basic header and every write
+    is rejected by FROST's BasicAuth."""
+    monkeypatch.setattr(frost_auth, "ensure_adc", lambda: None)
+    monkeypatch.setattr(
+        frost_auth, "fetch_id_token_credentials", lambda audience: _StubCredentials()
+    )
+
+    service = fsc.SensorThingsService(f"{REMOTE}/v1.1")
+    attach_id_token_auth(service, f"{REMOTE}/v1.1")
+
+    assert _offline_secret == ["frost_writer"]
+    auth = service.auth_handler.add_auth_header()
+    assert (auth._username, auth._password) == ("aqueduct_writer", "s3cret")
+
+
+def test_local_url_never_fetches_writer_secret(_offline_secret):
+    """docker compose FROST has no BasicAuth; local runs must not need GCP at all."""
+    attach_id_token_auth(fsc.SensorThingsService(f"{LOCAL}/v1.1"), f"{LOCAL}/v1.1")
+    assert _offline_secret == []
+
+
+def test_resolve_frost_auth_parses_json_payload():
+    assert frost_auth.resolve_frost_auth("frost_writer") == ("aqueduct_writer", "s3cret")
 
 
 def test_remote_url_calls_ensure_adc(monkeypatch):

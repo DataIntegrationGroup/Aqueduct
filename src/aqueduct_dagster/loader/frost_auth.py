@@ -9,12 +9,11 @@ FROST has no auth. Both go through this loader, so the auth decision derives
 from the resolved host, not a separate mode flag that could drift from the URL:
 **localhost gets no auth, anything else gets a token.**
 
-Credentials come from ADC (bootstrapped by shared/gcp_auth.py from
-GCP_SERVICE_ACCOUNT_KEY_B64) — no new secret, just a `roles/run.invoker`
-binding added to the same service account that already reaches GCS and
-Secret Manager.
+The ID token comes from ADC (bootstrapped by shared/gcp_auth.py from
+GCP_SERVICE_ACCOUNT_KEY_B64), via a `roles/run.invoker` binding on the same
+service account that already reaches GCS and Secret Manager.
 
-In addition to authentication against Cloud Run, the FRSOT service implements
+In addition to authentication against Cloud Run, the FROST service implements
 Basic Auth to ensure that writes are only performed with clients that
 authenticate with a user profile that has write permissions. This requires an
 "Authorization: Basic <auth_string>" header; local 'docker compose' FROST does
@@ -120,10 +119,6 @@ class _IdTokenBearerAuth(requests.auth.AuthBase):
             r.headers["Authorization"] = (
                 f"Basic {base64.b64encode(f'{self._username}:{self._password}'.encode()).decode()}"
             )
-        else:
-            logger.warning(
-                "No basic auth username and/or password set, will attempt to proceed without basic auth"
-            )
         return r
 
 
@@ -181,9 +176,16 @@ def attach_id_token_auth(service: object, url: str) -> bool:
             username, password = None, None
     except Exception as exc:
         raise FrostAuthError(
-            "Failed to fetch FROST basic auth credentials from secret. Make sure to set `destination.frost.gcp_secret`"
-            "in config.toml to a valid secret in Secret Manager"
+            "Failed to fetch FROST basic auth credentials from secret. Make sure to set "
+            "`destination.frost.gcp_secret` in config.toml to a valid secret in Secret Manager"
         ) from exc
+    if username is None:
+        # Logged once per attach rather than on every request: a backfill would
+        # otherwise emit one warning per POST.
+        logger.warning(
+            "No FROST basic auth credentials configured ([destination.frost] gcp_secret): "
+            "reads will work, but writes will be rejected if FROST has BasicAuth enabled."
+        )
 
     service.auth_handler = IdTokenAuthHandler(credentials, username, password, GoogleAuthRequest())  # type: ignore[attr-defined]
     logger.info("FROST at %s is remote — ID token auth attached (aud=%s).", url, audience)
