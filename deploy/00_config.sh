@@ -56,9 +56,11 @@ export SECRET_PVACD_HYDROVU="hydrovu_pvacd"
 export SECRET_BERNCO_HYDROVU="hydrovu_bernco"
 # Cloudflare bypass header value for the NM Water Data Catalog (CKAN)
 export SECRET_CKAN_CF_BYPASS="ckan_cf_bypass"
+# Bare OneRain system_key for EBID's Contrail API
+export SECRET_EBID_ONERAIN="ebid_onerain"
 # Every secret the Dagster service account must be able to read. 30_dagster_gcp_auth.sh
 # grants secretAccessor on each.
-SECRETS_DAGSTER=("${SECRET_PVACD_HYDROVU}" "${SECRET_BERNCO_HYDROVU}" "${SECRET_CKAN_CF_BYPASS}")
+SECRETS_DAGSTER=("${SECRET_PVACD_HYDROVU}" "${SECRET_BERNCO_HYDROVU}" "${SECRET_CKAN_CF_BYPASS}" "${SECRET_EBID_ONERAIN}")
 
 # --- GCS buckets ------------------------------------------------------------
 # Where Dagster+ writes raw parquet. BUCKET_PROD is the deployment target;

@@ -26,4 +26,5 @@ SOURCE_REGISTRY: list[SourceConfig] = [
     {"name": "bernco_manual", "dataset": "raw_bernco_manual", "cron": "0 9 * * 2"},
     # Weekly: EBWPC publishes semi-annually, so most runs are a package_show no-op.
     {"name": "ebwpc_ckan", "dataset": "raw_ebwpc_ckan", "cron": "0 10 * * 1"},
+    {"name": "ebid", "dataset": "raw_ebid", "cron": "0 11 * * *"},
 ]
