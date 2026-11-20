@@ -115,7 +115,7 @@ ENV_VARS="${ENV_VARS}@plugins_multiDatastream_enable=false"
 ENV_VARS="${ENV_VARS}@plugins_actuation_enable=false"
 ENV_VARS="${ENV_VARS}@http_cors_enable=true"
 ENV_VARS="${ENV_VARS}@http_cors_allowed_origins=*"
-# BasicAuth with anonymous reads. autoUpdateDatabase creates the USERS / ROLES /
+# BasicAuth with anonymous reads. autoUpdateDatabase creates the USERS /
 # USER_ROLES tables (and the default admin/write/read users) on the first
 # authentication attempt, not at boot.
 # plainTextPassword=false: USERS holds bcrypt hashes, checked with pgcrypto's
