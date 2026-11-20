@@ -101,7 +101,8 @@ def check_gcs() -> str:
 
 def check_secret_manager() -> str:
     """
-    Access every registered source's API secret. Driven off SOURCE_REGISTRY
+    Access every registered source's API secret (driven off SOURCE_REGISTRY), plus
+    the FROST writer login named by [destination.frost] gcp_secret.
 
     Sources with no gcp_secret (they authenticate anonymously, like CABQ) are skipped.
     """
@@ -114,6 +115,8 @@ def check_secret_manager() -> str:
         for cfg in SOURCE_REGISTRY
         if (secret_id := config["sources"].get(cfg["name"], {}).get("gcp_secret"))
     ]
+    if frost_secret := config["destination"]["frost"].get("gcp_secret"):
+        secret_ids.append(frost_secret)
     if not secret_ids:
         raise RuntimeError("no source in SOURCE_REGISTRY declares a gcp_secret")
 
@@ -177,7 +180,9 @@ def main() -> int:
         return 1
 
     check.run("2. GCS  — write / read / delete a probe object", check_gcs)
-    check.run("3. Secret Manager — access every source's secret", check_secret_manager)
+    check.run(
+        "3. Secret Manager — every source's secret + the FROST writer login", check_secret_manager
+    )
     check.run("4. FROST — ID token against Cloud Run", check_frost)
 
     print()

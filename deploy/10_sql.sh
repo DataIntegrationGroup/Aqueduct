@@ -93,10 +93,12 @@ Cloud SQL ready.
 
 NEXT — enable PostGIS BEFORE the first FROST boot. FROST stores Location geometry
 and its schema creation fails without it. The instance has no public IP, so
-connect from inside ${VPC_NAME} (a VM running cloud-sql-proxy, or a bastion) and
-run against database "${SQL_DB}":
+use Cloud SQL Studio in the console, or psql from a VM inside ${VPC_NAME} (it can
+reach the private IP directly without a proxy), and run against database
+"${SQL_DB}":
 
     CREATE EXTENSION IF NOT EXISTS postgis;
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 If necessary, also enable uuid-ossp. See: https://fraunhoferiosb.github.io/FROST-Server/deployment/postgresql.html
 
