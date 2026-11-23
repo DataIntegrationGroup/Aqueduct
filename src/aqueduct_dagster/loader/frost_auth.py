@@ -7,7 +7,7 @@ Why: production FROST runs on Cloud Run behind IAM, requiring a
 `X-Serverless-Authorization: Bearer <id_token>` header; local `docker compose`
 FROST has no auth. Both go through this loader, so the auth decision derives
 from the resolved host, not a separate mode flag that could drift from the URL:
-**localhost gets no auth, anything else gets a token.**
+**localhost gets no auth, anything else gets a token and must perform basic auth.**
 
 The ID token comes from ADC (bootstrapped by shared/gcp_auth.py from
 GCP_SERVICE_ACCOUNT_KEY_B64), via a `roles/run.invoker` binding on the same

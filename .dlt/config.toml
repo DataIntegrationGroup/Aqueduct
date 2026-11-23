@@ -108,7 +108,7 @@ layout     = "{table_name}/year={YYYY}/month={MM}/day={DD}/{load_id}.{file_id}.{
 [destination.frost]
 # Default is the local `docker compose` FROST. Override with the
 # FROST_SERVICE_ROOT_URL env var to point at a deployed server — see .env.example.
-# A localhost URL is called unauthenticated; any other host gets a Google ID token.
+# A localhost URL is called unauthenticated; any other host gets a Google ID token and must perform Basic Auth.
 service_root_url = "http://localhost:8081/FROST-Server"
 # Secret Manager secret holding the FROST BasicAuth writer login, as JSON {"username": ..., "password": ...}.
 gcp_secret = "frost_writer"

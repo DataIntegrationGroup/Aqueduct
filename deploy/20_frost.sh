@@ -184,8 +184,11 @@ Verify from anywhere, with no credentials at all:
   curl -si ${THINGS} | head -1
   # Expect 401 — anonymous write:
   curl -si -X POST -H 'Content-Type: application/json' -d '{}' ${THINGS} | head -1
-  # Expect 401 — FROST's default admin login must be gone:
+  # Expect 401 — FROST's default users must be gone:
   curl -si -u admin:admin -X POST -H 'Content-Type: application/json' -d '{}' ${THINGS} | head -1
+  curl -si -u read:read -X POST -H 'Content-Type: application/json' -d '{}' ${THINGS} | head -1
+  curl -si -u write:write -X POST -H 'Content-Type: application/json' -d '{}' ${THINGS} | head -1
+
 EOF
 else
   cat <<EOF
