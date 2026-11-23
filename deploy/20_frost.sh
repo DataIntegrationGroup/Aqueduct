@@ -35,6 +35,34 @@ case "${FROST_PUBLIC}" in
   *) echo "ERROR: FROST_PUBLIC must be 'true' or 'false', got '${FROST_PUBLIC}'." >&2; exit 2 ;;
 esac
 
+# If FROST_PUBLIC is true, then default users must not exist in an existing deployment.
+# Check that each default user returns a 401 when attempting to authenticate against the deployment,
+# if does not return a 401 then default user still exists, throw an error and exit.
+# Reference "FROST Users" section of deploy/README.md
+if [[ "${FROST_PUBLIC}" == "true" ]]; then
+  FROST_URL="$(gcloud run services describe "${FROST_SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" \
+     --format='value(status.url)')"
+  THINGS="${FROST_URL}/FROST-Server/v1.1/Things"
+  admin_status_code=$(curl -w "%{http_code}" -si -u admin:admin -X POST -H 'Content-Type: application/json' -d '{}' \
+    ${THINGS} | head -1)
+  if [[ "$admin_status_code" -ne 401 ]]; then
+    echo "ERROR: FROST_PUBLIC is true but default admin user exists in FROST Server, make sure to delete default users"
+    exit 1
+  fi
+  read_status_code=$(curl -w "%{http_code}" -si -u read:read -X POST -H 'Content-Type: application/json' -d '{}' \
+    ${THINGS} | head -1)
+  if [[ "$read_status_code" -ne 401 ]]; then
+    echo "ERROR: FROST_PUBLIC is true but default read user exists in FROST Server, make sure to delete default users"
+    exit 1
+  fi
+  write_status_code=$(curl -w "%{http_code}" -si -u write:write -X POST -H 'Content-Type: application/json' -d '{}' \
+    ${THINGS} | head -1)
+  if [[ "$write_status_code" -ne 401 ]]; then
+    echo "ERROR: FROST_PUBLIC is true but default write user exists in FROST Server, make sure to delete default users"
+    exit 1
+  fi
+fi
+
 # The instance was created --no-assign-ip, so its only address should be the
 # private one — but assert the type rather than trust the ordering, so a
 # later-added public IP can't get wired into the JDBC URL silently.
