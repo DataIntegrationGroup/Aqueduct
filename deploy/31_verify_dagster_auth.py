@@ -128,6 +128,11 @@ def check_secret_manager() -> str:
             payload = client.access_secret_version(name=name).payload.data
             if not payload:
                 raise RuntimeError("resolved but is empty")
+            if secret_id == frost_secret:
+                if payload["username"] is None or payload["username"] == "":
+                    raise RuntimeError(f"{frost_secret} username field not found or is empty")
+                if payload["password"] is None or payload["username"] == "":
+                    raise RuntimeError(f"{frost_secret} password field not found or is empty")
             # Never print the value — only that it exists and is plausibly shaped.
             print(f"   secret '{secret_id}' accessible ({len(payload)} bytes)")
         except Exception as exc:
