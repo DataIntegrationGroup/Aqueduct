@@ -119,8 +119,9 @@ for bucket in "${BUCKET_PROD}" "${BUCKET_POC}"; do
   done
 done
 
-# The HydroVu OAuth credentials are themselves fetched through ADC at ingest time,
-# so bucket access alone is not enough to run the pipeline.
+# The source API credentials are themselves fetched through ADC at ingest time, and
+# the FROST writer login (${SECRET_FROST_WRITER}) at load time, so bucket access alone
+# is not enough to run the pipeline.
 for secret in "${SECRETS_DAGSTER[@]}"; do
   echo "== Grant secretAccessor on ${secret} =="
   if ! gcloud secrets describe "${secret}" --project="${PROJECT_ID}" \
@@ -136,10 +137,12 @@ for secret in "${SECRETS_DAGSTER[@]}"; do
 done
 
 # --- FROST invoker ----------------------------------------------------------
-# FROST runs --no-allow-unauthenticated (see 20_frost.sh), so the loader reaches it
-# with a Google-signed ID token minted from this same service account. run.invoker is
-# what makes Cloud Run accept that token. Skipped with a WARN rather than failing, so
-# this script stays runnable before 20_frost.sh has ever been applied.
+# While FROST_PUBLIC=false, FROST runs --no-allow-unauthenticated (see 20_frost.sh),
+# so the loader reaches it with a Google-signed ID token minted from this same service
+# account. run.invoker is what makes Cloud Run accept that token. Once FROST is public
+# the binding is redundant but harmless. It's kept so flipping back to private never
+# strands the pipeline. Skipped with a WARN rather than failing, so this script stays
+# runnable before 20_frost.sh has ever been applied.
 echo "== Grant run.invoker on ${FROST_SERVICE} =="
 if gcloud run services describe "${FROST_SERVICE}" --project="${PROJECT_ID}" \
     --region="${REGION}" --format='value(status.url)' >/dev/null 2>&1; then

@@ -25,6 +25,7 @@ Exits 0 if every layer passes, 1 otherwise.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import traceback
@@ -101,7 +102,8 @@ def check_gcs() -> str:
 
 def check_secret_manager() -> str:
     """
-    Access every registered source's API secret. Driven off SOURCE_REGISTRY
+    Access every registered source's API secret (driven off SOURCE_REGISTRY), plus
+    the FROST writer login named by [destination.frost] gcp_secret.
 
     Sources with no gcp_secret (they authenticate anonymously, like CABQ) are skipped.
     """
@@ -114,6 +116,8 @@ def check_secret_manager() -> str:
         for cfg in SOURCE_REGISTRY
         if (secret_id := config["sources"].get(cfg["name"], {}).get("gcp_secret"))
     ]
+    if frost_secret := config["destination"]["frost"].get("gcp_secret"):
+        secret_ids.append(frost_secret)
     if not secret_ids:
         raise RuntimeError("no source in SOURCE_REGISTRY declares a gcp_secret")
 
@@ -125,6 +129,12 @@ def check_secret_manager() -> str:
             payload = client.access_secret_version(name=name).payload.data
             if not payload:
                 raise RuntimeError("resolved but is empty")
+            if secret_id == frost_secret:
+                decoded_payload = json.loads(payload)
+                if decoded_payload["username"] is None or decoded_payload["username"] == "":
+                    raise RuntimeError(f"{frost_secret} username field not found or is empty")
+                if decoded_payload["password"] is None or decoded_payload["password"] == "":
+                    raise RuntimeError(f"{frost_secret} password field not found or is empty")
             # Never print the value — only that it exists and is plausibly shaped.
             print(f"   secret '{secret_id}' accessible ({len(payload)} bytes)")
         except Exception as exc:
@@ -177,7 +187,9 @@ def main() -> int:
         return 1
 
     check.run("2. GCS  — write / read / delete a probe object", check_gcs)
-    check.run("3. Secret Manager — access every source's secret", check_secret_manager)
+    check.run(
+        "3. Secret Manager — every source's secret + the FROST writer login", check_secret_manager
+    )
     check.run("4. FROST — ID token against Cloud Run", check_frost)
 
     print()

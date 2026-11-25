@@ -7,14 +7,13 @@ Why: production FROST runs on Cloud Run behind IAM, requiring a
 `X-Serverless-Authorization: Bearer <id_token>` header; local `docker compose`
 FROST has no auth. Both go through this loader, so the auth decision derives
 from the resolved host, not a separate mode flag that could drift from the URL:
-**localhost gets no auth, anything else gets a token.**
+**localhost gets no auth, anything else gets a token and must perform basic auth.**
 
-Credentials come from ADC (bootstrapped by shared/gcp_auth.py from
-GCP_SERVICE_ACCOUNT_KEY_B64) — no new secret, just a `roles/run.invoker`
-binding added to the same service account that already reaches GCS and
-Secret Manager.
+The ID token comes from ADC (bootstrapped by shared/gcp_auth.py from
+GCP_SERVICE_ACCOUNT_KEY_B64), via a `roles/run.invoker` binding on the same
+service account that already reaches GCS and Secret Manager.
 
-In addition to authentication against Cloud Run, the FRSOT service implements
+In addition to authentication against Cloud Run, the FROST service implements
 Basic Auth to ensure that writes are only performed with clients that
 authenticate with a user profile that has write permissions. This requires an
 "Authorization: Basic <auth_string>" header; local 'docker compose' FROST does
@@ -120,17 +119,12 @@ class _IdTokenBearerAuth(requests.auth.AuthBase):
             r.headers["Authorization"] = (
                 f"Basic {base64.b64encode(f'{self._username}:{self._password}'.encode()).decode()}"
             )
-        else:
-            logger.warning(
-                "No basic auth username and/or password set, will attempt to proceed without basic auth"
-            )
         return r
 
 
 class IdTokenAuthHandler(AuthHandler):
-    """AuthHandler subclass supplying ID-token auth instead of BasicAuth.
-    Subclassing is required (auth_handler's setter does an isinstance check),
-    not stylistic — the inherited username/password fields go unused."""
+    """AuthHandler subclass supplying ID-token auth and BasicAuth if supplied via secret.
+    Subclassing is required (auth_handler's setter does an isinstance check), not stylistic"""
 
     def __init__(
         self,
@@ -151,6 +145,10 @@ def resolve_frost_auth(gcp_secret: str) -> tuple[str, str]:
     Fetches secret from secret manager to get credentials to authenticate against FROST service Basic Auth
     """
     payload = json.loads(fetch_secret(gcp_secret))
+    if payload["username"] is None or payload["username"] == "":
+        raise Exception(f"Error reading secret {gcp_secret}: username field not found or is empty")
+    if payload["password"] is None or payload["password"] == "":
+        raise Exception(f"Error reading secret {gcp_secret}: password field not found or is empty")
     return payload["username"], payload["password"]
 
 
@@ -175,15 +173,29 @@ def attach_id_token_auth(service: object, url: str) -> bool:
         ) from exc
     try:
         gcp_secret = load_config()["destination"]["frost"].get("gcp_secret") or None
+    except Exception as exc:
+        raise FrostAuthError(
+            "Failed to load config for FROST basic auth secret. Make sure to set `destination.frost.gcp_secret` in "
+            "config.toml to a valid secret in Secret Manager."
+        ) from exc
+    try:
         if gcp_secret is not None and isinstance(gcp_secret, str) and gcp_secret != "":
             username, password = resolve_frost_auth(gcp_secret)
         else:
             username, password = None, None
     except Exception as exc:
         raise FrostAuthError(
-            "Failed to fetch FROST basic auth credentials from secret. Make sure to set `destination.frost.gcp_secret`"
-            "in config.toml to a valid secret in Secret Manager"
+            f"Failed to fetch FROST basic auth credentials from secret {gcp_secret}. Make sure provided secret "
+            f"exists, is well formed JSON, and contains username and password fields."
+            f"\nCause: {exc.__cause__}"
         ) from exc
+    if username is None:
+        # Logged once per attach rather than on every request: a backfill would
+        # otherwise emit one warning per POST.
+        logger.warning(
+            "No FROST basic auth credentials configured ([destination.frost] gcp_secret): "
+            "reads will work, but writes will be rejected if FROST has BasicAuth enabled."
+        )
 
     service.auth_handler = IdTokenAuthHandler(credentials, username, password, GoogleAuthRequest())  # type: ignore[attr-defined]
     logger.info("FROST at %s is remote — ID token auth attached (aud=%s).", url, audience)
