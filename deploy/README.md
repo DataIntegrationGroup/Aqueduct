@@ -137,12 +137,15 @@ curl -si "${GATE[@]}" -u probe:probe -X POST -H 'Content-Type: application/json'
 ```
 
 **2. Hash the writer password locally**, so the plaintext never leaves your machine
-(Apache's `$2y$` bcrypt is pgcrypto's `$2a$`):
+(Apache's `$2y$` bcrypt is pgcrypto's `$2a$`). Cost 4 is deliberate: Postgres runs
+`crypt()` for every request that logs in as `aqueduct_writer`, so a high cost hands
+anyone a cheap way to max out the database's CPU. The password is 192 random bits,
+so a low cost doesn't make it any easier to crack:
 
 ```bash
 gcloud secrets versions access latest --secret=frost_writer --project=waterdatainitiative-271000 \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"], end="")' \
-  | htpasswd -niBC 12 aqueduct_writer | cut -d: -f2 | sed 's/^\$2y\$/$2a$/'
+  | htpasswd -niBC 4 aqueduct_writer | cut -d: -f2 | sed 's/^\$2y\$/$2a$/'
 ```
 
 **3. Run the SQL** in `sensorthings`:
@@ -150,7 +153,7 @@ gcloud secrets versions access latest --secret=frost_writer --project=waterdatai
 ```sql
 BEGIN;
 INSERT INTO "USERS" ("USER_NAME", "USER_PASS")
-  VALUES ('aqueduct_writer', '<the $2a$12$... hash from step 2>');
+  VALUES ('aqueduct_writer', '<the $2a$04$... hash from step 2>');
 INSERT INTO "USER_ROLES" ("USER_NAME", "ROLE_NAME") VALUES
   ('aqueduct_writer', 'read'), ('aqueduct_writer', 'create'),
   ('aqueduct_writer', 'update'), ('aqueduct_writer', 'delete');
