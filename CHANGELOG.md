@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.5.0...Aqueduct-v0.6.0) (2026-11-25)
+
+
+### Features
+
+* **deploy:** open the new FROST server to public requests for DIE integration testing ([#79](https://github.com/DataIntegrationGroup/Aqueduct/issues/79)) ([83a4298](https://github.com/DataIntegrationGroup/Aqueduct/commit/83a429826947199f21c20f4435da3846a8327b92))
+
 ## [0.5.0](https://github.com/DataIntegrationGroup/Aqueduct/compare/Aqueduct-v0.4.0...Aqueduct-v0.5.0) (2026-11-18)
 
 
