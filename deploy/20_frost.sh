@@ -30,8 +30,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/00_config.sh"
 require_apis run.googleapis.com secretmanager.googleapis.com
 
 case "${FROST_PUBLIC}" in
-  true)  INVOKER_FLAG="--allow-unauthenticated" ;;
-  false) INVOKER_FLAG="--no-allow-unauthenticated" ;;
+  true)
+    INVOKER_FLAG="--allow-unauthenticated"
+    IAM_FLAG="--no-invoker-iam-check"
+    ;;
+  false)
+    INVOKER_FLAG="--no-allow-unauthenticated"
+    IAM_FLAG="--invoker-iam-check"
+    ;;
   *) echo "ERROR: FROST_PUBLIC must be 'true' or 'false', got '${FROST_PUBLIC}'." >&2; exit 2 ;;
 esac
 
@@ -180,7 +186,7 @@ echo "   FROST_PUBLIC=${FROST_PUBLIC} → ${INVOKER_FLAG}"
 gcloud run deploy "${FROST_SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" \
   --image="${FROST_IMAGE}" --port=8080 \
-  --ingress=all "${INVOKER_FLAG}" \
+  --ingress=all "${INVOKER_FLAG}" "${IAM_FLAG}" \
   --network="${VPC_NAME}" --subnet="${SUBNET}" --vpc-egress=private-ranges-only \
   --min-instances=1 --max-instances=1 --memory=1Gi --cpu=1 --timeout=300 \
   --no-cpu-throttling \
