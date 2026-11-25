@@ -25,6 +25,7 @@ Exits 0 if every layer passes, 1 otherwise.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import traceback
@@ -129,9 +130,10 @@ def check_secret_manager() -> str:
             if not payload:
                 raise RuntimeError("resolved but is empty")
             if secret_id == frost_secret:
-                if payload["username"] is None or payload["username"] == "":
+                decoded_payload = json.loads(payload)
+                if decoded_payload["username"] is None or decoded_payload["username"] == "":
                     raise RuntimeError(f"{frost_secret} username field not found or is empty")
-                if payload["password"] is None or payload["username"] == "":
+                if decoded_payload["password"] is None or decoded_payload["password"] == "":
                     raise RuntimeError(f"{frost_secret} password field not found or is empty")
             # Never print the value — only that it exists and is plausibly shaped.
             print(f"   secret '{secret_id}' accessible ({len(payload)} bytes)")

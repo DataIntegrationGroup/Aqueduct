@@ -147,7 +147,7 @@ def resolve_frost_auth(gcp_secret: str) -> tuple[str, str]:
     payload = json.loads(fetch_secret(gcp_secret))
     if payload["username"] is None or payload["username"] == "":
         raise Exception(f"Error reading secret {gcp_secret}: username field not found or is empty")
-    if payload["password"] is None or payload["username"] == "":
+    if payload["password"] is None or payload["password"] == "":
         raise Exception(f"Error reading secret {gcp_secret}: password field not found or is empty")
     return payload["username"], payload["password"]
 
